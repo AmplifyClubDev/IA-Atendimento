@@ -6,6 +6,7 @@ import json
 import hashlib
 import re
 from copy import deepcopy
+from datetime import datetime
 from uuid import UUID
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
@@ -18,11 +19,40 @@ _PROGRESS_PHASES = {
     "intro": "conhecer", "origin": "qualificação", "tiktok": "qualificação",
     "shop": "qualificação", "agency": "qualificação", "consent": "validação",
     "await_acceptance": "convite", "form": "cadastro",
-    "checking": "validação", "checking_acceptance": "validação", "blocked": "validação",
-    "consent_real": "convite", "inviting": "convite",
+    "checking": "validação", "checking_acceptance": "convite", "blocked": "validação",
+    "consent_real": "convite", "inviting": "convite", "acesso": "cadastro",
 }
 _PROGRESS_OWNED = frozenset(_PROGRESS_PHASES.values())
 _PROGRESS_WITH_CLOSED = _PROGRESS_OWNED | {'encerrado'}
+# Release 48: "encerrado" fica junto da etiqueta da etapa, para mostrar onde o lead parou.
+_INACTIVITY_REASONS = frozenset({'inactivity_timeout', 'inactivity_user_close'})
+
+
+def _linked(state):
+    """O vínculo já foi comprovado (lista de vínculos, aviso do vínculo, ficha ou acesso)."""
+    cycle = state.get('cycle') or {}
+    operations = cycle.get('real_operations') if isinstance(cycle.get('real_operations'), dict) else {}
+    return bool(any(isinstance(operations.get(name), dict) and operations[name].get('status') == 'linked'
+                    and operations[name].get('confirmed') is True for name in ('relationship', 'invite'))
+                or cycle.get('linked_notice') or cycle.get('form_receipt') or cycle.get('acesso_liberado')
+                or state.get('cadastro_situacao') == 'confirmado')
+
+
+def _stage_label(state):
+    """Release 48: a fase "form" começa logo depois do convite; sem vínculo comprovado, o lead ainda está no convite."""
+    phase = (state.get('cycle') or {}).get('phase')
+    label = _PROGRESS_PHASES[phase]
+    return 'convite' if label == 'cadastro' and not _linked(state) else label
+
+
+def _window_closed(cycle, now):
+    """A janela de 24 h do atendimento aberto já passou (o lead parou de responder)."""
+    try:
+        expires = datetime.fromisoformat(str(cycle.get('expires_at')).replace('Z', '+00:00'))
+        at = datetime.fromisoformat(str(now).replace('Z', '+00:00'))
+        return expires.tzinfo is not None and at.tzinfo is not None and at >= expires
+    except (TypeError, ValueError):
+        return False
 
 
 def _progress_owned(gate):
@@ -94,10 +124,19 @@ class ChatwootProgress:
         revision = state.get("revision")
         if (type(revision) is not int or revision < 1 or not isinstance(cycle.get("id"), str)
                 or str(UUID(cycle["id"])) != cycle["id"] or cycle.get("phase") not in _PROGRESS_PHASES
-                or receipt.get("creator_id") != state.get("creator_id")):
+                or proof.get("kind") != "parado" and receipt.get("creator_id") != state.get("creator_id")):
             return {"status": "ignored", "reason": "sql_proof_required"}
         form = proof.get("kind") == "registration"
-        if form:
+        stopped = proof.get("kind") == "parado"
+        if stopped:
+            # Sem mensagem nova: só conversas que já tiveram uma etapa confirmada (e projetada) antes.
+            confirmed_labels = (state.get("chatwoot_progress") or {}).get("confirmed_labels") or []
+            prior = state.get("processed_inbound") or []
+            event_key = prior[-1] if prior else None
+            valid = ('encerrado' in _progress_owned(self.gate) and cycle.get("status") == "open"
+                     and _window_closed(cycle, proof.get("now"))
+                     and bool(set(confirmed_labels) & _PROGRESS_OWNED))
+        elif form:
             form_receipt = cycle.get("form_receipt") or {}
             valid = (receipt.get("status") in {"cadastro_recebido_ensaio", "cadastro_recebido_real"}
                      and cycle.get("status") == "closed" and cycle.get("reason") == "validated_form"
@@ -121,9 +160,10 @@ class ChatwootProgress:
             return {"status": "ignored", "reason": "stale_snapshot"}
         if cycle.get("status") not in {"open", "closed", "expired"}:
             return {"status": "ignored", "reason": "unmapped_state"}
-        desired = ['encerrado'] if (self.gate.get('inactivity_close_enabled') is True
-                                   and cycle.get('status') == 'closed'
-                                   and cycle.get('reason') in {'inactivity_timeout', 'inactivity_user_close'}) else [_PROGRESS_PHASES[cycle['phase']]]
+        closed = 'encerrado' in _progress_owned(self.gate) and (
+            stopped or cycle.get('status') == 'expired'
+            or cycle.get('status') == 'closed' and cycle.get('reason') in _INACTIVITY_REASONS)
+        desired = sorted({_stage_label(state)} | ({'encerrado'} if closed else set()))
         signature = hashlib.sha256(json.dumps(desired, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         cache = deepcopy(state.get("chatwoot_progress") or {})
         pending = cache.get("pending")
@@ -271,9 +311,9 @@ class ChatwootTransport:
         if not self._progress_allowed(event):
             return {"status": "failed", "reason": "outside_stage_pilot"}
         owned = _progress_owned(self.gate)
-        stages = set(owned)
+        # Exatamente uma etiqueta de etapa; "encerrado" só vem junto dela (release 48).
         if (not isinstance(labels, list) or any(not isinstance(x, str) for x in labels)
-                or set(labels) - owned or len(set(labels) & stages) != 1
+                or set(labels) - owned or len(set(labels) & _PROGRESS_OWNED) != 1
                 or not isinstance(operation_key, str) or not re.fullmatch(r"[A-Za-z0-9:_-]{1,255}", operation_key)):
             return {"status": "failed", "reason": "invalid_stage_delta"}
         try:

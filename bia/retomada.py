@@ -192,8 +192,11 @@ def step_key(cycle_id, source_key, step):
 
 
 class Retomada:
-    def __init__(self, repository, settings, transport, lock_for, guard, *, now=None, policy=None, registration=None):
+    def __init__(self, repository, settings, transport, lock_for, guard, *, now=None, policy=None, registration=None,
+                 on_stopped=None):
         self.repository, self.settings, self.transport = repository, settings, transport
+        # Release 48: quem passou da janela de 24 h ganha "encerrado" junto da etiqueta da etapa onde parou.
+        self.on_stopped = on_stopped
         self.lock_for, self.guard = lock_for, guard
         # Release 41: lê a ficha antes de cada lembrete (Cristiane, 56935: "convite continua" depois do acesso).
         self.registration = registration
@@ -252,6 +255,8 @@ class Retomada:
             if cycle.get('status') != 'open':
                 return idle('atendimento_fechado')
             if not expires or now >= expires:
+                if expires and callable(self.on_stopped) and not state.get('human_control'):
+                    self.on_stopped(event, state, now)
                 return idle('fora_da_janela_24h')
             if cycle.get('phase') not in WAITING:
                 return idle('fase_sem_lembrete')

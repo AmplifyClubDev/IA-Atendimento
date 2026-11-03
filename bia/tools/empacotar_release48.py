@@ -1,4 +1,4 @@
-"""Monta e confere o pacote selado da release 47 a partir de ./src (sem rede, sem variáveis).
+"""Monta e confere o pacote selado da release 48 (etiquetas) a partir de ./src (sem rede, sem variáveis).
 
 Uso: python -I empacotar_release47.py
 Saída: sealed47/ com o zip, o carregador, o manifesto e as partes base64 prontas
@@ -16,16 +16,16 @@ import zipfile
 
 HERE = Path(__file__).resolve().parent
 SRC = HERE / 'src'
-OUT = HERE / 'sealed47'
-BASE_LAUNCHER = HERE.parent / 'claude-bia-release46-20261102' / 'sealed46' / 'atendimento-v5-release-20261102-46-launcher.py'
-RELEASE = 'atendimento-v5-release-20261103-47'
-BASE_RELEASE = 'atendimento-v5-release-20261102-46'
+OUT = HERE / 'sealed48'
+BASE_LAUNCHER = HERE.parent / 'claude-bia-release47-20261103' / 'sealed47' / 'atendimento-v5-release-20261103-47-launcher.py'
+RELEASE = 'atendimento-v5-release-20261103-48'
+BASE_RELEASE = 'atendimento-v5-release-20261103-47'
 PART_LIMIT = 26000
-STAMP = (2026, 11, 2, 0, 0, 0)
+STAMP = (2026, 11, 3, 0, 0, 0)
 
 
 def sources():
-    base = importlib.util.spec_from_file_location('launcher46', BASE_LAUNCHER)
+    base = importlib.util.spec_from_file_location('launcher47', BASE_LAUNCHER)
     module = importlib.util.module_from_spec(base)
     base.loader.exec_module(module)
     return sorted(module.SOURCES)
@@ -36,7 +36,7 @@ def build():
     files = {name: (SRC / name).read_bytes() for name in names}
     manifest = {'files': [{'bytes': len(files[name]), 'path': name, 'sha256': hashlib.sha256(files[name]).hexdigest()}
                           for name in names],
-                'provenance': {'author': 'claude-bia-release47-20261103', 'base_release': BASE_RELEASE},
+                'provenance': {'author': 'claude-bia-etiquetas-20261103', 'base_release': BASE_RELEASE},
                 'release': RELEASE, 'source_count': len(names)}
     manifest_bytes = json.dumps(manifest, indent=2, sort_keys=True).encode()
     buffer = io.BytesIO()
@@ -69,9 +69,9 @@ def build():
 def verify(raw, launcher, parts):
     """O próprio carregador confere o pacote, instala numa pasta temporária e lê as partes."""
     with tempfile.TemporaryDirectory() as folder:
-        path = Path(folder) / 'launcher47.py'
+        path = Path(folder) / 'launcher48.py'
         path.write_text(launcher, encoding='utf-8')
-        spec = importlib.util.spec_from_file_location('launcher47', path)
+        spec = importlib.util.spec_from_file_location('launcher48', path)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         environ = {'V5_RELEASE_ARCHIVE_PART_' + str(index): part for index, part in enumerate(parts, 1)}
@@ -83,31 +83,6 @@ def verify(raw, launcher, parts):
         return len(bundle)
 
 
-LIVE_RELEASE = 'atendimento-v5-release-20261102-46'
-LIVE_FOLDER = HERE.parent / 'claude-bia-release46-20261102' / 'sealed46'
-
-
-def write_rollback():
-    """Variáveis da 46 (a que está no ar, deploy ab8dd843) recompostas do pacote selado 46.
-
-    O carregador só concatena as partes, então qualquer divisão no mesmo número de partes de até 26000 serve.
-    """
-    raw = (LIVE_FOLDER / (LIVE_RELEASE + '.zip')).read_bytes()
-    launcher = (LIVE_FOLDER / (LIVE_RELEASE + '-launcher.py')).read_bytes()
-    encoded = base64.b64encode(raw).decode('ascii')
-    count = int(re.search(rb'^ARCHIVE_PART_COUNT = (\d+)', launcher, re.M).group(1))
-    size = -(-len(encoded) // count)
-    parts = [encoded[index:index + size] for index in range(0, len(encoded), size)]
-    assert len(parts) == count and max(map(len, parts)) <= PART_LIMIT
-    assert hashlib.sha256(raw).hexdigest().encode() in launcher
-    target = OUT / 'volta46'
-    target.mkdir(exist_ok=True)
-    for index, part in enumerate(parts, 1):
-        (target / ('V5_RELEASE_ARCHIVE_PART_' + str(index) + '.txt')).write_text(part, encoding='ascii', newline='')
-    (target / 'V5_RELEASE_LAUNCHER_B64.txt').write_text(base64.b64encode(launcher).decode('ascii'),
-                                                        encoding='ascii', newline='')
-
-
 def main():
     raw, manifest, launcher, parts = build()
     count = verify(raw, launcher, parts)
@@ -116,7 +91,6 @@ def main():
     (OUT / (RELEASE + '-manifest.json')).write_bytes(manifest + b'\n')
     (OUT / (RELEASE + '-launcher.py')).write_text(launcher, encoding='utf-8', newline='\n')
     (SRC / 'MANIFEST.json').write_bytes(manifest)
-    write_rollback()
     variables = OUT / 'variaveis'
     variables.mkdir(exist_ok=True)
     for old in variables.glob('*.txt'):

@@ -735,8 +735,14 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
         except Exception:
             return None
 
+    def mark_stopped(event, state, now):
+        """Release 48: etiqueta da etapa + "encerrado" quando o lead para; some quando ele volta a escrever."""
+        if progress is not None:
+            progress.sync(event, state, {'kind': 'parado', 'now': now.isoformat()})
+
     retomada = Retomada(repository, settings, transport, lock_for, operation_guard, now=lambda: executor.clock(),
-                        policy=lambda: policy_for(settings), registration=registration_status)
+                        policy=lambda: policy_for(settings), registration=registration_status,
+                        on_stopped=mark_stopped)
 
     def resend_stored_reply(event, state, stored, outbox_key):
         """Release 45: a resposta que a Bia já calculou e não saiu é enviada agora, com o pedido de desculpas."""
