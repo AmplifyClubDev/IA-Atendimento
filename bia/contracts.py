@@ -48,7 +48,7 @@ def same_phone(first, second) -> bool:
     return bool(_phone_variants(first) & _phone_variants(second))
 
 
-MAX_PILOT_PHONES = 21
+MAX_PILOT_PHONES = 100
 
 
 def parse_pilot_phones(raw, primary) -> tuple[tuple[str, ...] | None, str | None]:
