@@ -253,6 +253,11 @@ def _effect(state, operation, at, *, policy=None, retry=False, list_proof=False)
         if (effect.get("type") == "tiktok_operation" and effect.get("cycle_id") == cycle["id"]
                 and effect.get("creator") == creator and effect.get("operation") == operation
                 and effect.get("status") in {"pending", "running", "outcome_unknown"}):
+            # A completed absence read reconciles an interrupted invitation.
+            # Preserve its original receipt; only a new bounded, evidenced job may write.
+            if (operation == 'invite' and effect.get('status') == 'outcome_unknown'
+                    and list_proof and _list_proof(state, at)):
+                continue
             return None
     resend = False
     if operation == "invite":
@@ -656,6 +661,8 @@ def invite_missing(text):
     if not isinstance(text, str):
         return False
     normal = engine._normal(text)
+    if normal in {'reenviar', 'reenvia', 'reenvie', 'pode reenviar', 'nao tem nada', 'ate agora nada'}:
+        return True
     if re.search(r'\bnao (?:aparece|apareceu|tem|ha) nada\b.{0,30}\baceitar\b|\bnada (?:para|pra) (?:eu )?aceitar\b', normal):
         return True
     return bool(re.search(r'\bconvite\b', normal) and re.search(
@@ -752,6 +759,12 @@ def _settle_acceptance_check(state, at, effect, status, policy=None):
     step = (effect.get('payload') or {}).get('check', 0)
     origin = (cycle.get('acceptance_check') or {}).get('at') or engine._stamp(at)
     missing = cycle.get('invite_missing') or {}
+    if status == 'not_found' and _invite_unlanded(cycle):
+        recovered = _recover_absent_invite(state, at, effect, policy)
+        if recovered is not None:
+            return recovered
+        # An incomplete/too-early read cannot release the write fence or justify an acceptance claim.
+        status = 'verification_pending'
     if missing.get('effect_id') == effect['id'] and status in {'pending', 'not_found'}:
         cycle.pop('acceptance_check', None)
         missing['effect_id'] = None
@@ -1521,7 +1534,7 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
         return {**_finish(state, at, reply="Você pode conhecer a proposta da Amplify ou conversar sobre seu agenciamento. 👇",
                           buttons=["Conhecer a Amplify", "Quero me agenciar"]), "fixed_greeting": True}
     invite_pending = (cycle.get('relationship_check_in_form') is True and cycle['phase'] in {'await_acceptance', 'form'}
-                      and (_invite_known(cycle) or ((cycle.get('real_operations') or {}).get('relationship') or {}).get('status')
+                      and (_invite_known(cycle) or _invite_unlanded(cycle) or ((cycle.get('real_operations') or {}).get('relationship') or {}).get('status')
                            == 'pending') and not _linked(cycle))
     if normal in _FAQ_MENU and cycle['phase']!='intro' and not invite_pending:
         return _finish(state,at,reply='Posso te explicar a parceria, os benefícios e a comissão. Qual assunto você gostaria de conhecer?',
@@ -2094,7 +2107,8 @@ def list_proof_due(state, now):
     consent = cycle.get('invite_consent') or {}
     mark = cycle.get('invite_list_proof') or {}
     attempts = _invite_attempts(state)
-    if (cycle.get('phase') != 'blocked' or record.get('status') not in LIST_PROOF_STATUSES
+    if (cycle.get('phase') not in {'blocked', 'await_acceptance', 'checking_acceptance'}
+            or record.get('status') not in LIST_PROOF_STATUSES
             or record.get('cycle_id') != cycle['id'] or record.get('creator') != creator or not attempts
             or cycle['facts'].get('consentimento_convite') is not True or consent.get('cycle_id') != cycle['id']
             or resend_used(state, creator) or mark.get('result')
@@ -2237,6 +2251,37 @@ def _list_proof_resend(state, at, policy, *, reply=None):
     return None
 
 
+def _recover_absent_invite(state, at, effect, policy):
+    """Only fresh, complete absence after the last attempt authorizes bounded recovery."""
+    cycle = state['cycle']
+    previous = cycle.get('invite_list_proof')
+    cycle['invite_list_proof'] = {'result': 'not_found', 'effect_id': effect['id'], 'source': 'invite_tracking'}
+    if not _list_proof(state, at):
+        if previous is None:
+            cycle.pop('invite_list_proof', None)
+        else:
+            cycle['invite_list_proof'] = previous
+        return None
+    cycle.pop('acceptance_check', None)
+    cycle.pop('invite_verify', None)
+    for other in state['effects'].values():
+        if (other.get('cycle_id') == cycle['id'] and other.get('operation') == 'relationship'
+                and other.get('status') == 'pending' and other.get('id') != effect['id']
+                and (other.get('payload') or {}).get('source') == 'chat_acceptance'):
+            other['status'] = 'superseded'
+    told = (cycle.get('invite_unlanded') or {}).get('told')
+    cycle['invite_unlanded'] = {'at': engine._stamp(at), 'told': True}
+    recovered = _list_proof_resend(state, at, policy, reply=None if told else conversao.INVITE_NOT_LANDED)
+    if recovered is not None:
+        return recovered
+    cycle.pop('invite_list_proof', None)
+    cycle['phase'] = 'blocked'
+    if not told:
+        return _finish(state, at, reply=conversao.INVITE_STILL_MISSING, buttons=[])
+    state['revision'] += 1
+    return engine._result(state, operation_settled=True)
+
+
 def _settle_agency_read(state, at, effect, result, policy):
     cycle = state['cycle']
     source = effect['payload']['source']
@@ -2265,17 +2310,9 @@ def _settle_agency_read(state, at, effect, result, policy):
         # Release 43: o envio só é anunciado quando a lista mostra o convite (56933, 02/11 18:16).
         return _finish(state, at, reply=conversao.invite_sent_now(_first_name(cycle)), buttons=[], exact=True)
     elif status == 'not_found' and _invite_unlanded(cycle):
-        # Release 43: o convite deste atendimento não está no TikTok. Aviso honesto (uma vez) e novo envio.
-        cycle.pop('invite_verify', None)
-        told = (cycle.get('invite_unlanded') or {}).get('told')
-        cycle['invite_unlanded'] = {'at': engine._stamp(at), 'told': True}
-        cycle['invite_list_proof'] = {'result': 'not_found', 'effect_id': effect['id'], 'source': 'invite_tracking'}
-        resent = _list_proof_resend(state, at, policy, reply=None if told else conversao.INVITE_NOT_LANDED)
-        if resent is not None:
-            return resent
-        cycle.pop('invite_list_proof', None)
-        if not told:
-            return _finish(state, at, reply=conversao.INVITE_STILL_MISSING, buttons=[])
+        recovered = _recover_absent_invite(state, at, effect, policy)
+        if recovered is not None:
+            return recovered
     elif status == 'not_found':
         # O convite pendente sumiu da lista: para de acompanhar; se o lead avisar, a Bia confere na hora.
         cycle.setdefault('invite_tracking', {})['stopped'] = 'not_found'
