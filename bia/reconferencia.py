@@ -31,7 +31,7 @@ def precheck_reason(repository, state):
     return reason if isinstance(reason, str) else None
 
 
-def candidates(repository, now):
+def candidates(repository, now, policy=None):
     """Quem seria reconferido agora, na ordem da varredura (um por vez).
 
     As 5 conversas paradas em 31/10 (``INITIAL_RECHECK``) vêm primeiro e entram uma vez
@@ -41,8 +41,8 @@ def candidates(repository, now):
     Release 42: a leitura da lista de vínculos (``kind='agency'``): a prova de que um convite incerto
     não chegou ao TikTok e o acompanhamento do convite pendente.
     """
-    from real_journey import (INITIAL_INVITE_RECHECK, INITIAL_RECHECK, agency_read_due, bridge_retry_due,
-                              invite_retry_due)
+    from real_journey import (INITIAL_INVITE_RECHECK, INITIAL_RECHECK, agency_read_due, auto_invite_due,
+                              bridge_retry_due, invite_retry_due)
     found = []
     first = INITIAL_RECHECK | INITIAL_INVITE_RECHECK
     for conv in sorted(repository.precheck_conversations(), key=lambda key: (key not in first, key)):
@@ -51,6 +51,11 @@ def candidates(repository, now):
         source = agency_read_due(state, now)
         if source:
             found.append({'conversation': conv, 'kind': 'agency', 'reason': source, 'forced': False,
+                          'creator': cycle['facts'].get('tiktok_declarado')})
+            continue
+        if cycle.get('phase') == 'consent_real' and auto_invite_due(state, now, policy):
+            # Release 52: perfil aprovado parado no "Pode mandar": o convite sai sozinho.
+            found.append({'conversation': conv, 'kind': 'consent', 'reason': 'auto_invite', 'forced': False,
                           'creator': cycle['facts'].get('tiktok_declarado')})
             continue
         if not cycle.get('phase') == 'blocked':
@@ -70,8 +75,9 @@ def candidates(repository, now):
 
 
 class Reconferencia:
-    def __init__(self, repository, settings, bridge_ready, start, *, now=None):
+    def __init__(self, repository, settings, bridge_ready, start, *, now=None, policy=None):
         self.repository, self.settings = repository, settings
+        self.policy = policy or (lambda: None)
         self.bridge_ready, self.start = bridge_ready, start
         self.now = now or (lambda: datetime.now(timezone.utc))
         self.next_scan_at = None
@@ -90,7 +96,7 @@ class Reconferencia:
         from retomada import DECISOES, send_error
         DECISOES.start('reconferencia')
         try:
-            rows = candidates(self.repository, now)
+            rows = candidates(self.repository, now, self.policy())
             # Cada ponte é lida na hora (GET /bridge/ready), nunca de um resultado guardado, e só se alguém espera por ela.
             ready = {}
             outcome = {'status': 'idle'}

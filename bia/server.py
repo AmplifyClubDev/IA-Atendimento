@@ -831,7 +831,7 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
         Release 42: ``kind='agency'`` reads the Agenciamento bridge (the relations list).
         """
         try:
-            real_client._ready({'invite': 'invites', 'agency': 'agency'}.get(kind, 'precheck'))
+            real_client._ready({'invite': 'invites', 'consent': 'invites', 'agency': 'agency'}.get(kind, 'precheck'))
             return True
         except Exception:
             return False
@@ -878,11 +878,14 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                     if situation == 'confirmado':
                         return {'status': 'idle', 'reason': 'registered'}
                 effect = (real_journey.invite_retry_effect(live, executor.clock(), forced=forced) if kind == 'invite'
+                          else real_journey.auto_invite_effect(live, executor.clock(), policy_for(settings))
+                          if kind == 'consent'
                           else real_journey.agency_read_effect(live, executor.clock()) if kind == 'agency'
                           else real_journey.bridge_retry_effect(live, executor.clock(), reason=reason, forced=forced))
                 if not effect:
                     return {'status': 'idle'}
                 prefix, purpose = {'invite': ('invite-bridge-retry:', 'bridge_invite_retry'),
+                                   'consent': ('auto-invite:', 'auto_invite_after_eligible'),
                                    'agency': ('agency-read:', 'agency_relations_read')}.get(
                                        kind, ('bridge-retry:', 'bridge_precheck_retry'))
                 operation_key = prefix + effect['id']
@@ -899,7 +902,7 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
 
     from reconferencia import Reconferencia, enabled as recheck_enabled
     reconferencia = Reconferencia(repository, settings, precheck_bridge_ready, retry_bridge_precheck,
-                                  now=lambda: executor.clock())
+                                  now=lambda: executor.clock(), policy=lambda: policy_for(settings))
     app.extensions.update(v5_retomada=retomada, v5_pos_pausa=pos_pausa, v5_reconferencia=reconferencia)
     if (conduct_enabled(settings, 'retomada_enabled') or conduct_enabled(settings, 'pos_pausa_enabled')
             or recheck_enabled(settings)):

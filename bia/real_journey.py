@@ -5,6 +5,7 @@ outbound delivery belong to the worker. A lead declaration never proves a
 TikTok event. Legacy simulated facts have no authority in this journey.
 """
 from copy import deepcopy
+import os
 from datetime import timedelta
 import hashlib
 import json
@@ -162,6 +163,87 @@ def _consent_prompt(cycle, policy):
         return "Posso te mandar o convite no TikTok? 😊"
     cycle["consent_shown"] = policy_hash + ":" + str(cycle["facts"].get("tiktok_declarado"))
     return conversao.consent_full(_first_name(cycle), cycle["facts"]["tiktok_declarado"], policy)
+
+
+# Release 52 (03/11, pedido do usuário): "a máquina não está enviando convites de forma automática".
+# Perfil aprovado → o convite sai sem esperar o "Pode mandar"; o lead vê as condições e aceita no TikTok.
+# Quem recusou ("não"), pediu para parar ou está com uma pessoa nunca recebe convite automático.
+AUTO_INVITE = os.environ.get('V5_AUTO_INVITE', '').strip().lower() == 'true'
+
+
+def _auto_invite_allowed(state, policy):
+    cycle = state.get('cycle') or {}
+    facts = cycle.get('facts') or {}
+    offer = cycle.get('invite_offer') or {}
+    return (AUTO_INVITE and policy_valid(policy) and facts.get('consentimento_convite') is not False
+            and not state.get('opt_out') and not cycle.get('opt_out') and not state.get('human_control')
+            and not cycle.get('qualification_paused') and not cycle.get('pending_profile_changes')
+            and bool(facts.get('tiktok_declarado')) and offer.get('creator') == facts.get('tiktok_declarado')
+            and offer.get('policy_hash') == _policy_fingerprint(policy))
+
+
+def _grant_auto_consent(cycle, at):
+    cycle['facts']['consentimento_convite'] = True
+    cycle['invite_consent'] = {**cycle['invite_offer'], 'cycle_id': cycle['id'], 'at': engine._stamp(at),
+                               'source': 'auto_after_eligible'}
+
+
+def _auto_invite(state, at, policy, *, prefix=''):
+    """Logo depois da pré-validação aprovada: condições + convite, numa mensagem só."""
+    if not _auto_invite_allowed(state, policy):
+        return None
+    cycle = state['cycle']
+    before = deepcopy(cycle)
+    _grant_auto_consent(cycle, at)
+    job = _effect(state, 'invite', at, policy=policy)
+    if not job:
+        state['cycle'] = before
+        return None
+    cycle['phase'] = 'inviting'
+    name, handle = _first_name(cycle), cycle['facts']['tiktok_declarado']
+    result = _finish(state, at, reply=prefix + conversao.auto_invite(name, handle, policy), effects=[job], buttons=[])
+    result['applied_claims'] = ['consentimento_convite']
+    return result
+
+
+def auto_invite_due(state, now, policy):
+    """Quem já estava parado esperando o "Pode mandar" (antes da 52): a reconferência envia sozinha."""
+    cycle = state.get('cycle') or {}
+    try:
+        at, expires = engine._clock(now), engine._clock(cycle.get('expires_at'))
+    except (TypeError, ValueError, AttributeError, OverflowError):
+        return False
+    if (cycle.get('mode') != 'real' or cycle.get('status') != 'open' or cycle.get('phase') != 'consent_real'
+            or not expires or at >= expires or (cycle.get('real_operations') or {}).get('invite')
+            or not _auto_invite_allowed(state, policy)):
+        return False
+    return not any(effect.get('type') == 'tiktok_operation' and effect.get('status') in {'pending', 'running'}
+                   and effect.get('operation') in {'precheck', 'invite', 'relationship'}
+                   and effect.get('cycle_id') == cycle.get('id') for effect in (state.get('effects') or {}).values())
+
+
+def auto_invite_effect(state, now, policy):
+    """O convite (ou, com a validação vencida, a nova validação que leva ao convite em silêncio)."""
+    if not auto_invite_due(state, now, policy):
+        return None
+    at, cycle = engine._clock(now), state['cycle']
+    before = deepcopy(cycle)
+    _grant_auto_consent(cycle, at)
+    if precheck_proven(state, now=at):
+        job = _effect(state, 'invite', at, policy=policy)
+        if job:
+            cycle['phase'] = 'inviting'
+            state['revision'] += 1
+            return job
+    else:
+        check = _effect(state, 'precheck', at)
+        if check:
+            cycle['consent_refresh'] = {'at': engine._stamp(at), 'precheck_effect_id': check['id']}
+            cycle['phase'] = 'checking'
+            state['revision'] += 1
+            return check
+    state['cycle'] = before
+    return None
 
 
 NAME_QUESTION = 'Antes de seguir, como posso te chamar? 😊'
@@ -2569,6 +2651,9 @@ def resolve_tiktok_result(session, effect_id, result, *, now=None, operation_pol
     if form_mode and operation == 'precheck' and status == 'eligible':
         cycle['phase'] = 'consent_real'
         prompt = _consent_prompt(cycle, operation_policy)
+        sent = _auto_invite(state, at, operation_policy, prefix=_BRIDGE_BACK + '\n\n' if bridge_retry else '')
+        if sent is not None:
+            return sent
         return _finish(state, at, reply=(_BRIDGE_BACK + '\n\n' + prompt) if bridge_retry else prompt)
     if form_mode and operation == 'invite' and status in {'sent', 'pending', 'pending_verification', 'linked'}:
         cycle.pop('invite_wait', None)

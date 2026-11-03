@@ -140,6 +140,16 @@ def consent_full(name, handle, policy):
             + CONSENT_QUESTION[:-1] + ' (' + handle + ')?')
 
 
+def auto_invite(name, handle, policy):
+    """Release 52: perfil aprovado, o convite sai na hora; as condições vêm junto e o lead aceita no TikTok."""
+    return ('Boa notícia' + (', ' + name if name else '') + ': seu perfil pode entrar na Amplify! 🎉\n\n'
+            '• o seu conteúdo e as suas vendas continuam sendo seus\n'
+            f'• a Amplify fica com {rate(policy)}% só da comissão que você ganhar (se não vender, não paga nada)\n'
+            f'• prazo de {policy["duration_label"]}\n\n'
+            'Já tô enviando o convite da Amplify para o seu TikTok (' + handle + ') 🔎 Te aviso aqui assim que sair. '
+            'Você confere essas condições e aceita no próprio app.')
+
+
 def consent_reminder(step, policy):
     """Cada lembrete responde a uma objeção; o bloco das condições nunca se repete."""
     if step == 1:
