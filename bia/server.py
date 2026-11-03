@@ -712,9 +712,10 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
         """A live read-only GET /bridge/ready, never the worker's cached probe.
 
         Release 41: ``kind='invite'`` reads the Convites bridge (role ``invites``).
+        Release 42: ``kind='agency'`` reads the Agenciamento bridge (the relations list).
         """
         try:
-            real_client._ready('invites' if kind == 'invite' else 'precheck')
+            real_client._ready({'invite': 'invites', 'agency': 'agency'}.get(kind, 'precheck'))
             return True
         except Exception:
             return False
@@ -730,7 +731,14 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
             try:
                 live = repository.load_session(conv)
                 cycle = live.get('cycle') or {}
-                record = (cycle.get('real_operations') or {}).get('invite' if kind == 'invite' else 'precheck') or {}
+                operations = cycle.get('real_operations') or {}
+                if kind == 'agency':
+                    # The read answers the chat of the latest TikTok job of this cycle (invite, relationship, precheck).
+                    record = next((operations[name] for name in ('invite', 'relationship', 'precheck')
+                                   if (operations.get(name) or {}).get('cycle_id') == cycle.get('id')
+                                   and (operations.get(name) or {}).get('job_id')), {})
+                else:
+                    record = operations.get('invite' if kind == 'invite' else 'precheck') or {}
                 previous = repository.real_job_for_effect(record.get('job_id')) if record.get('job_id') else None
                 origin = (previous or {}).get('event')
                 if (not isinstance(origin, dict) or not allow_inbound(gate, origin) or conversation_key(origin) != conv
@@ -743,13 +751,26 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                 control = operation_guard(origin)
                 if not isinstance(control, dict) or control.get('allowed') is not True:
                     return {'status': 'blocked', 'reason': control.get('reason') if isinstance(control, dict) else None}
+                if kind == 'agency':
+                    # Release 42: o vínculo vira "falta só o cadastro"; a ficha é lida antes de cada leitura.
+                    situation = registration_status(origin)
+                    if not isinstance(situation, str):
+                        return {'status': 'unconfirmed', 'reason': 'registration_unreadable'}
+                    if situation != live.get('cadastro_situacao'):
+                        live['cadastro_situacao'] = situation
+                        repository.save_session(conv, live)
+                    if situation == 'confirmado':
+                        return {'status': 'idle', 'reason': 'registered'}
                 effect = (real_journey.invite_retry_effect(live, executor.clock(), forced=forced) if kind == 'invite'
+                          else real_journey.agency_read_effect(live, executor.clock()) if kind == 'agency'
                           else real_journey.bridge_retry_effect(live, executor.clock(), reason=reason, forced=forced))
                 if not effect:
                     return {'status': 'idle'}
-                operation_key = ('invite-bridge-retry:' if kind == 'invite' else 'bridge-retry:') + effect['id']
-                if not repository.reserve_operation(operation_key, source_key,
-                                                    'bridge_invite_retry' if kind == 'invite' else 'bridge_precheck_retry'):
+                prefix, purpose = {'invite': ('invite-bridge-retry:', 'bridge_invite_retry'),
+                                   'agency': ('agency-read:', 'agency_relations_read')}.get(
+                                       kind, ('bridge-retry:', 'bridge_precheck_retry'))
+                operation_key = prefix + effect['id']
+                if not repository.reserve_operation(operation_key, source_key, purpose):
                     return {'status': 'failed', 'reason': 'retry_already_reserved'}
                 live = sync_contact(origin, live)
                 jobs = build_jobs(origin, live, [effect])

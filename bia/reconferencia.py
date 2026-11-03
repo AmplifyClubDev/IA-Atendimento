@@ -38,13 +38,21 @@ def candidates(repository, now):
     qualquer que seja o motivo registrado da falha; perfil inelegível nunca entra.
     Release 41: também o convite autorizado que não chegou ao TikTok (``kind='invite'``),
     reenviado quando a ponte de Convites volta.
+    Release 42: a leitura da lista de vínculos (``kind='agency'``): a prova de que um convite incerto
+    não chegou ao TikTok e o acompanhamento do convite pendente.
     """
-    from real_journey import INITIAL_INVITE_RECHECK, INITIAL_RECHECK, bridge_retry_due, invite_retry_due
+    from real_journey import (INITIAL_INVITE_RECHECK, INITIAL_RECHECK, agency_read_due, bridge_retry_due,
+                              invite_retry_due)
     found = []
     first = INITIAL_RECHECK | INITIAL_INVITE_RECHECK
     for conv in sorted(repository.precheck_conversations(), key=lambda key: (key not in first, key)):
         state = repository.load_session(conv)
         cycle = state.get('cycle') or {}
+        source = agency_read_due(state, now)
+        if source:
+            found.append({'conversation': conv, 'kind': 'agency', 'reason': source, 'forced': False,
+                          'creator': cycle['facts'].get('tiktok_declarado')})
+            continue
         if not cycle.get('phase') == 'blocked':
             continue
         if (cycle.get('real_operations') or {}).get('invite'):
