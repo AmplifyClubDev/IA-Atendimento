@@ -115,8 +115,9 @@ class RealResetTests(unittest.TestCase):
         self.assertEqual(reset['state']['effects'][invite['id']]['status'],'outcome_unknown')
         new_offer=requalify(reset['state'])
         confirmed=inbound('Autorizo o convite real',new_offer['state'])
-        self.assertEqual(confirmed['state']['cycle']['phase'],'blocked')
-        self.assertEqual(confirmed['effects'],[])
+        # Release 41 (item 6): o convite antigo é conferido no TikTok (leitura do vínculo), nunca reenviado às cegas.
+        self.assertEqual(confirmed['state']['cycle']['phase'],'checking_acceptance')
+        self.assertEqual([effect['operation'] for effect in confirmed['effects']],['relationship'])
         self.assertEqual(sum(effect.get('operation')=='invite' for effect in confirmed['state']['effects'].values()),1)
 
     def test_invite_in_flight_at_reset_is_preserved_as_uncertain(self):
@@ -164,8 +165,9 @@ class RealResetTests(unittest.TestCase):
         reset=inbound('resetar',turn['state'])
         offer=requalify(reset['state'],'@teste')
         result=inbound('Autorizo o convite real',offer['state'])
-        self.assertEqual(result['effects'],[])
-        self.assertEqual(result['state']['cycle']['phase'],'blocked')
+        # Release 41 (item 6): primeiro a leitura do vínculo; o convite antigo nunca é repetido sem ela.
+        self.assertEqual([effect['operation'] for effect in result['effects']],['relationship'])
+        self.assertEqual(result['state']['cycle']['phase'],'checking_acceptance')
         self.assertEqual(sum(effect.get('operation')=='invite' and effect.get('creator')=='@teste'
                              for effect in result['state']['effects'].values()),1)
 

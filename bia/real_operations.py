@@ -72,7 +72,9 @@ def build_jobs(event, state, effects):
                 or state.get('effects', {}).get(effect.get('id')) != effect):
             raise ValueError('invalid real effect binding')
         # The one evidenced retry gets its own row: invite rows are never resubmitted.
-        key_operation = 'invite-retry' if operation == 'invite' and (effect.get('payload') or {}).get('retry') == 1 else operation
+        retry = (effect.get('payload') or {}).get('retry') if operation == 'invite' else None
+        key_operation = ('invite-retry' if retry == 1 else 'invite-retry:' + str(retry) if type(retry) is int and retry > 1
+                         else operation)
         if operation == 'relationship' and (effect.get('payload') or {}).get('source') == 'chat_acceptance':
             # Each acceptance read (now, 5, 15, 60 min) has its own row.
             key_operation = 'relationship-chat:' + effect['id']

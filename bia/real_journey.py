@@ -38,7 +38,8 @@ PROMPTS = {
     "agency": "Você tem vínculo com outra agência atualmente? Se não souber, pode me dizer.",
     "checking": "Estou conferindo seu perfil e o vínculo no TikTok. Assim que a consulta terminar, te oriento sobre o próximo passo. 🔎",
     "consent_real": "A consulta terminou. Falta conferir as condições da parceria antes de autorizar o convite real.",
-    "inviting": "Seu envio de convite está em conferência. Vou avisar aqui quando houver confirmação do TikTok.",
+    "inviting": conversao.INVITING,
+    "acesso": conversao.ACCESS_DONE,
     "await_acceptance": _ACCEPT_INVITE_GUIDE,
     "checking_acceptance": "Estou conferindo no TikTok se o seu aceite já apareceu. Te aviso aqui assim que confirmar. 🔎",
     "form": "Agora confira e complete seus dados no formulário. O cadastro só é confirmado após o envio validado.",
@@ -70,6 +71,10 @@ _BRIDGE_BACK = conversao.BRIDGE_BACK
 # qualquer que tenha sido o motivo registrado da falha (menos perfil inelegível).
 INITIAL_RECHECK = frozenset({'chatwoot:1:56747', 'chatwoot:1:56746', 'chatwoot:1:56751',
                              'chatwoot:1:56748', 'chatwoot:1:56752'})
+# Release 41: o convite também é reenviado sozinho quando a ponte de Convites volta (até 3 vezes, a cada 10 min).
+INVITE_BRIDGE_RETRY_LIMIT = 3
+# @gabinaresse (56933) parou na 40.2 sem a marca de espera: entra uma vez, se a prova de "nada chegou ao TikTok" existir.
+INITIAL_INVITE_RECHECK = frozenset({'chatwoot:1:56933'})
 _YES = {"sim", "confirmo", "sim confirmo", "autorizo", "autorizo sim", "pode enviar"}
 _NO = {"nao", "nao autorizo", "nao quero", "nao confirmo"}
 _FAQ_MENU = {'conhecer amplify','conhecer a amplify','menu de duvidas','menu duvidas','tirar duvidas'}
@@ -156,6 +161,8 @@ def _phase_prompt(cycle, phase=None):
         return _form_prompt(cycle)
     if phase == 'blocked' and isinstance(cycle.get('bridge_wait'), dict):
         return _BRIDGE_STILL
+    if phase == 'blocked' and isinstance(cycle.get('invite_wait'), dict):
+        return conversao.INVITE_STILL
     if phase == 'blocked' and _first_name(cycle):
         return _first_name(cycle) + ', ' + PROMPTS['blocked'][0].lower() + PROMPTS['blocked'][1:]
     if cycle.get('relationship_check_in_form') is True:
@@ -219,9 +226,14 @@ def _effect(state, operation, at, *, policy=None, retry=False):
         # An invitation may be attempted once per creator/cycle. The single
         # exception is ``retry``: a second attempt after a receipt proving that
         # TikTok never received a create request (see _invite_retry_possible).
-        attempts = sum(e.get("type") == "tiktok_operation" and e.get("cycle_id") == cycle["id"]
-                       and e.get("creator") == creator and e.get("operation") == "invite" for e in state["effects"].values())
-        if attempts > (1 if retry else 0):
+        # Release 41: the invite bridge recheck passes the number of earlier
+        # attempts; each of them must carry that same no-write proof.
+        previous = [e for e in state["effects"].values() if e.get("type") == "tiktok_operation"
+                    and e.get("cycle_id") == cycle["id"] and e.get("creator") == creator and e.get("operation") == "invite"]
+        counted = type(retry) is int
+        allowed = retry if counted else 1 if retry else 0
+        if len(previous) > allowed or (counted and (len(previous) > 1 + INVITE_BRIDGE_RETRY_LIMIT or not all(
+                _invite_no_write(e.get("result_receipt")) for e in previous))):
             return None
     sequence = 1 + sum(e.get("type") == "tiktok_operation" and e.get("cycle_id") == cycle["id"]
                        for e in state["effects"].values())
@@ -238,7 +250,8 @@ def _effect(state, operation, at, *, policy=None, retry=False):
         effect["payload"].update(confirmed=True, commission=policy["commission"],
                                  duration_fixed_months=policy["duration_fixed_months"])
         if retry:
-            effect["payload"]["retry"] = 1
+            # Each attempt gets its own worker row (an invite row is never resubmitted).
+            effect["payload"]["retry"] = len(previous) if counted else 1
     state["effects"][identifier] = effect
     return deepcopy(effect)
 
@@ -298,6 +311,12 @@ def _schedule_invite_retry(state, at, *, delay):
 def _prior_invite_requires_reconciliation(state, creator):
     """A conversation reset never authorizes repeating a real write for an @."""
     current_cycle = state["cycle"]["id"]
+    cleared = state["cycle"].get("prior_invite_cleared") or {}
+    relationship = (state["cycle"].get("real_operations") or {}).get("relationship") or {}
+    if (cleared.get("creator") == creator and relationship.get("status") == "not_found"
+            and relationship.get("confirmed") is True and relationship.get("job_id") == cleared.get("effect_id")
+            and relationship.get("cycle_id") == current_cycle):
+        return False
     archived = {cycle.get("id"): cycle for cycle in state.get("closed_cycles", []) if isinstance(cycle, dict)}
     for effect in state.get("effects", {}).values():
         if (effect.get("type") != "tiktok_operation" or effect.get("operation") != "invite"
@@ -561,6 +580,18 @@ def form_link_requested(text):
         r'\bnao (?:apareceu|aparece|chegou|veio|recebi|achei|encontrei|encontro|acho|abriu|abre)\b', normal))
 
 
+def invite_missing(text):
+    """"Não apareceu o convite", "onde fica o convite?", "não achei o convite"."""
+    if not isinstance(text, str):
+        return False
+    normal = engine._normal(text)
+    if re.search(r'\bnao (?:aparece|apareceu|tem|ha) nada\b.{0,30}\baceitar\b|\bnada (?:para|pra) (?:eu )?aceitar\b', normal):
+        return True
+    return bool(re.search(r'\bconvite\b', normal) and re.search(
+        r'\b(?:onde|cade|como (?:acho|encontro|aceito))\b|'
+        r'\bnao (?:apareceu|aparece|chegou|veio|recebi|achei|encontrei|encontro|acho)\b', normal))
+
+
 def _form_stage(cycle):
     if _linked(cycle):
         return 'linked'
@@ -642,12 +673,30 @@ def _acceptance_turn(state, at):
     return result
 
 
-def _settle_acceptance_check(state, at, effect, status):
+def _settle_acceptance_check(state, at, effect, status, policy=None):
     """Resultado da leitura pedida pelo aceite: avisa no vínculo, agenda a próxima."""
     cycle = state['cycle']
     effect['status'] = 'done'
     step = (effect.get('payload') or {}).get('check', 0)
     origin = (cycle.get('acceptance_check') or {}).get('at') or engine._stamp(at)
+    prior = cycle.get('prior_invite_check') or {}
+    if prior.get('effect_id') == effect['id']:
+        cycle.pop('prior_invite_check', None)
+        if status == 'pending':
+            cycle['phase'] = 'await_acceptance'
+            return _finish(state, at, reply=conversao.INVITE_STEPS, buttons=['Já aceitei'])
+        if status == 'not_found':
+            cycle['prior_invite_cleared'] = {'creator': effect['creator'], 'effect_id': effect['id'], 'at': engine._stamp(at)}
+            job = _effect(state, 'invite', at, policy=policy)
+            if not job and not precheck_proven(state, now=at):
+                check = _effect(state, 'precheck', at)
+                if check:
+                    cycle['consent_refresh'] = {'at': engine._stamp(at), 'precheck_effect_id': check['id']}
+                    cycle['phase'] = 'checking'
+                    return _finish(state, at, reply=conversao.PRIOR_INVITE_RESENT, effects=[check], buttons=[])
+            if job:
+                cycle['phase'] = 'inviting'
+                return _finish(state, at, reply=conversao.PRIOR_INVITE_RESENT, effects=[job], buttons=[])
     if status == 'linked':
         cycle.pop('acceptance_check', None)
         return _finish(state, at, reply=_linked_reply(state), buttons=[])
@@ -761,6 +810,17 @@ _NOT_HANDLE = {"oi", "ola", "ok", "okay", "sim", "nao", "talvez", "menu", "duvid
 _HANDLE_UNKNOWN = ("Não consegui identificar o seu @ do TikTok. 🙂\n\n"
                    "No TikTok, abra seu perfil: o @ é o nome que aparece logo abaixo da foto e começa com @. "
                    "Me envie exatamente como aparece lá, por exemplo: @seuperfil")
+
+
+def profile_link_handle(text):
+    """O @ de um link de perfil do TikTok (tiktok.com/@perfil, com ou sem www/m e parâmetros)."""
+    if not isinstance(text, str):
+        return None
+    match = re.search(r'(?:https?://)?(?:www\.|m\.)?tiktok\.com/@([A-Za-z0-9_][A-Za-z0-9_.]{1,23})', text)
+    if not match:
+        return None
+    handle = match.group(1).rstrip('.').lower()
+    return '@' + handle if len(handle) >= 2 and re.search(r'[a-z]', handle) else None
 
 
 def _bare_handle(text):
@@ -881,6 +941,9 @@ def _question_reply(text, plan, cycle, policy=None, *, state=None, now=None):
     cost_reply = approved_cost_reply(text, proposal, policy)
     educational_reply = approved_educational_reply(text, proposal)
     candidates = []
+    if re.search(r'\bamostra', engine._normal(text)):
+        # Release 41: amostras com o que existe, sem tom negativo e sem prometer (56931, 56932, 56933).
+        candidates.append((conversao.SAMPLES, True, True))
     if cost_reply is not None:
         # Financial facts are rendered from the approved policy, not from an
         # inferred positive/negative mention of GMV in free model language.
@@ -896,6 +959,15 @@ def _question_reply(text, plan, cycle, policy=None, *, state=None, now=None):
     if fallback:
         candidates.append((fallback, False, True))
     unavailable = _known_faq_unavailable(text)
+    asked = engine._normal(text)
+    if re.search(r'\bcampanhas?\b', asked) and not re.search(r'\bamostra', asked):
+        # "Vocês arrumam campanhas?" (56934): a resposta é o cartão dos benefícios.
+        text, asked = 'Benefícios', 'beneficios'
+    local = (_local_topic_answer(text) if unavailable or asked in conversation._TOPIC_TEXT or '?' in text
+             or re.search(r'\b(?:beneficio|beneficios|comissao|como funciona|lives?|custa|taxa)\b', asked) else None)
+    if local:
+        # Release 41: o botão "Como funciona?" da primeira resposta nunca volta como "não consegui consultar".
+        candidates.append((local, True, True))
     if unavailable:
         candidates.append((unavailable, True, True))
     reply, backend_answer, faq_action = '', False, False
@@ -959,6 +1031,11 @@ def _question_reply(text, plan, cycle, policy=None, *, state=None, now=None):
         if bridge_waiting(cycle) and re.search(r'\b(time|equipe|pessoal)\b', reply, re.I):
             # Ninguém confere à mão: quem destrava é a volta da consulta.
             return _BRIDGE_STILL
+        if invite_waiting(cycle) and 'anotada' not in reply:
+            return reply + '\n\n' + conversao.INVITE_STILL
+        if bridge_waiting(cycle) and 'anotado' not in reply:
+            # Release 41: a dúvida é respondida e o lead sabe que a conferência segue sozinha (priscila, 30/10).
+            return reply + '\n\n' + conversao.BRIDGE_NOTE
         return reply
     if (backend_answer and cycle['phase'] == 'consent_real' and policy_valid(policy)
             and (cycle.get('invite_offer') or {}).get('policy_hash') == _policy_fingerprint(policy)):
@@ -1091,9 +1168,58 @@ def _local_topic_answer(text):
     answer = (topic or {}).get('answer')
     if not isinstance(answer, str):
         return None
-    # Sem os avisos internos que a release 39 tirou das mensagens ("por si só…").
-    answer = ' '.join(part for part in re.split(r'(?<=[.!?])\s+', answer.strip()) if 'por si só' not in part)
-    return answer or None
+    return lead_safe(answer.strip()) or None
+
+
+def _after_access_reply(text, normal):
+    """Depois do acesso liberado: responde a dúvida e lembra onde entrar, sem convite, @ ou formulário."""
+    if re.search(r'\bamostra', normal):
+        return conversao.SAMPLES + '\n\n' + conversao.ACCESS_HINT
+    if re.search(r'\b(?:missao|missoes|campanha|campanhas|oportunidade|oportunidades|marca|marcas)\b', normal):
+        return conversao.MISSIONS
+    asked = '?' in text or normal in conversation_topics()
+    answer = _local_topic_answer(text) if asked else None
+    if answer and not re.search(r'\b(?:convite|cadastro|formulario|aceit)', normal):
+        return answer + '\n\n' + conversao.ACCESS_HINT
+    return conversao.ACCESS_DONE
+
+
+def conversation_topics():
+    import conversation
+    return conversation._TOPIC_TEXT | conversation._TOPIC_ENTRY
+
+
+# Frases dos cartões de contexto que orientam a Bia e nunca vão para o lead
+# (ma.ribeiroh, 30/10: "não devem ser prometidos às categorias inferiores").
+_INTERNAL_SENTENCE = re.compile(r'por si só|não devem? ser prometid|de Diamond em diante|nesta referência'
+                                r'|não estão informad', re.I)
+
+
+def lead_safe(text):
+    """Tira de uma resposta ao lead as frases de controle interno, mantendo o resto do texto."""
+    if not isinstance(text, str) or not _INTERNAL_SENTENCE.search(text):
+        return text
+    paragraphs = []
+    for paragraph in text.split('\n\n'):
+        kept = [part for part in re.split(r'(?<=[.!?])\s+', paragraph) if not _INTERNAL_SENTENCE.search(part)]
+        if kept:
+            paragraphs.append(' '.join(kept))
+    return '\n\n'.join(paragraphs)
+
+
+# Quem tenta mandar o @ com espaço ou manda o nome completo (priscila, 30/10).
+_NAME_LIKE = re.compile(r'@\S+(?:\s+\S+){1,3}|[A-ZÀ-Ý][a-zà-ÿ]+(?:\s+(?:d[aeo]s?\s+)?[A-ZÀ-Ý][a-zà-ÿ]+){1,3}')
+_NOT_NAME_WORDS = re.compile(r'\b(?:quero|como|sim|nao|oi|ola|bom|boa|obrigad\w*|beneficios?|comissao|funciona|amplify'
+                             r'|agenciamento|agencia|duvida|entrar|mandar|conhecer|tiktok|shop|live|lives|cadastro)\b')
+
+
+def _name_instead_of_handle(text, normal):
+    return bool(_NAME_LIKE.fullmatch(text.strip()) and not _NOT_NAME_WORDS.search(normal))
+
+
+# Release 41: "como prefere ser chamada?" junto do pedido do @ (56935, 56933, 56931, 56866, 02/11).
+_NAME_ASK = re.compile(r'\s*(?:[^.!?\n]*?\b(?:e\s+)?)?(?:como (?:você )?prefere ser chamad[ao]s?|como (?:posso|podemos) '
+                       r'(?:te chamar|chamar você)|qual (?:é )?(?:o )?seu nome|por qual nome)[^?]*\?', re.I)
 
 
 def _sell_intro(result, policy):
@@ -1105,6 +1231,7 @@ def _sell_intro(result, policy):
             or _creator((cycle.get('facts') or {}).get('tiktok_declarado'))):
         # O "resetar" de teste e a volta de um atendimento encerrado mantêm a saudação fixa.
         return
+    reply = _NAME_ASK.sub('', reply).strip()
     opened = reply.startswith(_RESUME_OPENING)
     body = reply[len(_RESUME_OPENING):].strip() if opened else reply.strip()
     if opened and body in {PROMPTS['intro'], _INTRO_ACTION, ''}:
@@ -1134,6 +1261,14 @@ def handle_real(session, text, assistant_callback=None, *, resumed=None, **optio
     the reply apologizes and picks up what the lead asked, never a bare greeting."""
     result = _handle_real_turn(session, text, assistant_callback, **options)
     _sell_intro(result, options.get('operation_policy'))
+    safe = lead_safe(result.get('reply'))
+    if safe != result.get('reply'):
+        # Release 41: frase de controle interno nunca chega ao lead, venha do modelo ou do cartão.
+        for item in reversed(result['state'].get('history') or []):
+            if item.get('direction') == 'outbound':
+                item['text'] = safe
+                break
+        result['reply'] = safe
     if not isinstance(resumed, dict) or not result.get('reply'):
         return result
     state, reply = result['state'], result['reply']
@@ -1162,6 +1297,17 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
     cycle = state.get("cycle")
     inactivity_return = bool(cycle and cycle.get('status') == 'closed'
                              and cycle.get('reason') in {'inactivity_timeout', 'inactivity_user_close'})
+    # O "resetar" do número de teste e o atendimento aberto por ele seguem o funil mesmo com a ficha cadastrada.
+    registered = (state.get('cadastro_situacao') == 'confirmado'
+                  and not conversation._chat_reset_requested(text, real_mode=True)
+                  and not (cycle or {}).get('funnel_after_reset'))
+    if registered and cycle and cycle.get('status') == 'open' and not cycle.get('acesso_liberado'):
+        # Release 41: o formulário encerra no banco o atendimento aberto ("cadastro_confirmado"). Seguir nele faz o
+        # registro de contato ser recusado e a resposta não sai (Cristiane, 56935, 02/11): começa um atendimento novo.
+        cycle.update(status='closed', reason='cadastro_confirmado', closed_at=engine._stamp(at))
+        for effect in state['effects'].values():
+            if effect.get('cycle_id') == cycle['id'] and effect.get('status') == 'pending':
+                effect['status'] = 'cancelled'
     fresh = not cycle or cycle["status"] != "open"
     # A legacy cycle is closed before real operation. Simulated consent or a
     # legacy form can never silently become real permission or a relationship.
@@ -1189,6 +1335,10 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
         except (ValueError,TypeError,OverflowError):
             pass
     normal = engine._normal(text)
+    if registered and (fresh or cycle.get('acesso_liberado')):
+        # Com o acesso liberado, a Bia segue respondendo: Club, missões e onde entrar. Nunca volta ao funil.
+        cycle.update(acesso_liberado=True, phase='acesso')
+        return {**_finish(state, at, reply=_after_access_reply(text, normal), buttons=[]), 'fixed_greeting': True}
     if fresh and _AD_MESSAGE.search(normal) and 'origem_declarada' not in cycle['facts']:
         cycle['facts']['origem_declarada'] = 'anuncio'
         cycle.setdefault('claim_provenance', []).append({'field': 'origem_declarada', 'at': engine._stamp(at),
@@ -1230,6 +1380,7 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
             cycle = engine._open(state, at)
             cycle.update(mode="real", phase="intro")
             state["history"][-1]["cycle_id"] = cycle["id"]
+        cycle['funnel_after_reset'] = True
         return {**_finish(state, at, intro=True, reply=conversation._RESET_GREETING), "fixed_greeting": True}
     if ("?" not in text and normal in conversation._PAUSE | {'encerrar agora'}) or _pause_requested(text):
         cycle.update(status="closed", reason='inactivity_user_close' if normal == 'encerrar agora' else "lead_pause",
@@ -1260,6 +1411,9 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
         if normal == 'agora nao':
             cycle.update(status='closed', reason='lead_pause', closed_at=engine._stamp(at))
             return _finish(state, at, reply=conversao.NOT_NOW, buttons=[])
+        if cycle.get('arroba_pedido') and _name_instead_of_handle(text, normal):
+            # Release 41: o nome no lugar do @ recebe a explicação de onde achar o @, não o pedido repetido.
+            return {**_finish(state, at, reply=_HANDLE_UNKNOWN, buttons=[]), "fixed_greeting": True}
     if normal == 'seguir atendimento':
         if cycle['phase'] in {'intro', 'origin', 'tiktok', 'shop', 'agency'}:
             cycle['phase'] = _qualification_phase(cycle)
@@ -1281,6 +1435,10 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
     new_direct = bool(direct_reason and _refresh_direct_request(state, source_event, at, reason=direct_reason))
     if new_direct and not _creator(cycle.get('facts', {}).get('tiktok_declarado')) and '@' not in text:
         return _direct_form(state, at)
+    shop_unknown = cycle['phase'] == 'blocked' and isinstance(cycle.get('shop_unknown'), dict)
+    if shop_unknown and re.search(r'\b(?:como|onde|ativar|passo|passos|nao sei|ajuda)\b', normal):
+        # Release 41: o caminho para ativar o TikTok Shop Creator, não a mesma frase de novo (56937, 02/11).
+        return _finish(state, at, reply=conversao.SHOP_STEPS, buttons=[])
     if cycle.get('relationship_check_in_form') is True and form_link_requested(text) and not new_direct:
         if _form_stage(cycle) or cycle['phase'] in {'await_acceptance', 'checking_acceptance'}:
             cycle['form_url'] = PUBLIC_FORM_URL
@@ -1292,6 +1450,18 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
                 _consent_prompt(cycle, operation_policy) if cycle['phase'] == 'consent_real' else _phase_prompt(cycle))
         return _finish(state, at, reply='O cadastro é liberado depois que você aceita o convite da Amplify no TikTok. 😊\n\n' + step,
                        buttons=['Quero me agenciar'] if cycle['phase'] == 'intro' else None)
+    if invite_pending and invite_missing(text):
+        # Release 41: "Não apareceu o convite" é sobre o convite, não sobre o formulário (gabiosantana1, 30/10).
+        # A Bia confere no TikTok na hora; sem o aceite, explica onde aceitar (ma.ribeiroh, 56629, 02/11).
+        result = _acceptance_turn(state, at)
+        if result.get('effects'):
+            result['reply'] = conversao.INVITE_CHECK
+            for item in reversed(state.get('history') or []):
+                if item.get('direction') == 'outbound':
+                    item['text'] = conversao.INVITE_CHECK
+                    break
+            return result
+        return _finish(state, at, reply=conversao.INVITE_WHERE, buttons=['Já aceitei'])
     if (cycle['phase']=='origin' and cycle['facts'].get('interesse_agenciamento') is True
             and 'origem_declarada' not in cycle['facts'] and not cycle.get('pending_profile_changes')
             and re.fullmatch(r'(?:eu )?ja (?:te )?(?:falei|disse|respondi|informei)',normal)):
@@ -1353,13 +1523,27 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
                 result["applied_claims"] = ["consentimento_convite"]
                 return result
             if _prior_invite_requires_reconciliation(state, _creator(cycle["facts"].get("tiktok_declarado"))):
+                # Release 41 (ma.ribeiroh, 56629): o convite antigo é conferido no TikTok. Vínculo → cadastro;
+                # pendente → onde aceitar; sumiu → um convite novo, sem pedir a autorização de novo.
+                check = _acceptance_check(state, at, 0, origin=engine._stamp(at))
+                if check:
+                    cycle["prior_invite_check"] = {"at": engine._stamp(at), "effect_id": check["id"]}
+                    cycle["phase"] = "checking_acceptance"
+                    return _finish(state, at, reply=conversao.PRIOR_INVITE_CHECK, effects=[check], buttons=[])
                 cycle["phase"] = "blocked"
                 return _finish(state, at, reply="Há uma solicitação anterior para esse perfil que precisa ser conferida. Vou preservar essa verificação sem enviar outro convite.", buttons=[])
             if not precheck_proven(state, now=at):
                 cycle["phase"] = "checking"
                 fresh_check = _effect(state, "precheck", at)
+                if fresh_check:
+                    # Release 41: a autorização já foi dada. A validação é refeita em silêncio e o convite sai em
+                    # seguida, sem pedir o "Pode mandar" de novo (56933, 56934, 02/11).
+                    cycle["consent_refresh"] = {"at": engine._stamp(at), "precheck_effect_id": fresh_check["id"]}
+                    result = _finish(state, at, reply=conversao.INVITING, effects=[fresh_check], buttons=[])
+                    result["applied_claims"] = ["consentimento_convite"]
+                    return result
                 return _finish(state, at, reply="Vou atualizar a validação do perfil antes de enviar qualquer convite real.",
-                               effects=[fresh_check] if fresh_check else [])
+                               effects=[])
         # A changed policy must be presented and reconfirmed, not accepted by a
         # yes answering the earlier offer.
         if normal in _REAL_CONSENT | _YES:
@@ -1444,6 +1628,11 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
         bare = _bare_handle(text)
         if bare:
             claims['tiktok_declarado'] = bare
+    linked_handle = profile_link_handle(text)
+    if linked_handle and 'tiktok_declarado' not in claims and not _creator(cycle['facts'].get('tiktok_declarado')):
+        # Release 41: o link do perfil vale como @ (56934, 02/11: "Valeu pelo link! … me manda seu @").
+        claims['tiktok_declarado'] = linked_handle
+        claims['interesse_agenciamento'] = True
     handle_by_request = handle_requested and 'tiktok_declarado' in claims
     if handle_by_request:
         claims['interesse_agenciamento'] = True
@@ -1526,7 +1715,9 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
         if asked and (not reply or reply == _known_faq_unavailable(text)):
             reply = _local_topic_answer(text) or reply or ''
         if reply and 'aceitei' not in reply:
-            reply += '\n\n' + _ACCEPT_NEXT_STEP
+            # Uma pergunta só: a do aceite substitui a pergunta solta do fim da resposta.
+            reply = re.sub(r'\s*(?:\n\n)?[^.!?\n]*\?\s*$', '', reply).rstrip() if reply.rstrip().endswith('?') else reply
+            reply = (reply + '\n\n' if reply else '') + _ACCEPT_NEXT_STEP
     buttons=['Como funciona','Benefícios','Comissão'] if (normal in _FAQ_MENU or 'nome_declarado' in applied) and cycle['phase']=='intro' else None
     if cycle['phase'] == 'intro':
         if reply.endswith(_INTRO_ACTION):
@@ -1625,6 +1816,71 @@ def bridge_retry_effect(state, now, *, reason=None, forced=False):
     return effect
 
 
+def invite_waiting(cycle):
+    return isinstance(cycle, dict) and cycle.get('phase') == 'blocked' and isinstance(cycle.get('invite_wait'), dict)
+
+
+def invite_retry_due(state, now, *, forced=False):
+    """Convite autorizado que não chegou ao TikTok porque a ponte de Convites estava fora: pode reenviar agora?
+
+    Só com a prova, em toda tentativa anterior, de que nenhum pedido chegou ao TikTok (nunca duplica um convite).
+    """
+    cycle = state.get('cycle') or {}
+    facts = cycle.get('facts') or {}
+    record = (cycle.get('real_operations') or {}).get('invite') or {}
+    wait = cycle.get('invite_wait') if isinstance(cycle.get('invite_wait'), dict) else {}
+    consent = cycle.get('invite_consent') or {}
+    try:
+        at, expires = engine._clock(now), engine._clock(cycle.get('expires_at'))
+        last = engine._clock(wait['last_retry_at']) if wait.get('last_retry_at') else None
+    except (TypeError, ValueError, AttributeError, OverflowError):
+        return False
+    creator = _creator(facts.get('tiktok_declarado'))
+    attempts = [e for e in (state.get('effects') or {}).values() if e.get('type') == 'tiktok_operation'
+                and e.get('operation') == 'invite' and e.get('cycle_id') == cycle.get('id') and e.get('creator') == creator]
+    if (cycle.get('mode') != 'real' or cycle.get('status') != 'open' or cycle.get('phase') != 'blocked'
+            or not expires or at >= expires or not creator
+            or state.get('human_control') or cycle.get('qualification_paused') or cycle.get('pending_profile_changes')
+            or state.get('opt_out') or cycle.get('opt_out') or cycle.get('invite_retry')
+            or facts.get('consentimento_convite') is not True or consent.get('cycle_id') != cycle.get('id')
+            or record.get('status') not in {'verification_pending', 'failed', 'outcome_unknown'}
+            or record.get('cycle_id') != cycle.get('id') or record.get('creator') != creator
+            or not attempts or not all(_invite_no_write(e.get('result_receipt')) for e in attempts)
+            or (not forced and wait.get('reason') not in BRIDGE_DOWN_REASONS)
+            or int(wait.get('retries') or 0) >= (1 if forced and not wait else INVITE_BRIDGE_RETRY_LIMIT)):
+        return False
+    if any(effect.get('type') == 'tiktok_operation' and effect.get('cycle_id') == cycle.get('id')
+           and effect.get('operation') in {'precheck', 'invite', 'relationship'}
+           and effect.get('status') in {'pending', 'running'} for effect in (state.get('effects') or {}).values()):
+        return False
+    return last is None or at - last >= BRIDGE_RETRY_GAP
+
+
+def invite_retry_effect(state, now, *, forced=False):
+    """Nova validação do perfil e, se continuar elegível, o reenvio do convite, tudo sem mensagem ao lead."""
+    if not invite_retry_due(state, now, forced=forced):
+        return None
+    cycle, at = state['cycle'], engine._clock(now)
+    for old in state['effects'].values():
+        if (old.get('type') == 'tiktok_operation' and old.get('operation') == 'precheck'
+                and old.get('cycle_id') == cycle['id'] and old.get('status') == 'outcome_unknown'):
+            old['status'] = 'superseded_by_bridge_retry'
+    effect = _effect(state, 'precheck', at)
+    if not effect:
+        return None
+    effect['payload']['source'] = 'invite_bridge_retry'
+    state['effects'][effect['id']]['payload']['source'] = 'invite_bridge_retry'
+    record = (cycle.get('real_operations') or {}).get('invite') or {}
+    wait = cycle.get('invite_wait') if isinstance(cycle.get('invite_wait'), dict) else {
+        'since': record.get('observed_at'), 'reason': None}
+    wait.update(retries=int(wait.get('retries') or 0) + 1, last_retry_at=engine._stamp(at))
+    cycle['invite_wait'] = wait
+    cycle['invite_retry'] = {'at': engine._stamp(at), 'precheck_effect_id': effect['id'], 'bridge': True,
+                             'previous_invite_job_id': record.get('job_id')}
+    state['revision'] += 1
+    return effect
+
+
 def resolve_tiktok_result(session, effect_id, result, *, now=None, operation_policy=None):
     """Apply a matching durable worker result once, without renewing the window."""
     state, at = engine._state(session), engine._clock(now)
@@ -1671,10 +1927,16 @@ def resolve_tiktok_result(session, effect_id, result, *, now=None, operation_pol
             for old in _invite_attempts(state):
                 if old.get("status") == "outcome_unknown":
                     old["status"] = "superseded_by_retry"
-            job = _effect(state, "invite", at, policy=operation_policy, retry=True)
+            bridge = retry.get("bridge") is True
+            job = _effect(state, "invite", at, policy=operation_policy,
+                          retry=len(_invite_attempts(state)) if bridge else True)
             if job:
                 retry["invite_effect_id"] = job["id"]
                 cycle["phase"] = "inviting"
+                if bridge:
+                    # Reenvio da reconferência: o lead já sabe que eu envio sozinha; a próxima mensagem é o resultado.
+                    state["revision"] += 1
+                    return engine._result(state, effects=[job], operation_settled=True)
                 return _finish(state, at, reply="Vou reenviar seu convite agora, conferindo antes para não duplicar. 🔎", effects=[job])
     if (operation == "invite" and status in {"outcome_unknown", "verification_pending", "failed"}
             and _invite_retry_possible(state)):
@@ -1682,8 +1944,30 @@ def resolve_tiktok_result(session, effect_id, result, *, now=None, operation_pol
         if check:
             return _finish(state, at, effects=[check],
                            reply="O convite ainda não chegou ao TikTok. Vou tentar de novo em alguns minutos, sem duplicar o envio.")
+    if (operation == 'invite' and status in {'outcome_unknown', 'verification_pending', 'failed'}
+            and result.get('reason') in BRIDGE_DOWN_REASONS and _invite_no_write(record)):
+        # Release 41: a ponte de Convites caiu e o TikTok nunca recebeu o pedido (@gabinaresse, 56933, 02/11).
+        # A autorização fica anotada e a reconferência envia sozinha quando a ponte voltar.
+        cycle['phase'] = 'blocked'
+        cycle.pop('invite_retry', None)
+        wait = cycle.get('invite_wait')
+        if isinstance(wait, dict):
+            wait['reason'] = result['reason']
+            state['revision'] += 1
+            return engine._result(state, operation_settled=True)
+        cycle['invite_wait'] = {'since': engine._stamp(at), 'reason': result['reason'], 'retries': 0}
+        return _finish(state, at, reply=conversao.INVITE_WAIT, buttons=[])
+    if (operation == 'precheck' and source == 'invite_bridge_retry'
+            and status in {'verification_pending', 'failed', 'outcome_unknown'}):
+        # A nova validação antes do reenvio falhou: segue esperando, sem mensagem.
+        cycle['phase'] = 'blocked'
+        cycle.pop('invite_retry', None)
+        if isinstance(cycle.get('invite_wait'), dict) and result.get('reason') in BRIDGE_DOWN_REASONS:
+            cycle['invite_wait']['reason'] = result['reason']
+        state['revision'] += 1
+        return engine._result(state, operation_settled=True)
     if form_mode and operation == 'relationship' and source == 'chat_acceptance':
-        return _settle_acceptance_check(state, at, effect, status)
+        return _settle_acceptance_check(state, at, effect, status, operation_policy)
     if form_mode and operation == 'relationship':
         cycle['phase'] = 'form'
         state['revision'] += 1
@@ -1702,11 +1986,23 @@ def resolve_tiktok_result(session, effect_id, result, *, now=None, operation_pol
             return engine._result(state, operation_settled=True)
         cycle['bridge_wait'] = {'since': engine._stamp(at), 'reason': result['reason'], 'retries': 0}
         return _finish(state, at, reply=_BRIDGE_WAIT, buttons=[])
+    # A autorização dada antes da nova validação vale também quando a ponte caiu no meio e a reconferência repetiu a consulta.
+    refresh = (cycle.pop('consent_refresh', None) if operation == 'precheck' and status in {'eligible', 'ineligible'}
+               else None)
+    if (form_mode and operation == 'precheck' and status == 'eligible' and isinstance(refresh, dict)
+            and cycle['facts'].get('consentimento_convite') is True):
+        job = _effect(state, 'invite', at, policy=operation_policy)
+        if job:
+            # O lead já ouviu "Tô enviando o convite": o envio segue em silêncio.
+            cycle['phase'] = 'inviting'
+            state['revision'] += 1
+            return engine._result(state, effects=[job], operation_settled=True)
     if form_mode and operation == 'precheck' and status == 'eligible':
         cycle['phase'] = 'consent_real'
         prompt = _consent_prompt(cycle, operation_policy)
         return _finish(state, at, reply=(_BRIDGE_BACK + '\n\n' + prompt) if bridge_retry else prompt)
     if form_mode and operation == 'invite' and status in {'sent', 'pending', 'pending_verification', 'linked'}:
+        cycle.pop('invite_wait', None)
         handed_off = _form_after_invite(state, at)
         if handed_off is not None:
             return handed_off
@@ -1724,6 +2020,8 @@ def resolve_tiktok_result(session, effect_id, result, *, now=None, operation_pol
         return engine._result(state, operation_settled=True)
     if status in {"verification_pending", "failed", "outcome_unknown"}:
         cycle["phase"] = "blocked"
+        if status == "verification_pending" and result.get("reason") == "shop_unknown":
+            cycle["shop_unknown"] = {"at": engine._stamp(at)}
         reply = (conversao.SHOP_UNKNOWN if status == "verification_pending" and result.get("reason") == "shop_unknown" else
                  "A consulta precisa de uma verificação de segurança no TikTok. Vou aguardar essa verificação antes de avançar."
                  if status == "verification_pending" else

@@ -27,6 +27,38 @@ BRIDGE_BACK = 'Pronto, conferi! ✅'
 SHOP_UNKNOWN = ('Conferi seu @, mas o TikTok não mostrou se o seu TikTok Shop Creator está ativo 😕 '
                 'Dá uma olhada no app e, quando estiver ativo, me manda “pronto” que eu confiro de novo.')
 
+BRIDGE_NOTE = 'Seu @ continua anotado: eu confiro sozinha assim que o sistema do TikTok liberar e te chamo aqui. 😊'
+INVITING = 'Combinado! Tô enviando o convite da Amplify para o seu TikTok agora 🔎 Te aviso aqui assim que sair.'
+INVITE_WHERE = ('O convite da *Amplify* fica no app do TikTok Shop Creator, em *Parcerias* ou *Notificações*. '
+                'Às vezes ele leva alguns minutos para aparecer. Quando aceitar, me manda “aceitei” que eu confiro na hora. 😊')
+
+# Release 41 (conversas de 02/11, aprovadas pelo usuário).
+ACCESS_DONE = ('Seu cadastro já está feito e seu acesso ao *Amplify Club* foi liberado 🎉 '
+               'Para entrar, use o Circle com o mesmo e-mail do cadastro: o convite de acesso foi para esse e-mail. '
+               'Se precisar de algo, é só me chamar por aqui.')
+MISSIONS = ('As campanhas e missões ficam no *Amplify Club*, no Circle. Entre com o mesmo e-mail do cadastro: '
+            'lá você vê as oportunidades abertas e se candidata às que combinam com seu perfil. 😊')
+ACCESS_HINT = 'Seu acesso ao *Amplify Club* já está liberado: entre no Circle com o mesmo e-mail do cadastro. 😊'
+SAMPLES = ('Tem sim! 😊 As campanhas com amostras aparecem no *Amplify Club* e você se candidata às que combinam '
+           'com seu perfil. A liberação de cada amostra depende da marca e da campanha.')
+INVITE_WAIT = ('Sua autorização está anotada! ✅ O sistema do TikTok tá lento para enviar convites agora, '
+               'mas eu envio sozinha assim que liberar e te aviso aqui. Você não precisa fazer nada.')
+INVITE_STILL = 'Sua autorização continua anotada: eu envio o convite sozinha assim que o sistema do TikTok liberar e te aviso aqui. 😊'
+INVITE_CHECK = 'Vou conferir agora no TikTok como está o seu convite 🔎'
+PRIOR_INVITE_CHECK = 'Você já tem um convite da Amplify de antes. Vou conferir agora no TikTok como ele está 🔎'
+INVITE_STEPS = ('Seu convite da *Amplify* está esperando no TikTok. Para aceitar:\n'
+                '1. Abra o app do *TikTok Shop Creator* (ou a Central do criador no TikTok).\n'
+                '2. Vá em *Parcerias* ou em *Notificações*.\n'
+                '3. Toque no convite da *Amplify* e em *Aceitar*.\n\n'
+                'Quando aceitar, me manda “aceitei” que eu confiro na hora. 😊')
+PRIOR_INVITE_RESENT = 'Seu convite anterior não está mais no TikTok, então estou enviando um novo agora 🔎 Te aviso aqui assim que sair.'
+SHOP_STEPS = ('Te mostro o caminho 😊\n'
+              '1. No app do TikTok, abra o seu *perfil*.\n'
+              '2. Toque no menu (as três linhas no canto de cima) e procure *TikTok Shop* ou '
+              '*Central do criador do TikTok Shop*.\n'
+              '3. Siga os passos para ativar a conta de criador do TikTok Shop.\n\n'
+              'Quando aparecer como ativo, me manda “pronto” que eu confiro de novo.')
+
 CONSENT_BUTTONS = ['Pode mandar', 'Tenho uma dúvida']
 CONSENT_QUESTION = 'Posso te mandar o convite no TikTok?'
 DOUBT = ('Claro, pode perguntar! 😊 As dúvidas mais comuns:\n'
