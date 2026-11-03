@@ -15,9 +15,10 @@ FIRST_BUTTONS = ['Mandar meu @', 'Como funciona?']
 HANDLE_HELP = 'Pode mandar! 😊 O @ é o nome que aparece logo abaixo da foto no seu perfil do TikTok, começando com @.'
 WANTS_IN = 'Oba! 😊 Me manda seu @ do TikTok que eu já confiro se seu perfil pode entrar.'
 NOT_NOW = 'Tudo bem! Quando quiser, é só me mandar seu @ do TikTok por aqui. 😊'
-RECEIVED = 'Recebi, {handle}! Já tô conferindo seu perfil 🔎 Leva menos de 1 minuto.'
+# Release 51: sem prometer quanto tempo a conferência leva (card 'ensaio').
+RECEIVED = 'Recebi, {handle}! Já tô conferindo seu perfil 🔎'
 RETURNED = ('Oi de novo! Aqui é a Bia, da Amplify. Ainda tenho seu {handle} anotado. '
-            'Já tô conferindo seu perfil 🔎 Leva menos de 1 minuto.')
+            'Já tô conferindo seu perfil 🔎')
 
 BRIDGE_WAIT = ('Anotei seu @! O sistema do TikTok tá um pouco lento agora, mas eu confiro sozinha assim que liberar '
                'e te chamo aqui. Você não precisa fazer nada 😊')
@@ -26,6 +27,18 @@ BRIDGE_STILL = ('O sistema do TikTok ainda tá lento, mas seu @ está anotado: e
 BRIDGE_BACK = 'Pronto, conferi! ✅'
 SHOP_UNKNOWN = ('Conferi seu @, mas o TikTok não mostrou se o seu TikTok Shop Creator está ativo 😕 '
                 'Dá uma olhada no app e, quando estiver ativo, me manda “pronto” que eu confiro de novo.')
+
+
+def shop_reminder(step):
+    """Release 51: quem precisa ativar o TikTok Shop Creator também recebe lembrete (antes, nenhum)."""
+    if step == 1:
+        return ('Conseguiu olhar o seu TikTok Shop Creator? 😊 Quando estiver ativo, me manda “pronto” '
+                'que eu confiro seu perfil de novo.')
+    if step == 2:
+        return ('Para ativar, abra o TikTok, vá no seu perfil e procure *TikTok Shop* nas ferramentas de criador; '
+                'os nomes das telas podem variar. Depois é só me mandar “pronto” 👇')
+    return ('Seu @ continua anotado por aqui. Quando o TikTok Shop Creator estiver ativo, me manda “pronto” '
+            'que eu confiro de novo. 💙')
 
 BRIDGE_NOTE = 'Seu @ continua anotado: eu confiro sozinha assim que o sistema do TikTok liberar e te chamo aqui. 😊'
 INVITING = 'Combinado! Tô enviando o convite da Amplify para o seu TikTok agora 🔎 Te aviso aqui assim que sair.'
@@ -93,8 +106,9 @@ INVITE_ALREADY_THERE = 'Seu convite já está no TikTok. 😊'
 RELATIONSHIP_RETRY = 'Não consegui consultar o TikTok agora.'
 INVITE_CONFIRMING = 'Tô confirmando o envio no TikTok, já te aviso 😊'
 INVITE_RETRYING = 'Tive um probleminha para enviar, já tô tentando de novo 😊'
-INVITE_FAILED_TEAM = ('Não consegui enviar seu convite agora 😕 Já avisei a equipe da Amplify, e a gente te chama aqui '
-                      'assim que resolver.')
+# Release 51: nada de equipe ou atendimento humano no texto ao lead (o alerta da ponte segue por e-mail).
+INVITE_FAILED_TEAM = ('Não consegui enviar seu convite agora 😕 O TikTok não aceitou o envio para o seu perfil. '
+                      'Sua autorização continua anotada e eu te aviso aqui quando o envio for possível.')
 PROFILE_INELIGIBLE = ('Conferi seu perfil e, por enquanto, ele ainda não pode entrar na Amplify 😕 Quando o seu TikTok '
                       'Shop Creator estiver ativo e liberado, é só me chamar aqui que eu confiro de novo 💙')
 SHOP_RECHECK_SOON = ('Acabei de conferir há pouquinho 😊 Me manda “pronto” de novo daqui a uns 10 minutos que eu '
@@ -143,7 +157,7 @@ def intro_reminder(step):
         return ('Quer contar com campanhas com marcas e orientação sobre produtos no TikTok Shop? 😊 '
                 'Me manda seu @ do TikTok que eu confiro se seu perfil pode entrar.'), []
     if step == 2:
-        return ('A conferência do seu perfil leva 1 minutinho e você não precisa preencher nada agora. '
+        return ('A conferência do seu perfil é feita aqui mesmo e você não precisa preencher nada agora. '
                 'É só me mandar seu @ do TikTok 👇'), []
     return ('Vou deixar seu atendimento em pausa por aqui. Quando quiser, é só me mandar seu @ do TikTok. 😊'), \
         ['Quero entrar', 'Agora não']

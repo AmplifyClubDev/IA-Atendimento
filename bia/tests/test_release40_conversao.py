@@ -83,7 +83,7 @@ class FirstContactTests(unittest.TestCase):
     def test_handle_goes_straight_to_the_profile_check_without_name_or_origin(self):
         # 56748 (@larvitrine) e 56751 (@fabi_augusta) pararam nas perguntas de nome e origem.
         turn = inbound('@larvitrine', inbound(AD)['state'])
-        self.assertEqual(turn['reply'], 'Recebi, @larvitrine! Já tô conferindo seu perfil 🔎 Leva menos de 1 minuto.')
+        self.assertEqual(turn['reply'], 'Recebi, @larvitrine! Já tô conferindo seu perfil 🔎')
         self.assertEqual({effect['operation'] for effect in turn['effects']}, {'lookup', 'precheck'})
         self.assertEqual(turn['state']['cycle']['phase'], 'checking')
         self.assertNotIn('Como posso te chamar', turn['reply'])
@@ -105,7 +105,7 @@ class FirstContactRemindersTests(unittest.TestCase):
         self.assertEqual(len(set(texts)), 3)
         self.assertNotIn(conversao.first_reply(POLICY, True), texts)
         self.assertIn('campanhas com marcas', texts[0])
-        self.assertIn('1 minutinho', texts[1])
+        self.assertIn('feita aqui mesmo', texts[1])  # release 51: sem prometer prazo
         self.assertIn('em pausa', texts[2])
         self.assertEqual(messages[2][1], ['Quero entrar', 'Agora não'])
 

@@ -530,7 +530,10 @@ def _direct_form_reason(text):
 _NOT_INTERESTED = re.compile(
     r'(?:(?:oi|ola|bom dia|boa tarde|boa noite|obrigad[ao]|valeu|ah|entao) )*(?:eu )?'
     r'(?:nao tenho (?:mais )?interesse|nao tenho interesse (?:nao|nenhum)|sem interesse|nao me interessa(?: nao)?|'
-    r'nao (?:estou|to|tou) interessad[ao]|nao quero(?: mais)?(?: participar| me agenciar| ser agenciad[ao]| nada| nao)?)'
+    r'nao (?:estou|to|tou) interessad[ao]|nao quero(?: mais)?(?: participar| me agenciar| ser agenciad[ao]| nada| nao)?'
+    # Release 51: "Cancelar" (53898, 03/11) e pedidos para parar de receber mensagens.
+    r'|(?:pode |quero )?cancela(?:r)?(?: tudo)?|(?:pode )?pare|para de (?:me )?mandar(?: mensage(?:m|ns))?'
+    r'|nao (?:me )?mand[ae] mais(?: mensage(?:m|ns))?|(?:quero )?sair|me tira (?:dai|daqui|dessa lista))'
     r'(?: (?:obrigad[ao]|valeu|nao|por enquanto|agora))*')
 
 
@@ -1292,7 +1295,10 @@ def conversation_topics():
 # Frases dos cartões de contexto que orientam a Bia e nunca vão para o lead
 # (ma.ribeiroh, 30/10: "não devem ser prometidos às categorias inferiores").
 _INTERNAL_SENTENCE = re.compile(r'por si só|não devem? ser prometid|de Diamond em diante|nesta referência'
-                                r'|não estão informad', re.I)
+                                r'|não estão informad'
+                                # Release 51: o atendimento é todo automático; nada de equipe ou atendimento humano.
+                                r'|\bequipe\b|\bo time\b|\bnosso time\b|atendente|atendimento humano|\bhumanos?\b', re.I)
+_ONLY_INTERNAL = 'Sigo com você por aqui 😊'
 
 
 def lead_safe(text):
@@ -1304,7 +1310,7 @@ def lead_safe(text):
         kept = [part for part in re.split(r'(?<=[.!?])\s+', paragraph) if not _INTERNAL_SENTENCE.search(part)]
         if kept:
             paragraphs.append(' '.join(kept))
-    return '\n\n'.join(paragraphs)
+    return '\n\n'.join(paragraphs) or _ONLY_INTERNAL
 
 
 # Quem tenta mandar o @ com espaço ou manda o nome completo (priscila, 30/10).
@@ -1687,7 +1693,7 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
             if check:
                 cycle['lead_recheck_at'] = engine._stamp(at)
                 cycle['phase'] = 'checking'
-                return _finish(state, at, reply='Vou conferir seu perfil de novo agora 🔎 Leva menos de 1 minuto.',
+                return _finish(state, at, reply='Vou conferir seu perfil de novo agora 🔎',
                                effects=[check], buttons=[])
     if cycle["phase"] == "blocked" and _invite_retry_possible(state):
         # A consented invite that never reached TikTok is retried once when the

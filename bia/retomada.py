@@ -22,7 +22,9 @@ from followup import clock
 STEPS = ((1, timedelta(minutes=15)), (2, timedelta(hours=2)), (3, timedelta(hours=23, minutes=30)))
 LINKED_STEPS = ((1, timedelta(hours=2)), (2, timedelta(hours=23, minutes=30)))
 MIN_GAP = timedelta(minutes=10)
-WAITING = frozenset({'intro', 'origin', 'tiktok', 'shop', 'agency', 'consent_real', 'await_acceptance', 'form'})
+WAITING = frozenset({'intro', 'origin', 'tiktok', 'shop', 'agency', 'consent_real', 'await_acceptance', 'form',
+                     # Release 51: 'blocked' só para quem precisa ativar o TikTok Shop (message decide).
+                     'blocked'})
 SCAN_SECONDS = 60
 CATCH_UP_MIN_AGE = timedelta(minutes=2)
 # Release 44: a mensagem já registrada sem resposta da Bia no Chatwoot é reprocessada uma vez, 3 min depois.
@@ -148,6 +150,12 @@ def message(state, step, policy):
         return None
     name = _first_name(cycle)
     hello = 'Oi' + (', ' + name if name else '') + '! '
+    if phase == 'blocked':
+        # Release 51: o lead parado em "ative o TikTok Shop" recebia nada (57030, 56938). Os outros bloqueios
+        # (ponte, convite em conferência) dependem do sistema, não do lead: sem lembrete.
+        if isinstance(cycle.get('shop_unknown'), dict) and not _invite_known(cycle):
+            return hello + conversao.shop_reminder(step), ['Pronto']
+        return None
     if _linked(cycle):
         return conversao.registration_reminder(step, name, PUBLIC_FORM_URL), []
     if phase in {'await_acceptance', 'form'} or _invite_known(cycle):
@@ -184,6 +192,22 @@ def reminder_base(state, last_inbound):
                 and clock(effect.get('created_at'))):
             moments.append(clock(effect['created_at']))
     return max(moments)
+
+
+LAST_SEND = (20, 45)
+
+
+def due_at(base, after, *, last=False):
+    """Quando a etapa vence. Release 51: o último lembrete (23h30) que cairia entre 21h e 8h sai às 20h45 de
+    antes, ainda dentro da janela de 24 h; antes, ele esperava as 8h e a janela já tinha fechado (só 1 de 15 saía)."""
+    target = base + after
+    if not last or send_hour(target):
+        return target
+    local = target.astimezone(BRASILIA)
+    day = local.date() if local.hour >= SEND_HOURS[1] else local.date() - timedelta(days=1)
+    earlier = datetime(day.year, day.month, day.day, *LAST_SEND, tzinfo=BRASILIA).astimezone(timezone.utc)
+    # Nunca colado no lembrete anterior: precisa de pelo menos 2 h depois da última mensagem do lead.
+    return earlier if earlier >= base + timedelta(hours=4) else target
 
 
 def step_key(cycle_id, source_key, step):
@@ -237,7 +261,8 @@ class Retomada:
         if not last_inbound:
             return None
         base = reminder_base(state, last_inbound)
-        due = [step for step, after in steps_for(state) if now - base >= after]
+        steps = steps_for(state)
+        due = [step for step, after in steps if now >= due_at(base, after, last=step == steps[-1][0])]
         if not due or self.repository.get_operation(step_key(cycle['id'], source['event_key'], due[-1])):
             return None
         return due[-1]
