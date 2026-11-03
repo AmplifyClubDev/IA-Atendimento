@@ -85,6 +85,11 @@ def load_settings(environ=None):
         issues.append(phones_issue)
     elif phones:
         settings['gate']['phones'] = phones
+    # Release 47: V5_GATE_MODE=lista (padrão, igual à 46) ou todos (toda a caixa, com as exclusões lidas no Chatwoot).
+    gate_mode = get('V5_GATE_MODE', 'lista').lower() or 'lista'
+    if gate_mode not in {'lista', 'todos'}:
+        issues.append('gate_mode_invalid')
+    settings['gate']['mode'] = 'todos' if gate_mode == 'todos' else 'lista'
     method_issue = invite_method_issue(settings)
     if method_issue:
         issues.append(method_issue)

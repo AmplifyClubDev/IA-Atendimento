@@ -16,9 +16,9 @@
       "sha256": "337fb5d51b36d4c5a7e71d92b9c40a1687fb75359ea2d9a4537701686814b34a"
     },
     {
-      "bytes": 10596,
+      "bytes": 10950,
       "path": "config.py",
-      "sha256": "9c4393e147ddcb0d388925a54512cfed28118a9d0098dab5ac2da33f33f998a4"
+      "sha256": "c66f823dbb29b0c3c1fdf51491977ddbdf7e7d407b66f4ce9759b3b9b5ee31b4"
     },
     {
       "bytes": 4982,
@@ -26,9 +26,9 @@
       "sha256": "027f2d0433b20ed6a9083f8b47af9dbe13b2b55c2832adab4a0e6bae2a3fcb57"
     },
     {
-      "bytes": 5909,
+      "bytes": 6667,
       "path": "contracts.py",
-      "sha256": "f1b09e23852f544ed62a75e5e59ce94168fae50ffa12224a9a490730e5476905"
+      "sha256": "1ceadf6c9199398e3d27576491e77a0dd8a94b948a166e886f87e02118d900d1"
     },
     {
       "bytes": 11080,
@@ -121,9 +121,9 @@
       "sha256": "e7c68df84a07a615289321e657da546b73a0bc54c4ddab86e2bc95f197126641"
     },
     {
-      "bytes": 28310,
+      "bytes": 29253,
       "path": "real_operations.py",
-      "sha256": "9c95ffc291cb307c4b9f5721053728f25d250dac288d8a922704a17a67f6f011"
+      "sha256": "9b6a87df87ba9ff7c389481f0d01b68ae7718215de9b7d6401eb31dfd1cb0bef"
     },
     {
       "bytes": 11753,
@@ -156,14 +156,14 @@
       "sha256": "3711150716a8ecfd90a7b19cd7e49adab180e63686a26c035abc47c939f096ec"
     },
     {
-      "bytes": 30917,
+      "bytes": 33237,
       "path": "retomada.py",
-      "sha256": "a0fd3857cbaee7baafb56b9c1bb36d44beacc6edf798e131f64999547780c9dc"
+      "sha256": "3f8b06f0a139ee5714cfbe87bdcc38a40d7ea1eb7ac283a33f699ee69c8adf2b"
     },
     {
-      "bytes": 88347,
+      "bytes": 89278,
       "path": "server.py",
-      "sha256": "6995d7dd92bec9049a0a8d69639b5cadc199c4f7df387c3740570d9a257f5a73"
+      "sha256": "da8a14c876626b014c41663d56d3c530b008294856b90b5d63bb502693876ff8"
     },
     {
       "bytes": 5013,
@@ -182,9 +182,9 @@
     }
   ],
   "provenance": {
-    "author": "claude-bia-release46-20261102",
-    "base_release": "atendimento-v5-release-20261102-45"
+    "author": "claude-bia-release47-20261103",
+    "base_release": "atendimento-v5-release-20261102-46"
   },
-  "release": "atendimento-v5-release-20261102-46",
+  "release": "atendimento-v5-release-20261103-47",
   "source_count": 36
 }

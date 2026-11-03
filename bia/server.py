@@ -1331,6 +1331,17 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
         event = normalize_chatwoot(request.get_json(silent=True))
         if not event or not allow_inbound(gate, event):
             return jsonify(accepted=False, status="ignored"), 202
+        from contracts import gate_mode, is_test_phone
+        if gate_mode(gate) == 'todos' and not is_test_phone(gate, event.get('sender_phone')):
+            # Release 47: com a caixa inteira, quem está excluído (etiqueta "Renovacao de contrato", responsável ou
+            # controle humano) não recebe resposta; o motivo fica no diagnóstico. Nada é registrado no banco.
+            from retomada import DECISOES, guard_reason
+            control = operation_guard(event)
+            if not isinstance(control, dict) or control.get('allowed') is not True:
+                reason = guard_reason(control, gate)
+                DECISOES.record('entrada', str(event.get('conversation_id')), reason, datetime.now(timezone.utc),
+                                detalhe=control.get('reason') if isinstance(control, dict) else None)
+                return jsonify(accepted=False, status="ignored", reason=reason), 202
         body, code = process_inbound(event)
         return jsonify(**body), code
 
