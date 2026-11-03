@@ -530,6 +530,14 @@ class GuardTests(unittest.TestCase):
         self.assertNotIn('private', json.dumps(result))
         detail['meta']['assignee']['type'] = 'agent_bot'
         self.assertTrue(self.guard(detail)['allowed'])
+
+    def test_api_user_assignee_is_automation_not_a_person(self):
+        # Release 52 (56278, 03/11): o "Amplify Admin" (id 1) é o usuário da API; o lead não pode ficar sem resposta.
+        detail = self.detail()
+        detail['meta']['assignee'] = {'id': 1, 'type': 'user', 'name': 'Amplify Admin'}
+        self.assertTrue(self.guard(detail)['allowed'])
+        detail['meta']['assignee'] = {'id': 7, 'type': 'user', 'name': 'outra pessoa'}
+        self.assertEqual(self.guard(detail)['reason'], 'human_assignee_blocked')
     def test_manual_maintenance_snoozed_and_recipient_mismatch_are_blocked(self):
         for flag in ['manual', 'maintenance', 'automacao_pause']:
             detail = self.detail(); detail['custom_attributes'][flag] = True

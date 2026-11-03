@@ -113,6 +113,14 @@ def gate_exclusion(gate, event, detail):
     return None
 
 
+def automation_assignee_ids():
+    """Release 52: o "Amplify Admin" (id 1) é o usuário da API, não uma pessoa (56278, 03/11: lead de anúncio
+    atribuído a ele ficou sem resposta). V5_AUTOMATION_ASSIGNEE_IDS troca a lista (ids separados por vírgula)."""
+    import os
+    raw = os.environ.get('V5_AUTOMATION_ASSIGNEE_IDS', '1')
+    return frozenset(part.strip() for part in raw.split(',') if part.strip().isdigit())
+
+
 def chatwoot_control_guard(transport, gate, event):
     """Read recipient/control state. Unknown ownership never grants authority."""
     if not allow_inbound(gate, event):
@@ -151,7 +159,8 @@ def chatwoot_control_guard(transport, gate, event):
         assignee = meta.get('assignee')
         if assignee is not None:
             bot_type = str(meta.get('assignee_type') or (assignee.get('type') if isinstance(assignee, dict) else '')).lower()
-            if bot_type not in {'agent_bot', 'agentbot'}:
+            automation = isinstance(assignee, dict) and str(assignee.get('id')) in automation_assignee_ids()
+            if bot_type not in {'agent_bot', 'agentbot'} and not automation:
                 return {'allowed': False, 'reason': 'human_assignee_blocked'}
         return {'allowed': True, 'reason': 'automation_control_confirmed'}
     except Exception:
