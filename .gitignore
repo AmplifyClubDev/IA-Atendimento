@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+.env.*
+*.sqlite3
+*.db
+# Pacotes selados e variáveis da Bia ficam fora do Git (contêm o zip e segredos).
+sealed*/
+variaveis/
+*.zip
+*.log
