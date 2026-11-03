@@ -8,6 +8,7 @@ import json
 import re
 import threading
 from contextlib import contextmanager
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
@@ -738,6 +739,21 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                         policy=lambda: policy_for(settings), registration=registration_status)
 
     def resume_unanswered(event, resumed):
+        if isinstance(resumed, dict) and resumed.pop('reprocess', False):
+            # Release 44: uma mensagem registrada sem resposta da Bia volta a ser processada, uma vez,
+            # com a trava da conversa (o webhook da mesma mensagem não corre junto) e o registro no atendimento.
+            key, conv = inbound_key(event), conversation_key(event)
+            with lock_for(conv):
+                state = repository.load_session(conv)
+                if key in (state.get('reprocessed') or {}):
+                    return {'status': 'skipped', 'reason': 'already_reprocessed'}
+                archive = repository.release_unanswered_event(key, conv)
+                if archive is None:
+                    return {'status': 'skipped', 'reason': 'answered_or_operation_queued'}
+                state.setdefault('reprocessed', {})[key] = {'at': datetime.now(timezone.utc).isoformat(), 'previous': archive}
+                repository.save_session(conv, state)
+                logging.getLogger(__name__).warning('unanswered_event_reprocessed conversation=%s previous_status=%s',
+                                                    conv, archive.get('status'))
         with app.app_context():
             body, _ = process_inbound(event, resumed=resumed)
             return body

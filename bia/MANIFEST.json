@@ -141,9 +141,9 @@
       "sha256": "ee7fdbc3698e5e71d8c256f5834b6cde18303c5762317b301e93bf5c2f1d2712"
     },
     {
-      "bytes": 28864,
+      "bytes": 30553,
       "path": "repository.py",
-      "sha256": "a07f70db95a56dc91171b9dabccbbf87a12a062ba649449a52ce20596ad358c1"
+      "sha256": "27b29326b9bcc057f6b7526ffa3072d4a70c844ddd2c3f61ae7d60d91a9d2941"
     },
     {
       "bytes": 45,
@@ -156,14 +156,14 @@
       "sha256": "3711150716a8ecfd90a7b19cd7e49adab180e63686a26c035abc47c939f096ec"
     },
     {
-      "bytes": 22350,
+      "bytes": 23512,
       "path": "retomada.py",
-      "sha256": "4e0883ecd492bc2b9e7d81a42415a55d542b0eb60770f539808ed6f8e8f947f1"
+      "sha256": "03989b8d09d19ccfed6b307be147c6b221f0a9aff76f22867497a279afb23d98"
     },
     {
-      "bytes": 78031,
+      "bytes": 78016,
       "path": "server.py",
-      "sha256": "3f91eeba68dd22aa50b72fdd28f2d49a20f7b1d3de372d0b7748620b3d7dcd39"
+      "sha256": "ecd15fb79f034aeaf511013899e9b54b1a6206fcdabc24561d1da1435f9c7b27"
     },
     {
       "bytes": 5013,
@@ -182,9 +182,9 @@
     }
   ],
   "provenance": {
-    "author": "claude-bia-release43-20261102",
-    "base_release": "atendimento-v5-release-20261102-42"
+    "author": "claude-bia-release44-20261102",
+    "base_release": "atendimento-v5-release-20261102-43"
   },
-  "release": "atendimento-v5-release-20261102-43",
+  "release": "atendimento-v5-release-20261102-44",
   "source_count": 36
 }
