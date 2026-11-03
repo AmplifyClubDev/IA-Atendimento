@@ -288,9 +288,12 @@ class PosPausa:
         # Release 44: as mensagens já entregues nesta execução (a nova tentativa ou a 1ª resposta) nunca voltam;
         # entre reinícios, a marca 'reprocessed' do atendimento faz o mesmo.
         self.handled = set()
+        # Release 45: contagem para o /ready (a varredura roda a cada minuto, de dia e de noite).
+        self.counts = {'varreduras': 0, 'respondidas': 0, 'reprocessadas': 0}
 
     def status(self):
-        return {'enabled': enabled(self.settings, 'pos_pausa_enabled'), **self.last}
+        return {'enabled': enabled(self.settings, 'pos_pausa_enabled'), 'intervalo_segundos': SCAN_SECONDS,
+                'horario_silencioso': False, **self.counts, **self.last}
 
     def tick(self):
         now = clock(self.now())
@@ -299,10 +302,13 @@ class PosPausa:
         if self.next_scan_at and now < self.next_scan_at:
             return {'status': 'cooldown'}
         self.next_scan_at = now + timedelta(seconds=SCAN_SECONDS)
+        self.counts['varreduras'] += 1
         try:
             outcome = self._scan(now)
         except Exception:
             outcome = {'status': 'unconfirmed'}
+        if outcome.get('status') == 'resumed' and outcome.get('result') in {'completed', 'accepted'}:
+            self.counts['reprocessadas' if outcome.get('reprocess') else 'respondidas'] += 1
         self.last = {**outcome, 'at': now.isoformat()}
         return outcome
 
@@ -329,7 +335,8 @@ class PosPausa:
             resumed = {'texts': texts, **({'reprocess': True} if reprocess else {})}
             self.handled.add(inbound_key(event))
             result = self.process(event, resumed=resumed)
-            return {'status': 'resumed', 'result': (result or {}).get('status')}
+            return {'status': 'resumed', 'result': (result or {}).get('status'), 'reprocess': reprocess,
+                    'conversation': event.get('conversation_id')}
         return {'status': 'idle'}
 
     def _listing(self, base, gate, now):
@@ -388,20 +395,20 @@ class PosPausa:
         if not created or not CATCH_UP_MIN_AGE <= now - created <= CATCH_UP_MAX_AGE:
             return None
         key = 'chatwoot:' + str(gate.get('account_id')) + ':' + str(last.get('id'))
-        reprocess = False
-        if self.repository.event(key):
-            # Release 44 (aprovado pelo usuário): registrada, mas sem resposta da Bia depois dela no Chatwoot
-            # (o aviso de manutenção e o de fora do horário não contam). 56938: lead às 05:42, nada depois.
-            # Uma vez só por mensagem; atendente humano depois dela já fez a mensagem cair acima.
-            if (now - created < REPROCESS_MIN_AGE or key in self.handled
-                    or key in (self.repository.load_session(conv).get('reprocessed') or {})):
-                return None
-            reprocess = True
-        processed = self.repository.load_session(conv).get('processed_inbound') or []
+        session = self.repository.load_session(conv)
+        processed = session.get('processed_inbound') or []
         newest = max((int(item.rsplit(':', 1)[1]) for item in processed
                       if isinstance(item, str) and re.fullmatch(r'chatwoot:1:[1-9][0-9]{0,19}', item)), default=0)
-        if newest >= int(last['id']):
-            return None
+        reprocess = False
+        if self.repository.event(key) or newest >= int(last['id']):
+            # Release 44/45 (aprovado pelo usuário): a decisão é pelo Chatwoot. Sem saída da Bia depois da última
+            # mensagem do lead (o aviso de manutenção e o de fora do horário não contam), ela responde uma vez,
+            # mesmo com a mensagem já registrada ou já marcada como processada (56938, 56935).
+            # Atendente humano depois dela já fez a mensagem cair acima; 'reprocessed' impede repetir.
+            if (now - created < REPROCESS_MIN_AGE or key in self.handled or key in (session.get('reprocessed') or {})):
+                return None
+            reprocess = True
+            newest = min(newest, max((int(m['id']) for m in messages if _bia(m)), default=0))
         texts = []
         for msg in reversed(messages):
             if _bia(msg):

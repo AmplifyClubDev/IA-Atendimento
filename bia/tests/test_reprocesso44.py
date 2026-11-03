@@ -58,7 +58,7 @@ class Lead56938Tests(Unanswered, base.GabinaresseServerTests):
         self.chatwoot_shows(self.LEAD, [self.lead_message(569380, 'Oi! Encontrei a Amplify através do anúncio e quero saber mais',
                                                           self.arrived),
                                         self.maintenance(569381, self.arrived + timedelta(seconds=2))])
-        self.assertEqual(self.pos_pausa(), {'status': 'resumed', 'result': 'completed'})
+        self.assertEqual({k: v for k, v in self.pos_pausa().items() if k in ('status', 'result')}, {'status': 'resumed', 'result': 'completed'})
         texts = self.texts(self.LEAD)
         self.assertEqual(len(texts), 1)
         self.assertIn('Desculpa a demora', texts[0])
@@ -125,7 +125,7 @@ class Cristiane56935Tests(Unanswered, cristiane.CristianeServerTests):
         self.chatwoot_shows(lead, [self.lead_message(80001, 'Já aceitei', now - timedelta(hours=2, minutes=6)),
                                    self.lead_message(80002, 'Quando vou ter as minhas primeiras missões?', now - timedelta(minutes=10))])
         before = len(self.texts(lead))
-        self.assertEqual(self.pos_pausa(), {'status': 'resumed', 'result': 'completed'})
+        self.assertEqual({k: v for k, v in self.pos_pausa().items() if k in ('status', 'result')}, {'status': 'resumed', 'result': 'completed'})
         answers = self.texts(lead)[before:]
         self.assertEqual(len(answers), 1)
         self.assertIn(conversao.MISSIONS, answers[0])
