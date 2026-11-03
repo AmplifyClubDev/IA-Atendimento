@@ -26,6 +26,15 @@ SCAN_SECONDS = 60
 CATCH_UP_MIN_AGE = timedelta(minutes=2)
 CATCH_UP_MAX_AGE = timedelta(hours=23)
 LISTING_PAGES = 20  # até 500 conversas abertas na caixa
+# Release 41: lembretes só entre 8h e 21h de Brasília (UTC-3, sem horário de verão).
+BRASILIA = timezone(timedelta(hours=-3))
+SEND_HOURS = (8, 21)
+
+
+def send_hour(now):
+    """True das 8h às 20h59 de Brasília."""
+    hour = now.astimezone(BRASILIA).hour
+    return SEND_HOURS[0] <= hour < SEND_HOURS[1]
 
 
 def enabled(settings, name):
@@ -47,7 +56,7 @@ def message(state, step, policy):
     from real_journey import PUBLIC_FORM_URL, _first_name, _invite_known, _linked, _policy_fingerprint, policy_valid
     cycle = state.get('cycle') or {}
     facts, phase = cycle.get('facts') or {}, cycle.get('phase')
-    if state.get('cadastro_situacao') == 'confirmado':
+    if state.get('cadastro_situacao') == 'confirmado' or cycle.get('acesso_liberado'):
         return None
     name = _first_name(cycle)
     hello = 'Oi' + (', ' + name if name else '') + '! '
@@ -80,9 +89,11 @@ def step_key(cycle_id, source_key, step):
 
 
 class Retomada:
-    def __init__(self, repository, settings, transport, lock_for, guard, *, now=None, policy=None):
+    def __init__(self, repository, settings, transport, lock_for, guard, *, now=None, policy=None, registration=None):
         self.repository, self.settings, self.transport = repository, settings, transport
         self.lock_for, self.guard = lock_for, guard
+        # Release 41: lê a ficha antes de cada lembrete (Cristiane, 56935: "convite continua" depois do acesso).
+        self.registration = registration
         self.now = now or (lambda: datetime.now(timezone.utc))
         self.policy = policy or (lambda: None)
         self.next_scan_at = None
@@ -137,11 +148,22 @@ class Retomada:
             step = self._due(state, source, now)
             if step is None:
                 return {'status': 'idle'}
+            if not send_hour(now):
+                # A etapa vencida espera as 8h; as anteriores se juntam nela (nunca dois lembretes seguidos).
+                return {'status': 'quiet_hours'}
             delivery = self.repository.conversation_delivery_context(conv, cycle['opened_at'])
             last_reply = clock((delivery.get('last_accepted_reply') or {}).get('at'))
             if (delivery.get('latest_attempt_status') != 'accepted' or not last_reply
                     or now - last_reply < MIN_GAP or not self.repository.followup_clear(conv, state)):
                 return {'status': 'idle'}
+            if callable(self.registration):
+                situation = self.registration(event)
+                if not isinstance(situation, str):
+                    # Sem ler a ficha, nenhum lembrete: ele pode contradizer um cadastro já feito.
+                    return {'status': 'unconfirmed'}
+                if situation != state.get('cadastro_situacao'):
+                    state['cadastro_situacao'] = situation
+                    self.repository.save_session(conv, state)
             payload = message(state, step, self.policy())
             if payload is None:
                 return {'status': 'idle'}

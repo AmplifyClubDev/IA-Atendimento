@@ -36,18 +36,28 @@ def candidates(repository, now):
 
     As 5 conversas paradas em 31/10 (``INITIAL_RECHECK``) vêm primeiro e entram uma vez
     qualquer que seja o motivo registrado da falha; perfil inelegível nunca entra.
+    Release 41: também o convite autorizado que não chegou ao TikTok (``kind='invite'``),
+    reenviado quando a ponte de Convites volta.
     """
-    from real_journey import INITIAL_RECHECK, bridge_retry_due
+    from real_journey import INITIAL_INVITE_RECHECK, INITIAL_RECHECK, bridge_retry_due, invite_retry_due
     found = []
-    for conv in sorted(repository.precheck_conversations(), key=lambda key: (key not in INITIAL_RECHECK, key)):
+    first = INITIAL_RECHECK | INITIAL_INVITE_RECHECK
+    for conv in sorted(repository.precheck_conversations(), key=lambda key: (key not in first, key)):
         state = repository.load_session(conv)
-        if not (state.get('cycle') or {}).get('phase') == 'blocked':
+        cycle = state.get('cycle') or {}
+        if not cycle.get('phase') == 'blocked':
+            continue
+        if (cycle.get('real_operations') or {}).get('invite'):
+            forced = conv in INITIAL_INVITE_RECHECK and not invite_retry_due(state, now)
+            if invite_retry_due(state, now, forced=forced):
+                found.append({'conversation': conv, 'kind': 'invite', 'reason': (cycle.get('invite_wait') or {}).get('reason'),
+                              'forced': forced, 'creator': cycle['facts'].get('tiktok_declarado')})
             continue
         reason = precheck_reason(repository, state)
         forced = conv in INITIAL_RECHECK and not bridge_retry_due(state, now, reason=reason)
         if bridge_retry_due(state, now, reason=reason, forced=forced):
-            found.append({'conversation': conv, 'reason': reason, 'forced': forced,
-                          'creator': state['cycle']['facts'].get('tiktok_declarado')})
+            found.append({'conversation': conv, 'kind': 'precheck', 'reason': reason, 'forced': forced,
+                          'creator': cycle['facts'].get('tiktok_declarado')})
     return found
 
 
@@ -71,20 +81,22 @@ class Reconferencia:
         self.next_scan_at = now + timedelta(seconds=SCAN_SECONDS)
         try:
             rows = candidates(self.repository, now)
-            # A ponte é lida na hora (GET /bridge/ready), nunca de um resultado guardado.
-            if not rows:
-                outcome = {'status': 'idle'}
-            elif self.bridge_ready() is not True:
-                outcome = {'status': 'bridge_not_ready'}
-            else:
-                outcome = {'status': 'idle'}
-                for row in rows:
-                    # One lead per scan: the next one waits for this result.
-                    result = self.start(row['conversation'], row['reason'], forced=row['forced'])
-                    outcome = {'status': 'queued' if (result or {}).get('status') == 'queued' else 'skipped',
-                               'result': (result or {}).get('status')}
-                    if outcome['status'] == 'queued':
-                        break
+            # Cada ponte é lida na hora (GET /bridge/ready), nunca de um resultado guardado, e só se alguém espera por ela.
+            ready = {}
+            outcome = {'status': 'idle'}
+            for row in rows:
+                kind = row.get('kind', 'precheck')
+                if kind not in ready:
+                    ready[kind] = self.bridge_ready(kind) is True
+                if not ready[kind]:
+                    outcome = {'status': 'bridge_not_ready'}
+                    continue
+                # One lead per scan: the next one waits for this result.
+                result = self.start(row['conversation'], row['reason'], forced=row['forced'], kind=kind)
+                outcome = {'status': 'queued' if (result or {}).get('status') == 'queued' else 'skipped',
+                           'result': (result or {}).get('status')}
+                if outcome['status'] == 'queued':
+                    break
         except Exception:
             outcome = {'status': 'unconfirmed'}
         self.last = {**outcome, 'at': now.isoformat()}

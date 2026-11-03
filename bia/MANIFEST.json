@@ -31,9 +31,9 @@
       "sha256": "8c80dc7e3a6d8dedf06acc28ea20dabc397a3ae3aaab1d8c95661acceabe326b"
     },
     {
-      "bytes": 5107,
+      "bytes": 8132,
       "path": "conversao.py",
-      "sha256": "5602ce31827962baf1780123d69754bc5c4569dfe67f1d208d233ca4f70a47da"
+      "sha256": "94827c8afb9aa834de757f3e0b812969d5eeb99016437e60d70a7a4840e85f46"
     },
     {
       "bytes": 32562,
@@ -116,14 +116,14 @@
       "sha256": "7bfd3365ddff0eebceccb3212e0b355d94f176ba1c32eaa29b74b2037f608d16"
     },
     {
-      "bytes": 110093,
+      "bytes": 128910,
       "path": "real_journey.py",
-      "sha256": "758c317a7788ef64adc0defdd6965296a59716a2ecdc15d7b0cded163b9b2d26"
+      "sha256": "dcf4e32b5f4653899104f151d9a275fc93e686745e4756248725d5c7dfd08a33"
     },
     {
-      "bytes": 27171,
+      "bytes": 27301,
       "path": "real_operations.py",
-      "sha256": "556008c423c08ea74b866e2c566df92b9adc91cc664191df4e3919b00def51a7"
+      "sha256": "f817463432bca53d0a8a2c917ac9e73f981e6250953c05584100c11efe63c36c"
     },
     {
       "bytes": 11753,
@@ -131,9 +131,9 @@
       "sha256": "317a220a91ce3c3e30090d7497607c97b6d619e1d1787649cd1947a32ba6a308"
     },
     {
-      "bytes": 4212,
+      "bytes": 5156,
       "path": "reconferencia.py",
-      "sha256": "bf5316444d6354848a7a0a0d7fc0929dfbd96301089f5cb42e7ea9d4eaf089dd"
+      "sha256": "7249cadc8ed7186d8b0e44e07d01e0bac3c34557f871cf909f7555678b537a62"
     },
     {
       "bytes": 13460,
@@ -156,14 +156,14 @@
       "sha256": "3711150716a8ecfd90a7b19cd7e49adab180e63686a26c035abc47c939f096ec"
     },
     {
-      "bytes": 19717,
+      "bytes": 21301,
       "path": "retomada.py",
-      "sha256": "4d638d2b8e5df823d90ec47091fb98f0f6a7e6774d0d61dadff09aa4c2a36939"
+      "sha256": "7f3049ccf0f1030555ce41aceabb778f99de28b9848edef166da13673bb7bdbb"
     },
     {
-      "bytes": 72090,
+      "bytes": 73812,
       "path": "server.py",
-      "sha256": "12b893444454aec74a78edc397a3a773ae7e4f9544626a4b69cca383dcdcb669"
+      "sha256": "d7cf4956eb3720d0a0bbacd1592f15db8a275058d17b689b4a9b417923114330"
     },
     {
       "bytes": 5013,
@@ -182,9 +182,9 @@
     }
   ],
   "provenance": {
-    "author": "claude-bia-release40-2-20261102",
-    "base_release": "atendimento-v5-release-20261102-40-1"
+    "author": "claude-bia-release41-20261102",
+    "base_release": "atendimento-v5-release-20261102-40-2"
   },
-  "release": "atendimento-v5-release-20261102-40-2",
+  "release": "atendimento-v5-release-20261102-41",
   "source_count": 36
 }

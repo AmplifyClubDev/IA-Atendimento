@@ -254,14 +254,15 @@ class BridgeTextsAndInitialListTests(unittest.TestCase):
         scan = reconferencia.Reconferencia(self.repo, {'reconferencia_enabled': True, 'tiktok_mode': 'real',
                                                        'real_worker_enabled': True, 'conversation_enabled': True,
                                                        'gate': {'enabled': True}},
-                                           lambda: calls.append('ready') or True, lambda *_, **__: {'status': 'queued'})
+                                           lambda kind: calls.append(kind) or True, lambda *_, **__: {'status': 'queued'})
         self.assertEqual(scan.tick()['status'], 'idle')
         self.assertEqual(calls, [])
         self.store('56746', self.stuck('human_verification_required')['state'], 'human_verification_required')
         for _ in range(2):
             scan.next_scan_at = None
             self.assertEqual(scan.tick()['status'], 'queued')
-        self.assertEqual(calls, ['ready', 'ready'])  # uma leitura nova a cada varredura, nunca guardada
+        # Uma leitura nova a cada varredura, nunca guardada (release 41: a varredura diz qual ponte lê).
+        self.assertEqual(calls, ['precheck', 'precheck'])
 
     def test_lead_who_returns_after_24h_is_not_asked_for_the_handle_again(self):
         state = self.stuck('human_verification_required')['state']

@@ -682,8 +682,24 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
     executor.followup_status = followup.status
 
     from retomada import PosPausa, Retomada, enabled as conduct_enabled
+    def registration_status(event):
+        """Situação do cadastro na ficha, lida na hora (modo consulta: sem recibo e sem mudar o atendimento)."""
+        if not contact_sync:
+            return 'pendente'
+        try:
+            gateway = app.extensions.get('v5_data_gateway')
+            entrada = {'instancia': _get(settings, 'instance_id'), 'account_id': str(event['account_id']),
+                       'contact_id': str(event['contact_id']), 'conversation_id': str(event['conversation_id']),
+                       'message_id': str(event['message_id']), 'event_id': inbound_key(event), 'revision': 0,
+                       'atendimento_id': None, 'etapa': 'entrada', 'situacao': 'aberto', 'modo_identidade': 'consulta',
+                       'whatsapp': normalize_phone(pilot_phone(gate, event.get('sender_phone')) or gate.get('phone'))}
+            result = gateway.register_contact(entrada)
+            return result.get('cadastro_situacao') if isinstance(result, dict) else None
+        except Exception:
+            return None
+
     retomada = Retomada(repository, settings, transport, lock_for, operation_guard, now=lambda: executor.clock(),
-                        policy=lambda: policy_for(settings))
+                        policy=lambda: policy_for(settings), registration=registration_status)
 
     def resume_unanswered(event, resumed):
         with app.app_context():
@@ -692,22 +708,29 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
 
     pos_pausa = PosPausa(repository, settings, transport, operation_guard, resume_unanswered, now=lambda: executor.clock())
 
-    def precheck_bridge_ready():
-        """A live read-only GET /bridge/ready of the precheck bridge, never the worker's cached probe."""
+    def precheck_bridge_ready(kind='precheck'):
+        """A live read-only GET /bridge/ready, never the worker's cached probe.
+
+        Release 41: ``kind='invite'`` reads the Convites bridge (role ``invites``).
+        """
         try:
-            real_client._ready('precheck')
+            real_client._ready('invites' if kind == 'invite' else 'precheck')
             return True
         except Exception:
             return False
 
-    def retry_bridge_precheck(conv, reason, forced=False):
-        """Queue one silent profile check for a chat stuck while the bridge was down."""
+    def retry_bridge_precheck(conv, reason, forced=False, kind='precheck'):
+        """Queue one silent profile check for a chat stuck while the bridge was down.
+
+        Release 41: ``kind='invite'`` queues the check that re-sends a consented
+        invite that never reached TikTok (the chain continues in the journey).
+        """
         import real_journey
         with app.app_context(), lock_for(conv):
             try:
                 live = repository.load_session(conv)
                 cycle = live.get('cycle') or {}
-                record = (cycle.get('real_operations') or {}).get('precheck') or {}
+                record = (cycle.get('real_operations') or {}).get('invite' if kind == 'invite' else 'precheck') or {}
                 previous = repository.real_job_for_effect(record.get('job_id')) if record.get('job_id') else None
                 origin = (previous or {}).get('event')
                 if (not isinstance(origin, dict) or not allow_inbound(gate, origin) or conversation_key(origin) != conv
@@ -720,11 +743,13 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                 control = operation_guard(origin)
                 if not isinstance(control, dict) or control.get('allowed') is not True:
                     return {'status': 'blocked', 'reason': control.get('reason') if isinstance(control, dict) else None}
-                effect = real_journey.bridge_retry_effect(live, executor.clock(), reason=reason, forced=forced)
+                effect = (real_journey.invite_retry_effect(live, executor.clock(), forced=forced) if kind == 'invite'
+                          else real_journey.bridge_retry_effect(live, executor.clock(), reason=reason, forced=forced))
                 if not effect:
                     return {'status': 'idle'}
-                operation_key = 'bridge-retry:' + effect['id']
-                if not repository.reserve_operation(operation_key, source_key, 'bridge_precheck_retry'):
+                operation_key = ('invite-bridge-retry:' if kind == 'invite' else 'bridge-retry:') + effect['id']
+                if not repository.reserve_operation(operation_key, source_key,
+                                                    'bridge_invite_retry' if kind == 'invite' else 'bridge_precheck_retry'):
                     return {'status': 'failed', 'reason': 'retry_already_reserved'}
                 live = sync_contact(origin, live)
                 jobs = build_jobs(origin, live, [effect])

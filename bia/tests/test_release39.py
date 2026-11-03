@@ -12,6 +12,7 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 
 import contracts
 import conversao
@@ -308,6 +309,10 @@ class RetomadaTests(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.repo = Repository(Path(tmp.name) / 'state.sqlite3')
         self.inbound_at = datetime.now(timezone.utc) - timedelta(minutes=16)
+        # Release 41: lembretes só das 8h às 21h de Brasília. Aqui o horário é livre; o limite tem teste próprio.
+        hours = patch('retomada.send_hour', return_value=True)
+        hours.start()
+        self.addCleanup(hours.stop)
         self.event = {'provider': 'chatwoot', 'event': 'message_created', 'account_id': '1', 'inbox_id': '3',
                       'conversation_id': '40001', 'message_id': '700', 'contact_id': '55', 'sender_phone': PHONE,
                       'sender_type': 'contact', 'message_type': 'incoming', 'private': False,
