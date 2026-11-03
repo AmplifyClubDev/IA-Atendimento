@@ -31,8 +31,8 @@ OTP_TTL, OTP_WAIT, OTP_MAX_ATTEMPTS = 600, 60, 10  # tentativas por e-mail na se
 PENDING_GUIDE = ("Seu @ tem um convite de agenciamento da Amplify aguardando aceite. No TikTok Shop Creator, "
                  "abra Parcerias ou Notificações, aceite o convite da Amplify e depois toque em Verificar novamente.")
 CONFERENCIA = {
-    "perfil_divergente": "Este WhatsApp já está ligado a outro @ na Amplify. Fale com o atendimento para conferirmos.",
-    "contato_divergente": "Este @ já está ligado a outro WhatsApp na Amplify. Use o mesmo WhatsApp do seu atendimento ou fale com a Amplify.",
+    "perfil_divergente": "Este WhatsApp já está ligado a outro @ na Amplify. Confira o @ digitado e use o perfil do seu atendimento. Depois toque em Continuar novamente. Suas respostas permanecem neste navegador.",
+    "contato_divergente": "Este @ já está ligado a outro WhatsApp na Amplify. Confira o @ e informe o mesmo WhatsApp do seu atendimento, com DDD. Depois toque em Continuar novamente. Suas respostas permanecem neste navegador.",
     "email_em_outra_ficha": "Este e-mail já está em outro cadastro. Use outro e-mail ou fale com o atendimento.",
 }
 FORM_ERRORS = {
@@ -229,18 +229,20 @@ def email_of(value, *, optional=False):
 
 def email_state(row, email):
     secret = deps().secret
+    sent = json.loads(row["otp_sent_json"])
+    wait = max(0, int(OTP_WAIT - (time.time() - sent[-1]))) if sent else 0
     if email and row["email_hash"] == tokens.digest(secret, "email", email) and row["email_verified_at"]:
         return {"required": True, "verified": True, "status": "confirmado", "retry_after": 0}
     if not email or row["otp_email_hash"] != tokens.digest(secret, "email", email):
-        return {"required": True, "verified": False, "status": "nao_solicitado", "retry_after": 0}
-    sent = json.loads(row["otp_sent_json"])
-    wait = max(0, int(OTP_WAIT - (time.time() - sent[-1]))) if sent else 0
+        return {"required": True, "verified": False, "status": "nao_solicitado", "retry_after": wait}
     status = row["otp_status"] or "nao_solicitado"
-    if status in ("enviado", "incerto") and (row["otp_expires_at"] or 0) < time.time():
+    if status in ("enviado", "incerto", "enviando") and (row["otp_expires_at"] or 0) <= time.time():
         status = "expirado"
     if row["otp_attempts"] >= OTP_MAX_ATTEMPTS:
         status = "tentativas_esgotadas"
-    return {"required": True, "verified": False, "status": status, "retry_after": wait}
+    return {"required": True, "verified": False, "status": status, "retry_after": wait,
+            "requested_at": sent[-1] if sent else None, "expires_at": row["otp_expires_at"],
+            "request_reference": str(int(sent[-1]))[-6:] if sent else None}
 
 
 @bp.post("/email/estado")
@@ -262,18 +264,29 @@ def email_request():
         raise CadastroError("A confirmação por e-mail ainda não está disponível.", 503)
     if state["retry_after"] > 0:
         return jsonify(state)
-    sent = [at for at in json.loads(row["otp_sent_json"]) if time.time() - at < 3600]
-    if len(sent) >= 5 or not d.store.allow("email:" + client_hash(), 10, 3600):
+    if not d.store.allow("email:" + client_hash(), 10, 3600):
         raise CadastroError("Limite de códigos atingido. Aguarde uma hora antes de solicitar outro.", 429)
     code = f"{secrets.randbelow(1_000_000):06d}"
-    message_id = f"<cadastro-publico-{form_id}-{len(sent)}-{int(time.time())}@amplifyugc.co>"
-    result = d.email.send_code(email, code, message_id)
+    now = time.time()
     email_hash = tokens.digest(d.secret, "email", email)
-    attempts = row["otp_attempts"] if row["otp_email_hash"] == email_hash else 0
-    d.store.update(form_id, otp_email_hash=email_hash,
-                   otp_code_hash=tokens.digest(d.secret, "codigo:" + form_id, code),
-                   otp_expires_at=time.time() + OTP_TTL, otp_attempts=attempts,
-                   otp_sent_json=json.dumps(sent + [time.time()]), otp_status=result)
+    code_hash = tokens.digest(d.secret, "codigo:" + form_id, code)
+    claim = d.store.claim_email_code(form_id, email_hash, code_hash, now=now, ttl=OTP_TTL, wait=OTP_WAIT)
+    if claim == 'limited':
+        raise CadastroError("Limite de códigos atingido. Aguarde uma hora antes de solicitar outro.", 429)
+    if claim == 'submitted':
+        raise CadastroError("Seu cadastro já foi recebido.", 409)
+    if claim != 'claimed':
+        fresh = email_state(d.store.session(form_id), email)
+        if claim == 'waiting':
+            fresh['retry_after'] = max(1, fresh['retry_after'])
+        return jsonify(fresh)
+    message_id = f"<cadastro-publico-{form_id}-{int(now)}@amplifyugc.co>"
+    try:
+        result = d.email.send_code(email, code, message_id)
+    except Exception:
+        # O provedor pode ter aceitado: guardar a incerteza, nunca reenviar aqui.
+        result = 'incerto'
+    d.store.finish_email_code(form_id, code_hash, result)
     return jsonify(email_state(d.store.session(form_id), email))
 
 
@@ -284,21 +297,18 @@ def email_confirm():
     value = body({"email", "code"})
     email = email_of(value["email"])
     code = value["code"]
-    if not isinstance(code, str) or len(code) != 6 or not code.isdigit():
+    if not isinstance(code, str) or len(code) != 6 or not code.isascii() or not code.isdigit():
         raise CadastroError("Digite os 6 números do código recebido.")
     state = email_state(row, email)
     if state["verified"]:
         return jsonify(state)
     if state["status"] not in ("enviado", "incerto"):
         return jsonify({**state, "status": state["status"] if state["status"] != "nao_solicitado" else "expirado"})
-    if not d.store.try_otp_attempt(form_id, OTP_MAX_ATTEMPTS):
-        return jsonify({**state, "status": "tentativas_esgotadas"})
-    if not secrets.compare_digest(row["otp_code_hash"] or "", tokens.digest(d.secret, "codigo:" + form_id, code)):
-        return jsonify({"required": True, "verified": False, "status": "codigo_incorreto", "retry_after": 0})
-    d.store.update(form_id, email_hash=tokens.digest(d.secret, "email", email),
-                   email_sha256=hashlib.sha256(email.encode()).hexdigest(), email_verified_at=now_iso(),
-                   otp_code_hash=None, otp_status="confirmado")
-    return jsonify(email_state(d.store.session(form_id), email))
+    outcome = d.store.confirm_email_code(
+        form_id, tokens.digest(d.secret, 'email', email), tokens.digest(d.secret, 'codigo:' + form_id, code),
+        hashlib.sha256(email.encode()).hexdigest(), now_iso(), now=time.time(), maximum=OTP_MAX_ATTEMPTS)
+    fresh = email_state(d.store.session(form_id), email)
+    return jsonify(fresh if fresh['verified'] else {**fresh, 'status': outcome})
 
 
 # ---------------------------------------------------------------- validação inicial (1ª etapa)

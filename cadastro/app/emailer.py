@@ -21,13 +21,15 @@ class EmailSender:
         message = EmailMessage()
         message["From"] = formataddr(("Amplify — notificações", self.user))
         message["To"] = email
-        message["Subject"] = "Confirme seu e-mail na Amplify 💙"
+        # A referência do pedido também aparece na tela; não inclui o código secreto.
+        reference = message_id.split('@', 1)[0].rsplit('-', 1)[-1][-6:]
+        message["Subject"] = "Confirme seu e-mail na Amplify 💙 — pedido " + reference
         message["Message-ID"] = message_id
         message["Auto-Submitted"] = "auto-generated"
         message["X-Auto-Response-Suppress"] = "All"
         # Texto e HTML iguais ao e-mail do formulário original (src/cadastro_email.py: code_message).
         message.set_content(
-            f"Seu código Amplify é: {code}\n\nDigite no formulário para confirmar seu e-mail. "
+            f"Pedido {reference}. Seu código Amplify é: {code}\n\nDigite no formulário para confirmar seu e-mail. "
             "Válido por 10 minutos. Use o código do pedido mais recente.\n\n"
             "A confirmação não significa que os acessos já foram liberados. "
             "Se você não solicitou este código, ignore esta mensagem. Não compartilhe o código.\n\n"
@@ -37,7 +39,7 @@ class EmailSender:
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:white;border-radius:20px;border:1px solid #e0e6f0">
 <tr><td style="padding:30px 28px;background:#2148d4;color:white;border-radius:20px 20px 0 0"><strong style="font-size:30px">amplify</strong><br><span style="font-size:11px;letter-spacing:3px">CREATOR CLUB</span></td></tr>
 <tr><td style="padding:28px"><h1 style="font-size:24px;margin:0 0 14px">Só falta confirmar seu e-mail 💙</h1>
-<p style="line-height:1.6">Digite este código no formulário da Amplify:</p>
+<p style="line-height:1.6">Pedido <strong>{html.escape(reference)}</strong>. Digite este código no formulário da Amplify:</p>
 <p style="font-size:34px;font-weight:bold;letter-spacing:8px;text-align:center;background:#eef3ff;color:#2148d4;padding:20px 8px;border-radius:12px">{code}</p>
 <p style="font-size:14px;line-height:1.6">Válido por <strong>10 minutos</strong>. Se pedir outro código, use o mais recente.</p>
 <p style="font-size:12px;line-height:1.6;color:#64728a">A confirmação do e-mail não significa que os acessos já foram liberados. Se não foi você quem pediu, ignore esta mensagem. Não compartilhe o código.</p>

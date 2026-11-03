@@ -152,7 +152,8 @@ def intro_reminder(step):
 def registration_reminder(step, name, url):
     hello = 'Oi' + (', ' + name if name else '') + '! '
     if step == 1:
-        return (hello + 'Seu vínculo com a Amplify já está ativo 🎉 Falta só o cadastro: '
-                'seu acesso ao Club sai na hora em que você envia.\n' + url)
-    return (hello + 'Passando para lembrar do seu cadastro na Amplify. Leva poucos minutos e o acesso ao Club '
-            'sai na hora em que você envia. 😊\n' + url)
+        return (hello + 'Seu vínculo com a Amplify já está ativo 🎉 Continue seu cadastro pelo mesmo navegador '
+                'para recuperar as respostas salvas. Se já confirmou o e-mail, siga para as próximas etapas.\n' + url)
+    return (hello + 'Conseguiu concluir seu cadastro na Amplify? Se parou no código, confira o pedido mais recente '
+            'no e-mail e no formulário, inclusive em Spam e Promoções. Se o e-mail já está confirmado, '
+            'continue de onde parou pelo mesmo navegador. 😊\n' + url)

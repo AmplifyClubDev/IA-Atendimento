@@ -76,6 +76,57 @@ class Store:
             return db.execute("UPDATE sessions SET otp_attempts=otp_attempts+1 WHERE form_id=? AND otp_attempts<?",
                               (form_id, maximum)).rowcount == 1
 
+    def claim_email_code(self, form_id, email_hash, code_hash, *, now, ttl, wait):
+        """Reserva antes do SMTP, inclusive entre processos e endereços diferentes."""
+        with self.db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = dict(db.execute("SELECT * FROM sessions WHERE form_id=?", (form_id,)).fetchone())
+            sent = [at for at in json.loads(row['otp_sent_json']) if now - at < 3600]
+            if row['submitted_json']:
+                return 'submitted'
+            if row['email_hash'] == email_hash and row['email_verified_at']:
+                return 'verified'
+            if sent and now - sent[-1] < wait:
+                return 'waiting'
+            if row['otp_status'] == 'enviando' and (row['otp_expires_at'] or 0) > now:
+                return 'waiting'
+            if len(sent) >= 5:
+                return 'limited'
+            attempts = row['otp_attempts'] if row['otp_email_hash'] == email_hash else 0
+            db.execute("""UPDATE sessions SET otp_email_hash=?,otp_code_hash=?,otp_expires_at=?,
+                          otp_attempts=?,otp_sent_json=?,otp_status='enviando' WHERE form_id=?""",
+                       (email_hash, code_hash, now + ttl, attempts, json.dumps(sent + [now]), form_id))
+            return 'claimed'
+
+    def finish_email_code(self, form_id, code_hash, status):
+        if status not in {'enviado', 'devolvido', 'incerto'}:
+            status = 'incerto'
+        with self.db() as db:
+            db.execute("UPDATE sessions SET otp_status=? WHERE form_id=? AND otp_code_hash=? AND otp_status='enviando'",
+                       (status, form_id, code_hash))
+
+    def confirm_email_code(self, form_id, email_hash, code_hash, email_sha256, verified_at, *, now, maximum):
+        """Validação, limite e confirmação usam a mesma geração em uma transação."""
+        import secrets
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = dict(db.execute('SELECT * FROM sessions WHERE form_id=?', (form_id,)).fetchone())
+            if row['email_hash'] == email_hash and row['email_verified_at']:
+                return 'confirmado'
+            if row['otp_email_hash'] != email_hash or (row['otp_expires_at'] or 0) <= now:
+                return 'expirado'
+            if row['otp_status'] not in {'enviado', 'incerto'}:
+                return row['otp_status'] or 'expirado'
+            if row['otp_attempts'] >= maximum:
+                return 'tentativas_esgotadas'
+            db.execute('UPDATE sessions SET otp_attempts=otp_attempts+1 WHERE form_id=?', (form_id,))
+            if not secrets.compare_digest(row['otp_code_hash'] or '', code_hash):
+                return 'codigo_incorreto'
+            db.execute("""UPDATE sessions SET email_hash=?,email_sha256=?,email_verified_at=?,
+                          otp_code_hash=NULL,otp_status='confirmado' WHERE form_id=?""",
+                       (email_hash, email_sha256, verified_at, form_id))
+            return 'confirmado'
+
     def add_attachment(self, form_id, field, key):
         with self.db() as db:
             count = db.execute("SELECT count(*) FROM attachments WHERE form_id=? AND field=?", (form_id, field)).fetchone()[0]

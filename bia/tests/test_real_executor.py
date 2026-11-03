@@ -403,6 +403,9 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(self.applied[0]['status'], 'outcome_unknown')
 
     def test_webhook_enqueues_without_provider_then_worker_chains_real_proof_and_form(self):
+        live_clock = patch(__name__ + '.NOW', datetime.now(timezone.utc))
+        live_clock.start()
+        self.addCleanup(live_clock.stop)
         from server import create_app
         state, effect = self.state('precheck')
         class Transport:
@@ -428,7 +431,9 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(client.calls, [])
         executor = app.extensions['v5_real_executor']
         self.assertIsNone(executor.thread)
-        observed = datetime.now(timezone.utc).isoformat()
+        # Ciclo e worker compartilham o relógio atual usado pela aplicação HTTP.
+        executor.clock = lambda: NOW
+        observed = NOW.isoformat()
         client.result = {'operation': 'precheck', 'creator': 'alice', 'status': 'eligible',
                          'confirmed': True, 'observed_at': observed, 'evidence': {'exact': True}}
         self.assertEqual(executor.tick()['status'], 'completed')
@@ -437,7 +442,7 @@ class ExecutorTests(unittest.TestCase):
         forms = []
         app.extensions['v5_form_link_factory'] = lambda state, effect, event: (forms.append(effect) or 'https://form.invalid/private')
         client.result = {'operation': 'relationship', 'creator': 'alice', 'status': 'linked',
-                         'confirmed': True, 'observed_at': datetime.now(timezone.utc).isoformat(),
+                         'confirmed': True, 'observed_at': NOW.isoformat(),
                          'evidence': {'exact': True, 'active': True}}
         self.assertEqual(executor.tick()['status'], 'completed')
         after = self.repository.load_session(CONV)

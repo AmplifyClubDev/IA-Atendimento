@@ -4,7 +4,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlencode
 from urllib.request import Request, HTTPRedirectHandler, build_opener
 
 from config import PROJECT_REF
@@ -89,6 +89,57 @@ class Gateway:
     def __init__(self, settings, transport=None):
         self.settings = settings
         self.transport = transport
+
+    def registration_status(self, phone, handle):
+        """Consulta restrita: conclusão exige WhatsApp compatível E o mesmo perfil."""
+        phone = re.sub(r'\D', '', str(phone or ''))
+        handle = str(handle or '').lower().lstrip('@')
+        if not re.fullmatch(r'55\d{10,11}', phone) or not re.fullmatch(r'[a-z0-9_][a-z0-9_.]{1,23}', handle):
+            raise SubmissionRejected('registration_identity_missing')
+        variants = {phone}
+        if len(phone) == 13 and phone[4] == '9':
+            variants.add(phone[:4] + phone[5:])
+        elif len(phone) == 12:
+            variants.add(phone[:4] + '9' + phone[4:])
+        base = self.settings.get('v5_url', '').rstrip('/')
+        if base != 'https://' + PROJECT_REF + '.supabase.co':
+            raise SubmissionRejected('v5_target_mismatch')
+        key = self.settings.get('v5_service_key', '')
+        if not key:
+            raise SubmissionRejected('v5_server_key_missing')
+        headers = {'Accept': 'application/json', 'apikey': key, 'Cache-Control': 'no-cache'}
+        if key.startswith('eyJ'):
+            headers['Authorization'] = 'Bearer ' + key
+        query = urlencode({'select': 'id,whatsapp,tiktok,cadastro', 'limit': '10',
+                           'or': '(whatsapp.in.(' + ','.join(sorted(variants)) + '),tiktok.eq.' + handle + ')'})
+        url = base + '/rest/v1/creators?' + query
+        try:
+            if self.transport:
+                rows = self.transport(method='GET', url=url, headers=headers, timeout=10)
+            else:
+                with build_opener(NoRedirect).open(Request(url, headers=headers), timeout=10) as response:
+                    raw = response.read(65537)
+                    if len(raw) > 65536:
+                        raise ValueError()
+                    rows = json.loads(raw)
+            if not isinstance(rows, list) or len(rows) >= 10:
+                raise ValueError()
+            matched = []
+            for row in rows:
+                if not isinstance(row, dict) or set(row) != {'id', 'whatsapp', 'tiktok', 'cadastro'}:
+                    raise ValueError()
+                str(UUID(row['id']))
+                other_phone = re.sub(r'\D', '', str(row['whatsapp'] or ''))
+                other_handle = str(row['tiktok'] or '').lower().lstrip('@')
+                if other_handle == handle and other_phone not in variants:
+                    return 'conferencia'
+                if other_phone in variants and other_handle and other_handle != handle:
+                    return 'conferencia'
+                if other_phone in variants and other_handle == handle and row['cadastro'] == 'Confirmado':
+                    matched.append(row['id'])
+            return 'confirmado' if len(set(matched)) == 1 else 'conferencia' if matched else 'pendente'
+        except (HTTPError, URLError, TimeoutError, OSError, ValueError, TypeError, KeyError):
+            raise SubmissionUnknown('registration_read_unconfirmed') from None
 
     def _rpc(self, name, body):
         base = self.settings.get('v5_url', '').rstrip('/')

@@ -203,6 +203,7 @@ class Retomada:
         self.now = now or (lambda: datetime.now(timezone.utc))
         self.policy = policy or (lambda: None)
         self.next_scan_at = None
+        self.registration_reads = {}
         self.last = {'status': 'not_run'}
 
     def status(self):
@@ -252,6 +253,29 @@ class Retomada:
             idle = lambda reason: {'status': 'idle', 'motivo': reason}
             if not source or not cycle or source.get('cycle_id') != cycle.get('id') or cycle.get('mode') != 'real':
                 return idle('sem_atendimento')
+            # R50: sincroniza a conclusão sem esperar o horário de enviar lembrete.
+            # A referência original da pessoa/atendimento nunca é trocada aqui.
+            situation = None
+            if (callable(self.registration) and not state.get('human_control')
+                    and not state.get('opt_out') and not cycle.get('opt_out')
+                    and not cycle.get('qualification_paused') and not cycle.get('pending_profile_changes')
+                    and (cycle.get('phase') in {'form', 'await_acceptance'}
+                         or self._due(state, source, now) is not None)):
+                previous = self.registration_reads.get(conv)
+                if previous and now - previous[0] < timedelta(seconds=SCAN_SECONDS):
+                    situation = previous[1]
+                else:
+                    situation = self.registration(event)
+                    self.registration_reads[conv] = (now, situation)
+                if not isinstance(situation, str):
+                    return {'status': 'unconfirmed', 'motivo': 'ficha_ilegivel'}
+                if situation != state.get('cadastro_situacao'):
+                    state['cadastro_situacao'] = situation
+                    self.repository.save_session(conv, state)
+                if situation == 'confirmado':
+                    return idle('cadastro_confirmado')
+                if situation == 'conferencia':
+                    return {'status': 'unconfirmed', 'motivo': 'ficha_ilegivel'}
             if cycle.get('status') != 'open':
                 return idle('atendimento_fechado')
             if not expires or now >= expires:
@@ -280,14 +304,6 @@ class Retomada:
             if (delivery.get('latest_attempt_status') != 'accepted' or not last_reply
                     or now - last_reply < MIN_GAP or not self.repository.followup_clear(conv, state)):
                 return idle('intervalo_minimo')
-            if callable(self.registration):
-                situation = self.registration(event)
-                if not isinstance(situation, str):
-                    # Sem ler a ficha, nenhum lembrete: ele pode contradizer um cadastro já feito.
-                    return {'status': 'unconfirmed', 'motivo': 'ficha_ilegivel'}
-                if situation != state.get('cadastro_situacao'):
-                    state['cadastro_situacao'] = situation
-                    self.repository.save_session(conv, state)
             payload = message(state, step, self.policy())
             if payload is None:
                 return idle('cadastro_confirmado' if state.get('cadastro_situacao') == 'confirmado'

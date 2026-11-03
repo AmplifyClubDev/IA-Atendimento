@@ -401,6 +401,15 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
             repository.complete_operation(operation, result)
         state["creator_id"] = result["creator_id"]
         state["cadastro_situacao"] = result.get("cadastro_situacao")
+        handle = _mapping(cycle.get('facts')).get('tiktok_declarado')
+        if handle and callable(getattr(gateway, 'registration_status', None)):
+            try:
+                verified = gateway.registration_status(entrada['whatsapp'], handle)
+                if verified in {'confirmado', 'conferencia'}:
+                    state['cadastro_situacao'] = verified
+            except Exception:
+                # Uma leitura indisponível não autoriza conclusão nem troca de identidade.
+                pass
         if not before:
             state['contact_sync_proof'] = {name: result[name] for name in
                 ('creator_id', 'atendimento_id', 'event_id', 'revision')}
@@ -725,6 +734,11 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
             return 'pendente'
         try:
             gateway = app.extensions.get('v5_data_gateway')
+            current = repository.load_session(conversation_key(event))
+            handle = ((current.get('cycle') or {}).get('facts') or {}).get('tiktok_declarado')
+            if handle and hasattr(gateway, 'registration_status'):
+                return gateway.registration_status(
+                    normalize_phone(pilot_phone(gate, event.get('sender_phone')) or gate.get('phone')), handle)
             entrada = {'instancia': _get(settings, 'instance_id'), 'account_id': str(event['account_id']),
                        'contact_id': str(event['contact_id']), 'conversation_id': str(event['conversation_id']),
                        'message_id': str(event['message_id']), 'event_id': inbound_key(event), 'revision': 0,
