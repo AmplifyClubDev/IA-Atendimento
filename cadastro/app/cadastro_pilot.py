@@ -165,29 +165,20 @@ def adapt_html(html):
         if html.count(before) != 1:
             raise PilotError('pilot_original_html_changed', 503)
         html = html.replace(before, after, 1)
-    before = """async function validateAgencyGate(){
- const handle=normalizeHandle(answers.tiktok);
- const result=await apiRequest('agenciamento',{method:'POST',body:{tiktok:handle}});
- if(result.status!=='aprovada')throw Error(agencyErrorMessage(result));
- agencyApprovedFor=handle;
- return result;
-}"""
-    after = """async function validateAgencyGate(){
- const handle=normalizeHandle(answers.tiktok);
- const deadline=Date.now()+60000;
- let result=await apiRequest('agenciamento',{method:'POST',body:{tiktok:handle}});
- while(result.status==='conferencia'&&result.reason==='verificacao_em_andamento'){
-  if(Date.now()>=deadline)throw Error('A consulta ainda está em andamento. Aguarde um pouco e toque em Verificar para conferir novamente.');
-  el('error').textContent='Estamos conferindo seu vínculo com a Amplify. Aguarde nesta tela…';
-  await new Promise(resolve=>setTimeout(resolve,3000));
-  if(normalizeHandle(answers.tiktok)!==handle)throw Error('O perfil mudou. Confira o @ antes de verificar novamente.');
-  result=await apiRequest('agenciamento');
- }
- if(result.status!=='aprovada')throw Error(agencyErrorMessage(result));
- if(normalizeHandle(answers.tiktok)!==handle)throw Error('O perfil mudou. Confira o @ antes de continuar.');
- agencyApprovedFor=handle;
- return result;
-}"""
+    # A consulta do ensaio pode responder "em andamento": o painel fica em "Validando" e consulta de novo.
+    before = """ try{result=await request;}catch(error){agencyStage('validate','fail','Não foi possível concluir a conferência');throw error;}"""
+    after = """ try{
+  result=await request;
+  const deadline=Date.now()+60000;
+  while(result.status==='conferencia'&&result.reason==='verificacao_em_andamento'){
+   if(Date.now()>=deadline)throw Error('A consulta ainda está em andamento. Aguarde um pouco e toque em Verificar para conferir novamente.');
+   agencyStage('validate','active','Conferindo seu vínculo com a Amplify. Aguarde nesta tela…');
+   await pause(3000);
+   if(normalizeHandle(answers.tiktok)!==handle)throw Error('O perfil mudou. Confira o @ antes de verificar novamente.');
+   result=await apiRequest('agenciamento');
+  }
+  if(result.status==='aprovada'&&normalizeHandle(answers.tiktok)!==handle)throw Error('O perfil mudou. Confira o @ antes de continuar.');
+ }catch(error){agencyStage('validate','fail','Não foi possível concluir a conferência');throw error;}"""
     newline = '\r\n' if html.count(before.replace('\n', '\r\n')) == 1 else '\n'
     before, after = before.replace('\n', newline), after.replace('\n', newline)
     if html.count(before) != 1:
