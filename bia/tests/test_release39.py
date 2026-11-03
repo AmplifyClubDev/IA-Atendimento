@@ -517,11 +517,13 @@ class TenLeadsAfterMaintenanceTests(unittest.TestCase):
 
 
 class PilotCapTests(unittest.TestCase):
-    def test_twenty_one_phones_accepted_twenty_two_refused(self):
-        numbers = [PHONE] + ['+55119876543' + format(index, '02d') for index in range(21)]
-        phones, issue = contracts.parse_pilot_phones(','.join(numbers[:21]), PHONE)
+    def test_one_hundred_phones_accepted_one_hundred_one_refused(self):
+        # Release 40.1 (02/11): o limite subiu de 21 para 100 para liberar novos lotes sem novo pacote.
+        self.assertEqual(contracts.MAX_PILOT_PHONES, 100)
+        numbers = [PHONE] + ['+551198765' + format(index, '04d') for index in range(100)]
+        phones, issue = contracts.parse_pilot_phones(','.join(numbers[:100]), PHONE)
         self.assertIsNone(issue)
-        self.assertEqual(len(phones), 21)
+        self.assertEqual(len(phones), 100)
         self.assertEqual(contracts.parse_pilot_phones(','.join(numbers), PHONE), (None, 'pilot_phones_invalid'))
         settings = load_settings({'V5_TEST_PHONE': PHONE, 'V5_ENABLED': 'true', 'CHATWOOT_ACCOUNT_ID': '1',
                                   'CHATWOOT_INBOX_ID': '3', 'V5_PILOT_PHONES': ','.join(numbers)})

@@ -26,9 +26,9 @@
       "sha256": "027f2d0433b20ed6a9083f8b47af9dbe13b2b55c2832adab4a0e6bae2a3fcb57"
     },
     {
-      "bytes": 5434,
+      "bytes": 5435,
       "path": "contracts.py",
-      "sha256": "d6990e629dc700ff95f89ca41335fd506e3bfe4052bb9e527a701057647483d1"
+      "sha256": "8c80dc7e3a6d8dedf06acc28ea20dabc397a3ae3aaab1d8c95661acceabe326b"
     },
     {
       "bytes": 5107,
@@ -182,9 +182,9 @@
     }
   ],
   "provenance": {
-    "author": "claude-bia-release40-20261101",
-    "base_release": "atendimento-v5-release-20261031-39"
+    "author": "claude-bia-release40-1-20261102",
+    "base_release": "atendimento-v5-release-20261101-40"
   },
-  "release": "atendimento-v5-release-20261101-40",
+  "release": "atendimento-v5-release-20261102-40-1",
   "source_count": 36
 }
