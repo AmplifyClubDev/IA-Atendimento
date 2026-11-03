@@ -24,3 +24,5 @@ Novas mudanças: criar uma branch a partir da `main`, abrir um pull request e me
 ```bash
 cd cadastro && uv run --with pytest --with "psycopg[binary]" --with-requirements app/requirements.txt python -m pytest -q tests
 ```
+
+**Limitação atual:** os testes do Cadastro sobem um Postgres local e aplicam o esquema a partir de pastas que ainda não estão neste repositório (`v5-public-20261028`, `v5-integracao-real-20261028`, `v5-retencao-20261029` e o binário do Postgres em `.maestri`). Por enquanto, eles só rodam na máquina onde esses artefatos existem (43 testes passando em 03/11/2026).
