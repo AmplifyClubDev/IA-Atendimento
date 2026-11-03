@@ -83,6 +83,21 @@ def message(state, step, policy):
     return None
 
 
+def reminder_base(state, last_inbound):
+    """Os lembretes contam da última mensagem do lead ou do último envio de convite, o que vier depois.
+
+    Release 43: a 42 reenviou o convite da @gabinaresse às 18:16 e, 11 min depois, saiu o lembrete
+    "Seu convite continua no TikTok", contado da mensagem dela de manhã.
+    """
+    cycle = state.get('cycle') or {}
+    moments = [last_inbound]
+    for effect in (state.get('effects') or {}).values():
+        if (isinstance(effect, dict) and effect.get('operation') == 'invite' and effect.get('cycle_id') == cycle.get('id')
+                and clock(effect.get('created_at'))):
+            moments.append(clock(effect['created_at']))
+    return max(moments)
+
+
 def step_key(cycle_id, source_key, step):
     digest = hashlib.sha256(('retomada-v1:' + cycle_id + ':' + source_key + ':' + str(step)).encode()).hexdigest()
     return 'retomada:' + digest
@@ -125,7 +140,8 @@ class Retomada:
         last_inbound = clock(cycle.get("last_inbound_at"))
         if not last_inbound:
             return None
-        due = [step for step, after in steps_for(state) if now - last_inbound >= after]
+        base = reminder_base(state, last_inbound)
+        due = [step for step, after in steps_for(state) if now - base >= after]
         if not due or self.repository.get_operation(step_key(cycle['id'], source['event_key'], due[-1])):
             return None
         return due[-1]
@@ -242,8 +258,12 @@ def _automatic(msg):
     """Aviso automático do Chatwoot (regra de automação, como o de manutenção): não é uma resposta.
 
     Mensagem de atendente tem remetente; a de regra de automação não tem e leva automation_rule_id.
+    Release 43: o aviso de fora do horário da caixa é do tipo ``template`` (3), não ``outgoing``
+    (56938 escreveu às 05:42 e a pós-pausa não a via).
     """
     kind = msg.get('message_type')
+    if (kind == 'template' or (type(kind) is int and kind == 3)) and msg.get('private') is False:
+        return True
     outgoing = kind == 'outgoing' or (type(kind) is int and kind == 1)
     return (outgoing and not _bia(msg) and msg.get('private') is False
             and (bool((msg.get('content_attributes') or {}).get('automation_rule_id')) or msg.get('sender') is None))

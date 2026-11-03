@@ -1,10 +1,11 @@
 """Chat sends the invite; only a form-owned read confirms the relationship."""
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import tempfile
 import unittest
 
+import conversao
 import conversation
 import engine
 import real_journey as journey
@@ -123,19 +124,20 @@ class FormHandoffJourneyTests(unittest.TestCase):
                 self.assertNotIn('vínculo foi confirmado', result['reply'].lower())
                 self.assertTrue(journey.form_entry_allowed(result['state'], now=AT))
 
-    def test_create_accepted_pending_verification_can_open_form_without_claiming_linked(self):
-        result = invited('pending_verification', confirmed=False, evidence={'create_accepted': True, 'post_attempted': True})
-        self.assertEqual(result['state']['cycle']['phase'], 'form')
-        self.assertFalse(journey.form_relationship_proven(result['state'], now=AT))
-        self.assertIn(journey.PUBLIC_FORM_URL, result['reply'])
-
-    def test_unknown_or_unaccepted_invite_does_not_claim_sent_or_start_relationship_read(self):
-        for status, evidence in (('outcome_unknown', {'post_attempted': True}), ('pending_verification', {})):
-            with self.subTest(status=status):
+    def test_unconfirmed_invite_never_claims_sent_and_reads_the_list_in_5_minutes(self):
+        # Release 43 (tabela 5b): pending_verification e outcome_unknown não abrem o formulário nem dizem "enviado";
+        # a Bia diz que está confirmando e lê a lista de vínculos 5 min depois.
+        for status, evidence in (('outcome_unknown', {'post_attempted': True}), ('pending_verification', {}),
+                                 ('pending_verification', {'create_accepted': True, 'post_attempted': True})):
+            with self.subTest(status=status, evidence=evidence):
                 result = invited(status, confirmed=False, evidence=evidence)
-                self.assertEqual(result['state']['cycle']['phase'], 'blocked')
-                self.assertEqual(result['effects'], [])
-                self.assertFalse(journey.form_entry_allowed(result['state'], now=AT))
+                self.assertEqual(result['reply'], conversao.INVITE_CONFIRMING)
+                self.assertEqual(result['state']['cycle']['phase'], 'await_acceptance')
+                self.assertEqual([item['operation'] for item in result['effects']], ['relationship'])
+                self.assertEqual(result['effects'][0]['payload']['not_before'], (AT + timedelta(minutes=5)).isoformat())
+                # O formulário confere o vínculo sozinho; com o pedido aceito pela ponte, o link só sai se o lead pedir.
+                self.assertEqual(journey.form_entry_allowed(result['state'], now=AT), evidence.get('create_accepted') is True)
+                self.assertNotIn(journey.PUBLIC_FORM_URL, result['reply'])
 
     def test_form_entry_fences_cycle_handle_marker_and_real_invitation(self):
         # The public form checks the agency link itself; the chat only needs a

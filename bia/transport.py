@@ -11,7 +11,7 @@ from urllib.error import HTTPError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from contracts import allow_inbound, phone_matches, pilot_phone
+from contracts import allow_inbound, normalize_phone, phone_matches, pilot_phone
 
 
 _PROGRESS_PHASES = {
@@ -366,11 +366,15 @@ class ChatwootTransport:
 
     def _send_url_button(self, event, button):
         """One Cloud API cta_url message to the verified pilot phone; False on any doubt."""
-        phone = pilot_phone(self.gate, event.get("sender_phone"))
+        if not pilot_phone(self.gate, event.get("sender_phone")):
+            return False
+        # Release 43: the number WhatsApp itself reported for the lead, never the list's spelling of it
+        # (with or without the Brazilian ninth digit), so the button reaches the same chat as the text.
+        phone = normalize_phone(event.get("sender_phone"))
         if not phone:
             return False
         payload = {"messaging_product": "whatsapp", "recipient_type": "individual",
-                   "to": re.sub(r"\D", "", phone), "type": "interactive",
+                   "to": phone, "type": "interactive",
                    "interactive": {"type": "cta_url", "body": {"text": button["body"]},
                                    "action": {"name": "cta_url", "parameters": {"display_text": button["label"][:20],
                                                                                 "url": button["url"]}}}}

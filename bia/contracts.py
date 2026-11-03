@@ -32,15 +32,19 @@ def _phone_variants(value) -> frozenset[str]:
     if number is None:
         return frozenset()
     values = {number}
-    if re.fullmatch(r"55[1-9][0-9]9[0-9]{8}", number):
+    # Release 43: only a mobile (first local digit 6-9) has the ninth-digit alias, in either direction.
+    if re.fullmatch(r"55[1-9][0-9]9[6-9][0-9]{7}", number):
         values.add(number[:4] + number[5:])
+    elif re.fullmatch(r"55[1-9][0-9][6-9][0-9]{7}", number):
+        # Release 43: the same identity from the other side (56938, +558396914946 sem o 9).
+        values.add(number[:4] + "9" + number[4:])
     return frozenset(values)
 
 
 def phone_matches(configured, received) -> bool:
     """Match only exact variants derived from the configured pilot number."""
     candidate = normalize_phone(received)
-    return candidate is not None and candidate in _phone_variants(configured)
+    return candidate is not None and bool(_phone_variants(candidate) & _phone_variants(configured))
 
 
 def same_phone(first, second) -> bool:

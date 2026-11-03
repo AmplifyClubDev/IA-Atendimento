@@ -215,6 +215,9 @@ class BridgeTextsAndInitialListTests(unittest.TestCase):
     def test_shop_unknown_is_honest_and_the_lead_can_ask_again(self):
         stuck = self.stuck('shop_unknown')
         self.assertEqual(stuck['reply'], conversao.SHOP_UNKNOWN)
+        # Release 43: o "pronto" reconfere no máximo a cada 10 min, contados da consulta que deu Shop sem status.
+        record = stuck['state']['cycle']['real_operations']['precheck']
+        record['observed_at'] = (datetime.fromisoformat(record['observed_at']) - timedelta(minutes=10)).isoformat()
         again = inbound('pronto', stuck['state'])
         self.assertEqual([effect['operation'] for effect in again['effects']], ['precheck'])
         self.assertIn('conferir seu perfil de novo', again['reply'])

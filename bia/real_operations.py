@@ -147,6 +147,8 @@ class RealExecutor:
         self.thread = None
         self.last_guard = 'not_checked'
         self.last_error = None
+        # Release 43: called when a result could not be applied, so the lead hears something honest.
+        self.failure_notice = None
         self._ownership_file = None
         self.session_checks = {}
         self.sessions_checked_at = None
@@ -302,6 +304,13 @@ class RealExecutor:
             job = self.repository.real_job(job['job_key'])
         return self._apply(job)
 
+    def _notify_failure(self, job):
+        if callable(self.failure_notice):
+            try:
+                self.failure_notice(job)
+            except Exception:
+                pass
+
     def _apply(self, job):
         result, now = job.get('result'), self.clock()
         if not isinstance(result, dict):
@@ -335,8 +344,11 @@ class RealExecutor:
                                                        job['operation'], type(error).__name__)
                     self.repository.finish_event(event_key, 'outcome_unknown')
                     self.repository.finish_real_job(job['job_key'], 'outcome_unknown', _stamp(self.clock()))
+                    self._notify_failure(job)
                     return {'status': 'application_outcome_unknown'}
                 if not isinstance(applied, dict) or applied.get('ignored'):
+                    if isinstance(applied, dict) and applied.get('reason') == 'operation_evidence_missing_or_stale':
+                        self._notify_failure(job)
                     self.repository.finish_event(event_key, 'failed')
                     self.repository.finish_real_job(job['job_key'], 'cancelled', _stamp(self.clock()))
                     return {'status': 'result_rejected'}

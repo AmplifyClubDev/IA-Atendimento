@@ -1,4 +1,4 @@
-"""Quem recebe mensagem na primeira varredura da release 42. Só lê.
+"""Quem recebe mensagem na primeira varredura da release 43. Só lê.
 
 Uso: python -I listar_primeira_varredura.py <cópia do state.sqlite3> [instante ISO]
 
@@ -10,7 +10,9 @@ Cobre as varreduras que mandam mensagem sem o lead escrever:
 - pós-pausa: depende do Chatwoot (mensagens sem resposta); aqui só aparece quem tem evento já registrado.
 A varredura começa um lead por minuto, na ordem da lista. O que cada leitura manda depende do que a lista mostrar:
 not_found → reenvio único e o texto 1; pending → nada (ou o passo a passo, se era a prova); linked → o texto 2.
-Mostra em destaque 56933 (@gabinaresse), 56932 (@viralstoresbr), 56629 (@ma.ribeiroh) e 56931 (@sabrinasalazar33).
+Release 43: também o vínculo confirmado cujo aviso não foi entregue (texto 2 de novo) e o envio não confirmado
+pela lista (aviso honesto e novo envio). A pós-pausa depende do Chatwoot: a 56938 aparece só pelo estado guardado.
+Mostra em destaque 56932 (@viralstoresbr), 56933 (@gabinaresse), 56938, 32922, 56629 e 56931.
 """
 from datetime import datetime, timezone
 import json
@@ -27,9 +29,12 @@ import retomada  # noqa: E402
 from reconferencia import candidates, precheck_reason  # noqa: E402
 from repository import Repository  # noqa: E402
 
-FOCUS = ('chatwoot:1:56933', 'chatwoot:1:56932', 'chatwoot:1:56629', 'chatwoot:1:56931', 'chatwoot:1:56935')
-ON_RESULT = {'invite_list_proof': 'not_found: reenvia uma vez e manda o texto 1; pending: passo a passo; linked: texto 2',
-             'invite_tracking': 'linked: texto 2 com o botão Fazer cadastro; pending: nada'}
+FOCUS = ('chatwoot:1:56932', 'chatwoot:1:56933', 'chatwoot:1:56938', 'chatwoot:1:32922', 'chatwoot:1:56629',
+         'chatwoot:1:56931')
+ON_RESULT = {'invite_list_proof': ('not_found: reenvia; o texto 1 sai quando a ponte ou a lista confirmar o convite; '
+                                   'pending: passo a passo; linked: texto 2'),
+             'invite_tracking': ('linked: texto 2 com o botão Fazer cadastro; pending: nada (ou o texto 1, se o envio '
+                                 'esperava a lista); not_found com convite deste atendimento: aviso honesto e novo envio')}
 
 
 def invite_why_not(state, now):
@@ -105,6 +110,7 @@ def reminder(repo, conv, now):
             or cycle.get('phase') not in retomada.WAITING or not expires or now >= expires):
         return None
     last = engine._clock(cycle['last_inbound_at']) if cycle.get('last_inbound_at') else None
+    last = retomada.reminder_base(state, last) if last else None
     due = [step for step, after in retomada.steps_for(state) if last and now - last >= after]
     if not due:
         return None
@@ -132,7 +138,29 @@ def focus(repo, conv, now):
             'vinculo_na_ultima_leitura': (operations.get('relationship') or {}).get('status'),
             'leitura_da_lista_agora': source,
             'se_ler': ON_RESULT.get(source) if source else agency_why_not(state, now),
-            'reenvio_usado': (state.get('invite_resends') or {})}
+            'reenvio_usado': (state.get('invite_resends') or {}),
+            'aviso_do_vinculo': cycle.get('linked_notice'),
+            'envio_esperando_a_lista': cycle.get('invite_verify'),
+            'leituras_paradas': [e.get('id') for e in (state.get('effects') or {}).values()
+                                 if e.get('cycle_id') == cycle.get('id') and real_journey._stale(e, now)],
+            'ultimo_convite_na_ponte': last_invite_result(repo, state)}
+
+
+def last_invite_result(repo, state):
+    """O que a ponte de Convites respondeu na última tentativa (status, motivo e as chaves da evidência)."""
+    cycle = state.get('cycle') or {}
+    attempts = sorted((e for e in (state.get('effects') or {}).values()
+                       if e.get('operation') == 'invite' and e.get('cycle_id') == cycle.get('id')),
+                      key=lambda e: e.get('created_at') or '')
+    if not attempts:
+        return None
+    job = repo.real_job_for_effect(attempts[-1]['id']) or {}
+    result = job.get('result') if isinstance(job.get('result'), dict) else {}
+    evidence = result.get('evidence') if isinstance(result.get('evidence'), dict) else {}
+    return {'tentativas': len(attempts), 'em': attempts[-1].get('created_at'), 'status': result.get('status'),
+            'motivo': result.get('reason'), 'confirmado': result.get('confirmed'),
+            'create_accepted': evidence.get('create_accepted'), 'post_attempted': evidence.get('post_attempted'),
+            'evidencia': sorted(evidence)}
 
 
 def main():
