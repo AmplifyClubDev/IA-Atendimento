@@ -738,22 +738,66 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
     retomada = Retomada(repository, settings, transport, lock_for, operation_guard, now=lambda: executor.clock(),
                         policy=lambda: policy_for(settings), registration=registration_status)
 
+    def resend_stored_reply(event, state, stored, outbox_key):
+        """Release 45: a resposta que a Bia já calculou e não saiu é enviada agora, com o pedido de desculpas."""
+        import conversao
+        import real_journey
+        conv = conversation_key(event)
+        text, buttons = stored['payload']['text'], list(stored['payload'].get('buttons') or [])
+        if real_journey._RESUME_SORRY not in text:
+            for opening in (conversao.OPENING, real_journey._RESUME_OPENING):
+                if text.startswith(opening):
+                    text = opening + ' ' + real_journey._RESUME_SORRY + text[len(opening):]
+                    break
+            else:
+                text = real_journey._RESUME_SORRY + '\n\n' + text
+        control = operation_guard(event)
+        if not isinstance(control, dict) or control.get('allowed') is not True:
+            return {'status': 'blocked', 'reason': 'human_control'}
+        repository.prepare_reply(inbound_key(event), conv, state, outbox_key, {'text': text, 'buttons': buttons})
+        receipt = transport.send_reply(event, text, buttons, outbox_key)
+        status = receipt.get('status', 'outcome_unknown') if isinstance(receipt, dict) else 'outcome_unknown'
+        status = status if status in {'accepted', 'failed', 'outcome_unknown'} else 'outcome_unknown'
+        repository.finish_outbox(outbox_key, status, {name: receipt[name] for name in ('status', 'message_id', 'reason')
+                                                      if isinstance(receipt, dict) and isinstance(receipt.get(name), str)})
+        mark_linked_notice(conv, state, text, status)
+        return {'status': 'completed' if status == 'accepted' else status}
+
     def resume_unanswered(event, resumed):
         if isinstance(resumed, dict) and resumed.pop('reprocess', False):
-            # Release 44: uma mensagem registrada sem resposta da Bia volta a ser processada, uma vez,
-            # com a trava da conversa (o webhook da mesma mensagem não corre junto) e o registro no atendimento.
+            # Release 44/45: a mensagem do lead sem resposta da Bia no Chatwoot é respondida uma vez, com a trava da
+            # conversa (o webhook da mesma mensagem não corre junto) e o registro em 'reprocessed' no atendimento.
+            # Se a Bia já tinha a resposta e ela não saiu, envia essa resposta; senão, processa a mensagem de novo.
             key, conv = inbound_key(event), conversation_key(event)
+            log = logging.getLogger(__name__)
             with lock_for(conv):
                 state = repository.load_session(conv)
                 if key in (state.get('reprocessed') or {}):
                     return {'status': 'skipped', 'reason': 'already_reprocessed'}
-                archive = repository.release_unanswered_event(key, conv)
+                rows = repository.outbox(key) if repository.event(key) else []
+                if any(row.get('status') == 'accepted' for row in rows):
+                    return {'status': 'skipped', 'reason': 'reply_already_accepted'}
+                stored = next((row for row in reversed(rows) if isinstance((row.get('payload') or {}).get('text'), str)
+                               and row['payload']['text'].strip()), None)
+                mark = {'at': datetime.now(timezone.utc).isoformat()}
+                if key in (state.get('processed_inbound') or []) and stored:
+                    state.setdefault('reprocessed', {})[key] = {**mark, 'mode': 'resend_stored_reply',
+                                                                'previous_outbox': {'key': stored['outbox_key'],
+                                                                                    'status': stored['status']}}
+                    repository.save_session(conv, state)
+                    log.warning('unanswered_event_reprocessed conversation=%s mode=resend previous_status=%s',
+                                conv, stored['status'])
+                    with app.app_context():
+                        return resend_stored_reply(event, state, stored, key + ':reenvio')
+                archive = repository.release_unanswered_event(key, conv) if repository.event(key) else {'status': None}
                 if archive is None:
-                    return {'status': 'skipped', 'reason': 'answered_or_operation_queued'}
-                state.setdefault('reprocessed', {})[key] = {'at': datetime.now(timezone.utc).isoformat(), 'previous': archive}
+                    return {'status': 'skipped', 'reason': 'operation_queued_for_message'}
+                if key in (state.get('processed_inbound') or []):
+                    state['processed_inbound'] = [item for item in state['processed_inbound'] if item != key]
+                state.setdefault('reprocessed', {})[key] = {**mark, 'mode': 'process_again', 'previous': archive}
                 repository.save_session(conv, state)
-                logging.getLogger(__name__).warning('unanswered_event_reprocessed conversation=%s previous_status=%s',
-                                                    conv, archive.get('status'))
+                log.warning('unanswered_event_reprocessed conversation=%s mode=process previous_status=%s',
+                            conv, archive.get('status'))
         with app.app_context():
             body, _ = process_inbound(event, resumed=resumed)
             return body
