@@ -75,7 +75,7 @@ class Gabinaresse56933Tests(DaytimeTests):
         state = down['state']
         self.assertEqual(state['cycle']['phase'], 'blocked')
         self.assertFalse(journey.invite_retry_due(state, AT, forced=True))  # sem prova de "nada chegou", a 41 não reenviava
-        self.assertFalse(journey.list_proof_due(state, AT + timedelta(minutes=5)))  # a lista só vale 10 min depois
+        self.assertFalse(journey.list_proof_due(state, AT + timedelta(minutes=4)))  # a lista só vale 5 min depois (43)
         self.assertEqual(journey.agency_read_due(state, AT + timedelta(minutes=15)), 'invite_list_proof')
         read, gone, fresh, sent = self.resend()
         self.assertEqual((read['operation'], read['payload']['source']), ('relationship', 'invite_list_proof'))
@@ -131,8 +131,8 @@ class Gabinaresse56933Tests(DaytimeTests):
         self.assertNotIn('invite_resends', down['state'])
 
     def test_only_one_resend_per_lead(self):
-        sent = self.resend('outcome_unknown')[-1]
-        self.assertEqual((sent['reply'], sent['state']['cycle']['phase']), ('', 'blocked'))
+        sent = self.resend('failed')[-1]
+        self.assertEqual((sent['reply'], sent['state']['cycle']['phase']), (conversao.INVITE_FAILED_TEAM, 'blocked'))
         later = AT + timedelta(hours=2)
         self.assertIsNone(journey.agency_read_due(sent['state'], later))
         self.assertFalse(journey.invite_retry_due(sent['state'], later, forced=True))
@@ -357,7 +357,8 @@ class GabinaresseServerTests(RealCasesTests):
 
         def shift(value):
             if isinstance(value, dict):
-                return {key: shift(item) for key, item in value.items()}
+                # O payload é o mesmo do trabalho na fila: não recua (o executor compara os dois).
+                return {key: item if key == 'payload' else shift(item) for key, item in value.items()}
             if isinstance(value, list):
                 return [shift(item) for item in value]
             if isinstance(value, str) and re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?\+00:00', value):

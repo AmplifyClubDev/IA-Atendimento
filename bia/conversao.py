@@ -75,6 +75,31 @@ INVITE_IS_THERE = ('Seu convite está lá, sim! 😊 Para achar:\n'
                    '3. Procure o convite da Amplify e toque em Aceitar.\n\n'
                    'Se não achar mesmo, me avisa que eu envio de novo.')
 
+# Release 43 (02/11): nenhum lead fica sem resposta em silêncio. Textos novos, para aprovação do usuário.
+NOT_INTERESTED = 'Tudo bem! Se mudar de ideia, é só chamar 💙'
+INVITE_NOT_LANDED = ('O TikTok ainda não mostrou o seu convite 😕 Vou enviar de novo agora e te aviso aqui '
+                     'assim que aparecer.')
+INVITE_STILL_MISSING = ('O TikTok ainda não mostrou o seu convite 😕 Vou continuar conferindo sozinha e te aviso '
+                        'aqui assim que aparecer.')
+INBOUND_FALLBACK = ('Recebi sua mensagem! 🙏 Tive uma instabilidade aqui e não consegui responder agora. '
+                    'Pode me mandar de novo, por favor?')
+OPERATION_FALLBACK = ('Tive uma instabilidade aqui para conferir no TikTok 😕 Vou tentar de novo sozinha e te '
+                      'aviso por aqui.')
+
+# Release 43, seção 5b (códigos das pontes): os dois primeiros vêm da tabela do usuário; os outros, para aprovação.
+# Textos que já existiam no código, com nome para a tabela dos códigos.
+INVITE_SENT = 'Seu convite foi enviado! 🎉'
+INVITE_ALREADY_THERE = 'Seu convite já está no TikTok. 😊'
+RELATIONSHIP_RETRY = 'Não consegui consultar o TikTok agora.'
+INVITE_CONFIRMING = 'Tô confirmando o envio no TikTok, já te aviso 😊'
+INVITE_RETRYING = 'Tive um probleminha para enviar, já tô tentando de novo 😊'
+INVITE_FAILED_TEAM = ('Não consegui enviar seu convite agora 😕 Já avisei a equipe da Amplify, e a gente te chama aqui '
+                      'assim que resolver.')
+PROFILE_INELIGIBLE = ('Conferi seu perfil e, por enquanto, ele ainda não pode entrar na Amplify 😕 Quando o seu TikTok '
+                      'Shop Creator estiver ativo e liberado, é só me chamar aqui que eu confiro de novo 💙')
+SHOP_RECHECK_SOON = ('Acabei de conferir há pouquinho 😊 Me manda “pronto” de novo daqui a uns 10 minutos que eu '
+                     'confiro outra vez.')
+
 CONSENT_BUTTONS = ['Pode mandar', 'Tenho uma dúvida']
 CONSENT_QUESTION = 'Posso te mandar o convite no TikTok?'
 DOUBT = ('Claro, pode perguntar! 😊 As dúvidas mais comuns:\n'

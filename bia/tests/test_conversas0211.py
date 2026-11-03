@@ -349,7 +349,10 @@ class ShopStepsTests(Assertions):
         turn = say('Como faço isso?', unknown['state'])
         self.assertEqual(turn['reply'], conversao.SHOP_STEPS)
         self.assertEqual(turn['effects'], [])
-        ready = say('pronto', turn['state'])
+        # Release 43 (tabela 5b): o "pronto" reconfere no máximo a cada 10 min.
+        soon = say('pronto', turn['state'])
+        self.assertEqual((soon['reply'], soon['effects']), (conversao.SHOP_RECHECK_SOON, []))
+        ready = say('pronto', soon['state'], AT + timedelta(minutes=10))
         self.assertEqual([item['operation'] for item in ready['effects']], ['precheck'])
 
 

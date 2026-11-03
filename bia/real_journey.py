@@ -64,6 +64,7 @@ BRIDGE_DOWN_REASONS = frozenset({'human_verification_required', 'session_not_rea
                                  'precheck_unconfirmed', 'response_unconfirmed', 'executor_result_unconfirmed'})
 BRIDGE_RETRY_LIMIT = 3
 BRIDGE_RETRY_GAP = timedelta(minutes=10)
+INVITE_FAILED_RETRY_SECONDS = 600
 _BRIDGE_WAIT = conversao.BRIDGE_WAIT
 _BRIDGE_STILL = conversao.BRIDGE_STILL
 _BRIDGE_BACK = conversao.BRIDGE_BACK
@@ -85,6 +86,44 @@ _STATUS = {
     "invite": {"sent", "linked", "pending", "ineligible", "pending_verification", "verification_pending", "failed", "outcome_unknown"},
     "relationship": {"linked", "pending", "not_found", "verification_pending", "failed", "outcome_unknown"},
     "lookup": {"observed", "not_found", "verification_pending", "failed", "outcome_unknown"},
+}
+
+
+# Release 43: os códigos das pontes são a chave da automação (ESTADO-DO-ATENDIMENTO.md, seção 5b).
+# Cada código leva a uma ação e a uma mensagem; o teste test_codigos43 percorre todos e confere o comportamento.
+# "mensagem" é o nome do texto em conversao.py; SILENCIO só quando a leitura é automática e nada mudou (regra da 42).
+CLIENT_BLOCKED = ('human_login_required', 'captcha_required', 'mfa_required', 'session_or_partner_context_invalid',
+                  'partner_probe_rejected', 'blocked_by_risk_guard')  # a ponte devolve; o cliente vira human_verification_required
+BRIDGE_CODE_TABLE = {
+    ('relationship', 'linked'): ('mandar o cadastro na hora, sem esperar "aceitei"', 'INVITE_ACCEPTED'),
+    ('relationship', 'pending'): ('acompanhar: 15 min, 2 h, 1 vez por dia; passo a passo se o lead diz que não aparece',
+                                  'INVITE_IS_THERE'),
+    ('relationship', 'not_found'): ('convite dado como feito ou incerto: aviso e reenvio (com a prova da lista); '
+                                    'sem convite: pedir a autorização', 'INVITE_NOT_LANDED'),
+    ('relationship', 'verification_pending'): ('ler de novo: na leitura automática, no próximo horário; pedida pelo lead, '
+                                               'em 5, 15 e 60 min', 'RELATIONSHIP_RETRY'),
+    ('relationship', 'failed'): ('igual a verification_pending', 'RELATIONSHIP_RETRY'),
+    ('relationship', 'outcome_unknown'): ('igual a verification_pending', 'RELATIONSHIP_RETRY'),
+    ('precheck', 'eligible'): ('pedir a autorização do convite', 'consent_full'),
+    ('precheck', 'ineligible'): ('encerrar com respeito', 'PROFILE_INELIGIBLE'),
+    ('precheck', 'verification_pending'): ('Shop sem status: passo a passo e reconferir no "pronto", no máximo a cada '
+                                           '10 min; ponte fora: bridge_wait e reconferência', 'SHOP_UNKNOWN'),
+    ('precheck', 'failed'): ('bridge_wait e reconferência', 'BRIDGE_WAIT'),
+    ('precheck', 'outcome_unknown'): ('bridge_wait e reconferência', 'BRIDGE_WAIT'),
+    ('invite', 'sent'): ('aguardando aceite (o envio já foi conferido na lista)', 'INVITE_SENT'),
+    ('invite', 'linked'): ('mandar o cadastro na hora', 'INVITE_ACCEPTED'),
+    ('invite', 'pending'): ('acompanhar (o convite já estava no TikTok)', 'INVITE_ALREADY_THERE'),
+    ('invite', 'pending_verification'): ('não dizer "enviado"; ler a lista em 5 min e seguir pelo código do vínculo',
+                                         'INVITE_CONFIRMING'),
+    ('invite', 'outcome_unknown'): ('igual a pending_verification', 'INVITE_CONFIRMING'),
+    ('invite', 'verification_pending'): ('ponte fora: invite_wait e reconferência (prova da lista); Shop sem status: '
+                                         'passo a passo', 'INVITE_WAIT'),
+    ('invite', 'ineligible'): ('encerrar com respeito', 'PROFILE_INELIGIBLE'),
+    ('invite', 'failed'): ('1 nova tentativa em 10 min; se falhar de novo, alerta à equipe (atendimento em blocked: '
+                           'o vigia do Cadastro avisa em 30 min)', 'INVITE_RETRYING'),
+    ('invite', 'failed_again'): ('alerta à equipe', 'INVITE_FAILED_TEAM'),
+    **{('*', code): ('bridge_wait (convite: invite_wait) e reconferência quando a ponte voltar',
+                     'BRIDGE_WAIT') for code in CLIENT_BLOCKED + tuple(sorted(BRIDGE_DOWN_REASONS))},
 }
 
 
@@ -221,7 +260,7 @@ def _effect(state, operation, at, *, policy=None, retry=False, list_proof=False)
             return None
         # Release 42: no máximo 1 reenvio por lead, contando o convite de um atendimento anterior.
         resend = list_proof or _prior_invite_requires_reconciliation(state, creator, honor_cleared=False)
-        if resend and resend_used(state, creator):
+        if resend and resend_used(state, creator, unlanded=list_proof == 'unlanded'):
             return None
         consent = cycle.get("invite_consent") or {}
         offer = cycle.get("invite_offer") or {}
@@ -268,7 +307,8 @@ def _effect(state, operation, at, *, policy=None, retry=False, list_proof=False)
         if resend:
             state.setdefault("invite_resends", {})[creator] = {
                 "at": engine._stamp(at), "cycle_id": cycle["id"], "effect_id": identifier,
-                "reason": "list_proof" if list_proof else "prior_invite_not_found"}
+                "reason": "list_proof_unlanded" if list_proof == 'unlanded' else "list_proof" if list_proof
+                else "prior_invite_not_found", "count": resend_count(state, creator) + 1}
     state["effects"][identifier] = effect
     return deepcopy(effect)
 
@@ -482,6 +522,20 @@ def _direct_form_reason(text):
     return None
 
 
+_NOT_INTERESTED = re.compile(
+    r'(?:(?:oi|ola|bom dia|boa tarde|boa noite|obrigad[ao]|valeu|ah|entao) )*(?:eu )?'
+    r'(?:nao tenho (?:mais )?interesse|nao tenho interesse (?:nao|nenhum)|sem interesse|nao me interessa(?: nao)?|'
+    r'nao (?:estou|to|tou) interessad[ao]|nao quero(?: mais)?(?: participar| me agenciar| ser agenciad[ao]| nada| nao)?)'
+    r'(?: (?:obrigad[ao]|valeu|nao|por enquanto|agora))*')
+
+
+def not_interested(text):
+    """Recusa explícita e curta ("Não tenho interesse"); pergunta ou frase longa segue a conversa."""
+    if not isinstance(text, str) or '?' in text or len(text) > 80:
+        return False
+    return bool(_NOT_INTERESTED.fullmatch(engine._normal(text)))
+
+
 def _pause_requested(text):
     """An explicit personal decision to defer is a pause, not another field."""
     import conversation
@@ -551,8 +605,8 @@ def _form_after_invite(state, at):
     cycle['phase'] = 'form'
     cycle['form_url'] = PUBLIC_FORM_URL
     status = cycle['real_operations']['invite']['status']
-    notice = ('Seu convite foi enviado! 🎉' if status == 'sent' else
-              'Seu convite já está no TikTok. 😊' if status == 'pending' else
+    notice = (conversao.INVITE_SENT if status == 'sent' else
+              conversao.INVITE_ALREADY_THERE if status == 'pending' else
               'Recebemos seu pedido de convite. 😊' if status == 'pending_verification' else
               'Seu perfil já tem um registro com a Amplify. 😊')
     reply = (notice + '\n\nAceite o convite no app do TikTok e depois faça seu cadastro por aqui:\n' + PUBLIC_FORM_URL +
@@ -660,6 +714,7 @@ def _linked_reply(state):
     cycle = state['cycle']
     cycle['phase'] = 'form'
     cycle['form_url'] = PUBLIC_FORM_URL
+    _mark_linked_notice(cycle, engine._clock(None))
     if state.get('cadastro_situacao') == 'confirmado':
         return 'Confirmei no TikTok: seu vínculo com a Amplify está ativo! 🎉\n\nSeu cadastro já consta concluído, então não precisa preencher de novo.'
     name = _first_name(cycle)
@@ -745,7 +800,7 @@ def _settle_acceptance_check(state, at, effect, status, policy=None):
     if step == 0:
         found = status in {'pending', 'not_found'}
         reply = (('Ainda não aparece o seu aceite no TikTok. Às vezes leva alguns minutos para atualizar.' if found else
-                  'Não consegui consultar o TikTok agora.')
+                  conversao.RELATIONSHIP_RETRY)
                  + ' Vou conferir de novo sozinha daqui a 5, 15 e 60 minutos e te aviso aqui assim que confirmar. 😊'
                  + ('\n\nSe ainda não aceitou: abra o TikTok Shop Creator, em *Parcerias* ou *Notificações*, '
                     'e aceite o convite da *Amplify*.' if found else ''))
@@ -1414,6 +1469,13 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
             state["history"][-1]["cycle_id"] = cycle["id"]
         cycle['funnel_after_reset'] = True
         return {**_finish(state, at, intro=True, reply=conversation._RESET_GREETING), "fixed_greeting": True}
+    if not_interested(text):
+        # Release 43: uma resposta, com respeito, e o atendimento encerra (32922, 02/11 13:52, ficou sem resposta).
+        cycle.update(status="closed", reason="lead_not_interested", closed_at=engine._stamp(at))
+        for effect in state["effects"].values():
+            if effect.get("cycle_id") == cycle["id"] and effect.get("status") in {"pending", "running"}:
+                effect["status"] = "outcome_unknown" if effect.get('operation') == 'invite' else "cancelled"
+        return {**_finish(state, at, reply=conversao.NOT_INTERESTED, buttons=[]), 'fixed_greeting': True}
     if ("?" not in text and normal in conversation._PAUSE | {'encerrar agora'}) or _pause_requested(text):
         cycle.update(status="closed", reason='inactivity_user_close' if normal == 'encerrar agora' else "lead_pause",
                      closed_at=engine._stamp(at))
@@ -1594,6 +1656,15 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
             last_check = engine._clock(cycle['lead_recheck_at']) if cycle.get('lead_recheck_at') else None
         except (TypeError, ValueError, OverflowError):
             last_check = None
+        if last_check is None and isinstance(cycle.get('shop_unknown'), dict):
+            # Release 43: o "pronto" reconfere no máximo a cada 10 min, contados também da consulta que deu Shop sem status.
+            try:
+                last_check = engine._clock(precheck_record.get('observed_at'))
+            except (TypeError, ValueError, OverflowError):
+                last_check = None
+        if (last_check is not None and at - last_check < BRIDGE_RETRY_GAP and isinstance(cycle.get('shop_unknown'), dict)
+                and re.search(r'\b(?:pronto|prontinho|ativei|ativado|ativo|feito|consegui|liberou|liberado)\b', normal)):
+            return _finish(state, at, reply=conversao.SHOP_RECHECK_SOON, buttons=[])
         if last_check is None or at - last_check >= BRIDGE_RETRY_GAP:
             for old in state['effects'].values():
                 if (old.get('operation') == 'precheck' and old.get('cycle_id') == cycle['id']
@@ -1925,7 +1996,7 @@ def invite_retry_effect(state, now, *, forced=False):
 # Leituras só das 8h às 21h (Brasília): o resultado vira mensagem, então à noite nada é lido e tudo espera as 8h.
 LIST_PROOF_STATUSES = frozenset({'verification_pending', 'outcome_unknown'})
 LIST_PROOF_READ_LIMIT = 3
-LIST_PROOF_MIN_DELAY = timedelta(minutes=10)
+LIST_PROOF_MIN_DELAY = timedelta(minutes=5)  # 43: a lista é lida 5 min depois do envio
 LIST_PROOF_MAX_AGE_SECONDS = 1800
 AGENCY_READ_GAP = timedelta(minutes=15)
 TRACKING_HORIZON = timedelta(days=7)
@@ -1943,8 +2014,30 @@ def tracking_interval(age):
     return timedelta(days=1)
 
 
-def resend_used(state, creator):
-    return bool((state.get('invite_resends') or {}).get(creator))
+def resend_count(state, creator):
+    entry = (state.get('invite_resends') or {}).get(creator)
+    return int(entry.get('count') or 1) if isinstance(entry, dict) else (1 if entry else 0)
+
+
+def resend_used(state, creator, *, unlanded=False):
+    """1 reenvio por lead (42). Release 43: um 2º só quando a lista prova que o 1º não chegou ao TikTok."""
+    return resend_count(state, creator) >= (INVITE_RESEND_LIMIT if unlanded else 1)
+
+
+INVITE_RESEND_LIMIT = 2
+STALE_OPERATION = timedelta(minutes=30)
+
+
+def _stale(effect, at):
+    """Leitura parada há mais de 30 min (o trabalho dela acabou sem aplicar o resultado). Convite nunca é velho."""
+    if effect.get('operation') not in {'precheck', 'relationship'} or effect.get('status') not in {'pending', 'running'}:
+        return False
+    try:
+        start = max(engine._clock(value) for value in (effect.get('created_at'), (effect.get('payload') or {}).get('not_before'))
+                    if value)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    return at - start > STALE_OPERATION
 
 
 def _list_proof(state, at):
@@ -1986,7 +2079,7 @@ def _agency_gate(state, at):
                 and state.get('cadastro_situacao') != 'confirmado'
                 and not any(effect.get('type') == 'tiktok_operation' and effect.get('cycle_id') == cycle.get('id')
                             and effect.get('operation') in {'precheck', 'invite', 'relationship'}
-                            and effect.get('status') in {'pending', 'running'}
+                            and effect.get('status') in {'pending', 'running'} and not _stale(effect, at)
                             for effect in (state.get('effects') or {}).values()))
 
 
@@ -2018,14 +2111,15 @@ def list_proof_due(state, now):
 def _tracking_since(state):
     cycle = state.get('cycle') or {}
     mark = cycle.get('invite_tracking') or {}
-    if mark.get('stopped'):
+    # Release 43: a 42 parava de acompanhar quando o convite deste atendimento sumia da lista (56933, 18:16).
+    if mark.get('stopped') and not (mark.get('stopped') == 'not_found' and _invite_unlanded(cycle)):
         return None
     operations = cycle.get('real_operations') or {}
     invite, relationship = operations.get('invite') or {}, operations.get('relationship') or {}
     value = (mark.get('since') if mark.get('since') else
-             invite.get('observed_at') if (invite.get('status') in TRACKED_INVITE
+             invite.get('observed_at') if (invite.get('status') in TRACKED_INVITE | {'linked'}
                                            and invite.get('cycle_id') == cycle.get('id')) else
-             relationship.get('observed_at') if (relationship.get('status') == 'pending'
+             relationship.get('observed_at') if (relationship.get('status') in {'pending', 'linked'}
                                                  and relationship.get('confirmed') is True
                                                  and relationship.get('cycle_id') == cycle.get('id')) else None)
     try:
@@ -2041,8 +2135,11 @@ def tracking_due(state, now):
         return False
     cycle = state['cycle']
     since = _tracking_since(state)
-    if (not since or cycle.get('phase') not in {'await_acceptance', 'form', 'blocked'} or _linked(cycle)
+    # Release 43: também 'checking_acceptance', onde a 56932 ficou quando o resultado do "Já aceitei" se perdeu.
+    if (not since or cycle.get('phase') not in {'await_acceptance', 'checking_acceptance', 'form', 'blocked'}
             or not timedelta(0) <= at - since < TRACKING_HORIZON):
+        return False
+    if _linked(cycle) and not linked_notice_missing(cycle):
         return False
     mark = cycle.get('invite_tracking') or {}
     try:
@@ -2051,6 +2148,22 @@ def tracking_due(state, now):
     except (TypeError, ValueError, OverflowError):
         return False
     return at - max(reads + [since]) >= tracking_interval(at - since)
+
+
+def linked_notice_missing(cycle):
+    """Release 43: vínculo confirmado sem o aviso entregue (56932: aceitou às 14:42 e nada chegou).
+
+    Sem a marca (atendimentos da 41/42) ou com o envio recusado: mais uma leitura e o texto 2, no máximo 2 vezes.
+    """
+    notice = cycle.get('linked_notice')
+    if not isinstance(notice, dict):
+        return True
+    return notice.get('delivered') is False and int(notice.get('attempts') or 0) < 2
+
+
+def _mark_linked_notice(cycle, at):
+    previous = cycle.get('linked_notice') if isinstance(cycle.get('linked_notice'), dict) else {}
+    cycle['linked_notice'] = {'at': engine._stamp(at), 'delivered': None, 'attempts': int(previous.get('attempts') or 0) + 1}
 
 
 def agency_read_due(state, now):
@@ -2064,12 +2177,17 @@ def agency_read_effect(state, now):
         return None
     cycle, at = state['cycle'], engine._clock(now)
     since = _tracking_since(state)
+    for old in state['effects'].values():
+        if old.get('type') == 'tiktok_operation' and old.get('cycle_id') == cycle['id'] and _stale(old, at):
+            old['status'] = 'superseded_stale'
     effect = _effect(state, 'relationship', at)
     if not effect:
         return None
     for item in (effect, state['effects'][effect['id']]):
         item['payload']['source'] = source
     mark = cycle.get(source) if isinstance(cycle.get(source), dict) else {}
+    if source == 'invite_tracking' and mark.get('stopped') == 'linked':
+        mark.pop('stopped')
     if source == 'invite_tracking' and not mark.get('since'):
         mark['since'] = engine._stamp(since)
     mark.update(reads=int(mark.get('reads') or 0) + 1, last_read_at=engine._stamp(at), effect_id=effect['id'])
@@ -2088,28 +2206,34 @@ def _accepted_reply(state, at):
     cycle['phase'] = 'form'
     cycle['form_url'] = PUBLIC_FORM_URL
     cycle.pop('acceptance_check', None)
-    cycle.setdefault('invite_tracking', {})['stopped'] = 'linked'
+    cycle.pop('invite_verify', None)
+    _mark_linked_notice(cycle, at)
     return _finish(state, at, reply=conversao.INVITE_ACCEPTED + '\n\n' + PUBLIC_FORM_URL, buttons=[],
                    force_form_button=True, exact=True)
 
 
-def _list_proof_resend(state, at, policy):
-    """Reenvio único depois da prova pela lista: valida o perfil de novo se preciso, tudo sem mensagem."""
+def _list_proof_resend(state, at, policy, *, reply=None):
+    """Reenvio depois da prova pela lista: valida o perfil de novo se preciso, sem mensagem (ou com ``reply``)."""
     cycle = state['cycle']
-    job = _effect(state, 'invite', at, policy=policy, list_proof=True)
-    if job:
-        cycle['phase'] = 'inviting'
+    unlanded = (cycle.get('invite_list_proof') or {}).get('source') == 'invite_tracking'
+    proof = 'unlanded' if unlanded else True
+
+    def done(effect, phase):
+        cycle['phase'] = phase
+        if reply:
+            return _finish(state, at, reply=reply, effects=[effect], buttons=[])
         state['revision'] += 1
-        return engine._result(state, effects=[job], operation_settled=True)
+        return engine._result(state, effects=[effect], operation_settled=True)
+    job = _effect(state, 'invite', at, policy=policy, list_proof=proof)
+    if job:
+        return done(job, 'inviting')
     creator = _creator(cycle['facts'].get('tiktok_declarado'))
-    if not precheck_proven(state, now=at) and not resend_used(state, creator) and _list_proof(state, at):
+    if not precheck_proven(state, now=at) and not resend_used(state, creator, unlanded=unlanded) and _list_proof(state, at):
         check = _effect(state, 'precheck', at)
         if check:
             for item in (check, state['effects'][check['id']]):
                 item['payload']['source'] = 'invite_list_proof'
-            cycle['phase'] = 'checking'
-            state['revision'] += 1
-            return engine._result(state, effects=[check], operation_settled=True)
+            return done(check, 'checking')
     return None
 
 
@@ -2137,6 +2261,21 @@ def _settle_agency_read(state, at, effect, result, policy):
             if resent is not None:
                 return resent
         cycle['phase'] = 'blocked'
+    elif status == 'pending' and cycle.pop('invite_verify', None):
+        # Release 43: o envio só é anunciado quando a lista mostra o convite (56933, 02/11 18:16).
+        return _finish(state, at, reply=conversao.invite_sent_now(_first_name(cycle)), buttons=[], exact=True)
+    elif status == 'not_found' and _invite_unlanded(cycle):
+        # Release 43: o convite deste atendimento não está no TikTok. Aviso honesto (uma vez) e novo envio.
+        cycle.pop('invite_verify', None)
+        told = (cycle.get('invite_unlanded') or {}).get('told')
+        cycle['invite_unlanded'] = {'at': engine._stamp(at), 'told': True}
+        cycle['invite_list_proof'] = {'result': 'not_found', 'effect_id': effect['id'], 'source': 'invite_tracking'}
+        resent = _list_proof_resend(state, at, policy, reply=None if told else conversao.INVITE_NOT_LANDED)
+        if resent is not None:
+            return resent
+        cycle.pop('invite_list_proof', None)
+        if not told:
+            return _finish(state, at, reply=conversao.INVITE_STILL_MISSING, buttons=[])
     elif status == 'not_found':
         # O convite pendente sumiu da lista: para de acompanhar; se o lead avisar, a Bia confere na hora.
         cycle.setdefault('invite_tracking', {})['stopped'] = 'not_found'
@@ -2144,11 +2283,87 @@ def _settle_agency_read(state, at, effect, result, policy):
     return engine._result(state, operation_settled=True)
 
 
+def _invite_unlanded(cycle):
+    record = (cycle.get('real_operations') or {}).get('invite') or {}
+    return (record.get('status') in {'sent', 'pending_verification', 'outcome_unknown'}
+            and record.get('cycle_id') == cycle.get('id'))
+
+
+def _confirming(state, at, effect):
+    """Envio sem a confirmação da lista: "Tô confirmando…" e a leitura da lista em 5 min (tabela 5b)."""
+    cycle = state['cycle']
+    cycle['phase'] = 'await_acceptance'
+    cycle['invite_verify'] = {'at': engine._stamp(at), 'effect_id': effect['id']}
+    _start_tracking(cycle, at)
+    read = _effect(state, 'relationship', at)
+    effects = []
+    if read:
+        payload = {'source': 'invite_tracking', 'not_before': engine._stamp(at + LIST_PROOF_MIN_DELAY)}
+        for item in (read, state['effects'][read['id']]):
+            item['payload'].update(payload)
+        cycle['invite_tracking'].update(reads=1, last_read_at=payload['not_before'], effect_id=read['id'])
+        effects.append(read)
+    return _finish(state, at, reply=conversao.INVITE_CONFIRMING, effects=effects, buttons=[], exact=True)
+
+
+def _close_ineligible(state, at):
+    cycle = state['cycle']
+    cycle.update(status='closed', reason='profile_ineligible', closed_at=engine._stamp(at), phase='blocked')
+    for item in state['effects'].values():
+        if item.get('cycle_id') == cycle['id'] and item.get('status') == 'pending':
+            item['status'] = 'cancelled'
+    return _finish(state, at, reply=conversao.PROFILE_INELIGIBLE, buttons=[], exact=True)
+
+
+def _settle_invite_code(state, at, effect, status, result, record, policy):
+    """Resultado do convite pela tabela 5b; None segue o caminho de antes (sent/pending e as tentativas da 41)."""
+    cycle = state['cycle']
+    reason = result.get('reason')
+    if status == 'linked':
+        return _accepted_reply(state, at)
+    if status == 'ineligible':
+        return _close_ineligible(state, at)
+    if status in {'pending_verification', 'outcome_unknown'} and not (_invite_no_write(record) and reason in BRIDGE_DOWN_REASONS):
+        return _confirming(state, at, effect)
+    if status == 'verification_pending':
+        if _invite_no_write(record) and (reason in BRIDGE_DOWN_REASONS or _invite_retry_possible(state)):
+            return None  # 41: reenvio da reconferência ou nova tentativa sem duplicar
+        if (result.get('evidence') or {}).get('shop_status') == 'unknown':
+            cycle['phase'] = 'blocked'
+            cycle['shop_unknown'] = {'at': engine._stamp(at)}
+            return _finish(state, at, reply=conversao.SHOP_UNKNOWN, buttons=[])
+        # Ponte fora antes do envio, sem a prova de que nada chegou: a prova da lista (42) decide o reenvio.
+        cycle['phase'] = 'blocked'
+        if isinstance(cycle.get('invite_wait'), dict):
+            state['revision'] += 1
+            return engine._result(state, operation_settled=True)
+        cycle['invite_wait'] = {'since': engine._stamp(at), 'reason': reason, 'retries': 0}
+        return _finish(state, at, reply=conversao.INVITE_WAIT, buttons=[])
+    if status == 'failed':
+        if _invite_no_write(record) and reason in BRIDGE_DOWN_REASONS:
+            return None
+        if len(_invite_attempts(state)) == 1 and not cycle.get('invite_failed_retry'):
+            cycle['invite_failed_retry'] = {'at': engine._stamp(at), 'reason': reason}
+            check = _schedule_invite_retry(state, at, delay=INVITE_FAILED_RETRY_SECONDS)
+            if check:
+                return _finish(state, at, reply=conversao.INVITE_RETRYING, effects=[check], buttons=[])
+        # 2ª falha: o atendimento fica em blocked e o vigia do Cadastro avisa a equipe em 30 min.
+        cycle.update(phase='blocked', block_reason='invite_failed_twice')
+        cycle['team_alert'] = {'at': engine._stamp(at), 'reason': 'invite_failed_twice', 'last_reason': reason}
+        return _finish(state, at, reply=conversao.INVITE_FAILED_TEAM, buttons=[])
+    return None
+
+
 def _settle_list_proof_invite(state, at, effect, status):
     """Resultado do reenvio único: texto 1 e acompanhamento; falha fica em silêncio (nada de novo reenvio)."""
     cycle = state['cycle']
     if status == 'linked':
         return _accepted_reply(state, at)
+    if status in {'pending_verification', 'outcome_unknown'}:
+        # Release 43: a ponte aceitou o pedido mas a lista ainda não mostra o convite. Nada de "enviado agora".
+        return _confirming(state, at, effect)
+    if status == 'ineligible':
+        return _close_ineligible(state, at)
     if status in TRACKED_INVITE:
         cycle['phase'] = 'await_acceptance'
         _start_tracking(cycle, at)
@@ -2157,6 +2372,15 @@ def _settle_list_proof_invite(state, at, effect, status):
             return _finish(state, at, reply=conversao.INVITE_STEPS, buttons=['Já aceitei'])
         return _finish(state, at, reply=conversao.invite_sent_now(_first_name(cycle)), buttons=[], exact=True)
     cycle['phase'] = 'blocked'
+    if status == 'failed':
+        # Release 43 (tabela 5b): o reenvio também falhou; o atendimento fica em blocked e o vigia avisa a equipe.
+        cycle['block_reason'] = 'invite_failed_twice'
+        cycle['team_alert'] = {'at': engine._stamp(at), 'reason': 'invite_failed_twice'}
+        return _finish(state, at, reply=conversao.INVITE_FAILED_TEAM, buttons=[])
+    if not isinstance(cycle.get('invite_wait'), dict):
+        # Ponte fora no reenvio: o aviso da tabela, uma vez; a prova da lista segue quando a ponte voltar.
+        cycle['invite_wait'] = {'since': engine._stamp(at), 'reason': None, 'retries': 0}
+        return _finish(state, at, reply=conversao.INVITE_WAIT, buttons=[])
     state['revision'] += 1
     return engine._result(state, operation_settled=True)
 
@@ -2194,7 +2418,7 @@ def resolve_tiktok_result(session, effect_id, result, *, now=None, operation_pol
     effect.update(status=("pending" if not form_mode and operation == "relationship" and (status == "pending" or (status == "not_found" and invite_observed)) else
                           "outcome_unknown" if status == "outcome_unknown" else "done"),
                   resolved_at=engine._stamp(at))
-    record = {key: deepcopy(result[key]) for key in ("status", "operation", "creator", "observed_at", "evidence", "confirmed") if key in result}
+    record = {key: deepcopy(result[key]) for key in ("status", "operation", "creator", "observed_at", "evidence", "confirmed", "reason") if key in result}
     record.update(job_id=effect_id, cycle_id=cycle["id"], creator=effect["creator"])
     cycle.setdefault("real_operations", {})[operation] = record
     if operation == "invite":
@@ -2216,6 +2440,12 @@ def resolve_tiktok_result(session, effect_id, result, *, now=None, operation_pol
         return engine._result(state, operation_settled=True)
     if form_mode and operation == 'invite' and (effect.get('payload') or {}).get('list_proof'):
         return _settle_list_proof_invite(state, at, effect, status)
+    if form_mode and operation == 'invite' and not retry.get('bridge'):
+        coded = _settle_invite_code(state, at, effect, status, result, record, operation_policy)
+        if coded is not None:
+            return coded
+    if form_mode and operation == 'precheck' and status == 'ineligible' and source not in {'invite_bridge_retry'}:
+        return _close_ineligible(state, at)
     if operation == "precheck" and retry.get("precheck_effect_id") == effect_id and not retry.get("invite_effect_id"):
         retry["precheck_status"] = status
         if status == "eligible":
@@ -2228,7 +2458,7 @@ def resolve_tiktok_result(session, effect_id, result, *, now=None, operation_pol
             if job:
                 retry["invite_effect_id"] = job["id"]
                 cycle["phase"] = "inviting"
-                if bridge:
+                if bridge or cycle.get('invite_failed_retry'):
                     # Reenvio da reconferência: o lead já sabe que eu envio sozinha; a próxima mensagem é o resultado.
                     state["revision"] += 1
                     return engine._result(state, effects=[job], operation_settled=True)
@@ -2271,7 +2501,8 @@ def resolve_tiktok_result(session, effect_id, result, *, now=None, operation_pol
     if operation == 'precheck' and status in {'eligible', 'ineligible'}:
         cycle.pop('bridge_wait', None)
     if (operation == 'precheck' and status in {'verification_pending', 'failed', 'outcome_unknown'}
-            and result.get('reason') in BRIDGE_DOWN_REASONS and not relationship_proven(state, now=at)):
+            and (result.get('reason') in BRIDGE_DOWN_REASONS or (form_mode and status != 'verification_pending'))
+            and not relationship_proven(state, now=at)):
         cycle['phase'] = 'blocked'
         wait = cycle.get('bridge_wait')
         if bridge_retry and isinstance(wait, dict):

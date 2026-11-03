@@ -26,14 +26,14 @@
       "sha256": "027f2d0433b20ed6a9083f8b47af9dbe13b2b55c2832adab4a0e6bae2a3fcb57"
     },
     {
-      "bytes": 5435,
+      "bytes": 5909,
       "path": "contracts.py",
-      "sha256": "8c80dc7e3a6d8dedf06acc28ea20dabc397a3ae3aaab1d8c95661acceabe326b"
+      "sha256": "f1b09e23852f544ed62a75e5e59ce94168fae50ffa12224a9a490730e5476905"
     },
     {
-      "bytes": 9126,
+      "bytes": 11080,
       "path": "conversao.py",
-      "sha256": "9943f54489f705bc584441c77a98f13e6f59fa8c1e9e86c5546333b8a6919786"
+      "sha256": "22c5a2d8efe19dbc84b1775e1d0ddcef94eb51282be000c1ce80f2ae300d8b80"
     },
     {
       "bytes": 32562,
@@ -116,14 +116,14 @@
       "sha256": "7bfd3365ddff0eebceccb3212e0b355d94f176ba1c32eaa29b74b2037f608d16"
     },
     {
-      "bytes": 146759,
+      "bytes": 161801,
       "path": "real_journey.py",
-      "sha256": "330b0e67efe02b50e38bd191aa40d1eeea55b690f8cffa0fee044f95c4e2847a"
+      "sha256": "e7c68df84a07a615289321e657da546b73a0bc54c4ddab86e2bc95f197126641"
     },
     {
-      "bytes": 27761,
+      "bytes": 28310,
       "path": "real_operations.py",
-      "sha256": "ecc1ecb80227647c4a8ec076f6df75a5b18f2d2a2cfd0a20d630693fef77128e"
+      "sha256": "9c95ffc291cb307c4b9f5721053728f25d250dac288d8a922704a17a67f6f011"
     },
     {
       "bytes": 11753,
@@ -156,14 +156,14 @@
       "sha256": "3711150716a8ecfd90a7b19cd7e49adab180e63686a26c035abc47c939f096ec"
     },
     {
-      "bytes": 21301,
+      "bytes": 22350,
       "path": "retomada.py",
-      "sha256": "7f3049ccf0f1030555ce41aceabb778f99de28b9848edef166da13673bb7bdbb"
+      "sha256": "4e0883ecd492bc2b9e7d81a42415a55d542b0eb60770f539808ed6f8e8f947f1"
     },
     {
-      "bytes": 75337,
+      "bytes": 78031,
       "path": "server.py",
-      "sha256": "9e4a1244527e06fa82649142aea9f8a7e017f0a1a74cb58a4982bb5d792590d9"
+      "sha256": "3f91eeba68dd22aa50b72fdd28f2d49a20f7b1d3de372d0b7748620b3d7dcd39"
     },
     {
       "bytes": 5013,
@@ -171,9 +171,9 @@
       "sha256": "cb389caa9c8119d00013d75752c91bbc2dd70579aa2b187899b894f8c80708f2"
     },
     {
-      "bytes": 23625,
+      "bytes": 23514,
       "path": "transport.py",
-      "sha256": "251dbe9d135c5d1001d36c9e825a0a814e8f3763923e11dc6eeb2ab6507a8247"
+      "sha256": "965c0380df13e001ebd977705509a785964df8fd61ed23a21607d722b250f55e"
     },
     {
       "bytes": 3324,
@@ -182,9 +182,9 @@
     }
   ],
   "provenance": {
-    "author": "claude-bia-release42-20261102",
-    "base_release": "atendimento-v5-release-20261102-41"
+    "author": "claude-bia-release43-20261102",
+    "base_release": "atendimento-v5-release-20261102-42"
   },
-  "release": "atendimento-v5-release-20261102-42",
+  "release": "atendimento-v5-release-20261102-43",
   "source_count": 36
 }

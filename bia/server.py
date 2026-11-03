@@ -230,8 +230,10 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                 if contact_sync and _get(settings, "chatwoot_stages_enabled", False) is True else None)
     app.extensions["v5_chatwoot_progress"] = progress
 
-    def send_current_reply(event, text, buttons, outbox_key, *, source=None):
-        authority = lambda: reply_fence.current(event, source)
+    def send_current_reply(event, text, buttons, outbox_key, *, source=None, fenced=True):
+        # Release 43: a TikTok result (fenced=False) is news the lead is waiting for; it is sent even when a
+        # newer message is still being processed, instead of being dropped in silence (56932, 02/11 14:42).
+        authority = (lambda: reply_fence.current(event, source)) if fenced else (lambda: True)
         if not authority():
             return {'status': 'failed', 'reason': 'reply_superseded_by_new_inbound'}
         # The concrete transport checks again after its recipient GET, directly
@@ -242,6 +244,29 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                 and receipt.get('reason') == 'send_cancelled_before_post' and not authority()):
             return {'status': 'failed', 'reason': 'reply_superseded_by_new_inbound'}
         return receipt
+
+    def mark_linked_notice(conv, state, text, status):
+        """Release 43: o aviso do vínculo (com o cadastro) foi entregue? Se não, a varredura lê e avisa de novo."""
+        import real_journey
+        notice = _mapping(state.get('cycle')).get('linked_notice')
+        if (isinstance(notice, dict) and notice.get('delivered') is None and isinstance(text, str)
+                and real_journey.PUBLIC_FORM_URL in text):
+            notice['delivered'] = status == 'accepted'
+            repository.save_session(conv, state)
+
+    def honest_notice(event, text, key):
+        """Release 43: nenhum lead sem resposta em silêncio. Uma mensagem honesta por conversa e por hora."""
+        try:
+            hour = datetime.now(timezone.utc).strftime('%Y%m%d%H')
+            if not allow_inbound(gate, event) or not repository.reserve_operation(
+                    'honest-notice:' + conversation_key(event) + ':' + hour, inbound_key(event), 'honest_notice'):
+                return None
+            control = operation_guard(event)
+            if not isinstance(control, dict) or control.get('allowed') is not True:
+                return None
+            return transport.send_reply(event, text, [], key)
+        except Exception:
+            return None
 
     def project_registration(row, state, receipt):
         if progress is None or row.get("conversation_key") != "chatwoot:1:26097":
@@ -438,7 +463,7 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                 **({'reconciled_from': reconciled_from, 'reconciled_by': result_event_key} if reconciled_from else {})})
         state = sync_contact(event, state)
         reply_source = reply_fence.processed(state, event) or inbound_key(event)
-        body = {'text': reply, 'buttons': buttons} if reply and reply_fence.current(event, reply_source) else None
+        body = {'text': reply, 'buttons': buttons} if reply else None
         outbox_key = result_event_key + ':reply'
         repository.prepare_reply(result_event_key, conv, state, outbox_key, body, real_jobs=jobs)
         final = 'completed'
@@ -448,13 +473,14 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
             if not isinstance(control, dict) or control.get('allowed') is not True:
                 status, receipt = 'failed', {'reason': 'human_control_changed'}
             else:
-                receipt = send_current_reply(event, reply, buttons, outbox_key, source=reply_source)
+                receipt = send_current_reply(event, reply, buttons, outbox_key, source=reply_source, fenced=False)
                 status = receipt.get('status', 'outcome_unknown') if isinstance(receipt, dict) else 'outcome_unknown'
                 if status not in {'accepted', 'failed', 'outcome_unknown'}:
                     status = 'outcome_unknown'
             safe = {name: receipt[name] for name in ('status', 'message_id', 'reason')
                     if isinstance(receipt, dict) and isinstance(receipt.get(name), str)}
             repository.finish_outbox(outbox_key, status, safe)
+            mark_linked_notice(conv, state, reply, status)
             final = 'completed' if status == 'accepted' or safe.get('reason') == 'reply_superseded_by_new_inbound' else status
         repository.finish_event(result_event_key, final)
         if progress is not None:
@@ -485,6 +511,16 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
             return apply_real(job, state, result, result_event_key)
 
     executor = RealExecutor(repository, real_client, settings, lock_for, operation_guard, apply_real_in_app_context)
+
+    def operation_failure(job):
+        """Release 43: uma consulta pedida pelo lead que falhou vira um aviso honesto; as da varredura seguem em silêncio."""
+        import conversao
+        from real_operations import AGENCY_SOURCES
+        source = (job.get('payload') or {}).get('source')
+        if job.get('operation') == 'lookup' or source in AGENCY_SOURCES | {'bridge_retry', 'invite_bridge_retry', 'invite_list_proof'}:
+            return None
+        return honest_notice(job.get('event') or {}, conversao.OPERATION_FALLBACK, 'falha:' + job['job_key'])
+    executor.failure_notice = operation_failure
     app.extensions['v5_real_executor'] = executor
 
     def verify_form_relationship(state, event=None, *, creator, operation_key=None, now=None, start=True,
@@ -1102,6 +1138,7 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                         safe_receipt = {name: receipt[name] for name in ("status", "message_id", "reason")
                                         if isinstance(receipt, dict) and name in receipt and isinstance(receipt[name], str)}
                         repository.finish_outbox(outbox_key, status, safe_receipt)
+                        mark_linked_notice(conv, state, reply, status)
                         final = "completed" if status == "accepted" or safe_receipt.get("reason") == "reply_superseded_by_new_inbound" else status
                     else:
                         final = "completed"
@@ -1129,6 +1166,13 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                         repository.finish_event(key, "outcome_unknown")
                     except Exception:
                         pass
+                    try:
+                        answered = any(row.get("status") == "accepted" for row in repository.outbox(key) or [])
+                    except Exception:
+                        answered = False
+                    if not answered:
+                        import conversao
+                        honest_notice(event, conversao.INBOUND_FALLBACK, key.replace('chatwoot:', 'falha:') + ':fallback')
                     return dict(accepted=True, duplicate=False, status="outcome_unknown"), 202
 
     app.extensions['v5_process_inbound'] = process_inbound

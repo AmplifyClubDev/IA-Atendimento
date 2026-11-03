@@ -138,7 +138,10 @@ class WorkerFormContextTests(unittest.TestCase):
         self.assertEqual(self.case.repository.get_operation(row["operation_key"])["status"], "outcome_unknown")
         self.assertEqual(self.case.repository.event(row["event_key"])["status"], "outcome_unknown")
         self.assertEqual(self.case.repository.outbox(row["event_key"]), [])
-        self.assertEqual(self.transport.calls, [])
+        # Release 43: the lead hears one honest notice instead of silence; the result itself is never replayed.
+        import conversao
+        self.assertEqual([call[1] for call in self.transport.calls], [conversao.OPERATION_FALLBACK])
+        self.transport.calls.clear()
         return dict(row), before
 
     def test_original_failure_same_revision_reconciles_local_form_after_fresh_read_once(self):
