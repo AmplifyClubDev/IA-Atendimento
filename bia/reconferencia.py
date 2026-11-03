@@ -87,25 +87,41 @@ class Reconferencia:
         if self.next_scan_at and now < self.next_scan_at:
             return {'status': 'cooldown'}
         self.next_scan_at = now + timedelta(seconds=SCAN_SECONDS)
+        from retomada import DECISOES, send_error
+        DECISOES.start('reconferencia')
         try:
             rows = candidates(self.repository, now)
             # Cada ponte é lida na hora (GET /bridge/ready), nunca de um resultado guardado, e só se alguém espera por ela.
             ready = {}
             outcome = {'status': 'idle'}
+            looked = set()
             for row in rows:
+                conv = row['conversation'].rsplit(':', 1)[-1]
+                looked.add(row['conversation'])
                 kind = row.get('kind', 'precheck')
+                if outcome.get('status') == 'queued':
+                    DECISOES.record('reconferencia', conv, 'outro_lead_nesta_varredura', now, tipo=kind)
+                    continue
                 if kind not in ready:
                     ready[kind] = self.bridge_ready(kind) is True
                 if not ready[kind]:
                     outcome = {'status': 'bridge_not_ready'}
+                    DECISOES.record('reconferencia', conv, 'ponte_fora', now, tipo=kind)
                     continue
                 # One lead per scan: the next one waits for this result.
-                result = self.start(row['conversation'], row['reason'], forced=row['forced'], kind=kind)
-                outcome = {'status': 'queued' if (result or {}).get('status') == 'queued' else 'skipped',
-                           'result': (result or {}).get('status')}
-                if outcome['status'] == 'queued':
-                    break
+                result = self.start(row['conversation'], row['reason'], forced=row['forced'], kind=kind) or {}
+                status, why = result.get('status'), result.get('reason')
+                reason = ('consulta_na_fila' if status == 'queued' else 'controle_humano' if status == 'blocked'
+                          else 'cadastro_confirmado' if why == 'registered' else 'ficha_ilegivel' if why == 'registration_unreadable'
+                          else 'origem_nao_confirmada' if why == 'precheck_source_unverified'
+                          else 'sem_pendencia' if status == 'idle' else send_error(why or status))
+                DECISOES.record('reconferencia', conv, reason, now, tipo=kind)
+                outcome = {'status': 'queued' if status == 'queued' else 'skipped', 'result': status}
+            for conv in self.repository.precheck_conversations():
+                if conv not in looked:
+                    DECISOES.record('reconferencia', conv.rsplit(':', 1)[-1], 'sem_pendencia', now)
         except Exception:
             outcome = {'status': 'unconfirmed'}
+        outcome['puladas_por_motivo'] = DECISOES.finish('reconferencia')
         self.last = {**outcome, 'at': now.isoformat()}
         return outcome

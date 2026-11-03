@@ -1005,6 +1005,89 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
         candidate = header if header is not None else query
         return isinstance(candidate, str) and len(candidate) <= 512 and hmac.compare_digest(secret.encode(), candidate.encode())
 
+    def diagnostico_authorized():
+        """Release 46: o mesmo segredo do webhook (V5_WEBHOOK_TOKEN), como Authorization: Bearer."""
+        secret = _get(settings, "webhook_token")
+        header = request.headers.get("Authorization") or ""
+        return (isinstance(secret, str) and len(secret) >= 16 and header.startswith("Bearer ")
+                and len(header) <= 600 and hmac.compare_digest(secret.encode(), header[7:].strip().encode()))
+
+    def diagnostico_chatwoot(conversation_id):
+        """Uma leitura do Chatwoot (detalhe e mensagens), sem escrever nada."""
+        from retomada import _automatic, _bia, _incoming
+        target = {"account_id": gate.get("account_id"), "conversation_id": conversation_id}
+        headers = {"api_access_token": transport.token, "Accept": "application/json"}
+        detail = transport.http(method="GET", url=transport._conversation_url(target), headers=headers, timeout=8)
+        data = transport.http(method="GET", url=transport._conversation_url(target) + "/messages", headers=headers, timeout=8)
+        meta = (detail or {}).get("meta") or {}
+        sender = meta.get("sender") or {}
+        received = normalize_phone(sender.get("phone_number"))
+        listed = pilot_phone(gate, sender.get("phone_number"))
+        listed_digits = normalize_phone(listed) if listed else None
+        variation = (None if not listed else "igual" if listed_digits == received
+                     else "lista_com_9_chatwoot_sem" if len(listed_digits or "") > len(received or "") else "lista_sem_9_chatwoot_com")
+        messages = sorted((m for m in ((data or {}).get("payload") or []) if isinstance(m, dict)
+                           and re.fullmatch(r"[1-9][0-9]{0,19}", str(m.get("id", "")))), key=lambda m: int(m["id"]))
+        incoming = [m for m in messages if _incoming(m)]
+        last = incoming[-1] if incoming else None
+
+        def kind(message):
+            if message.get("private") is True:
+                return "nota_privada"
+            if _bia(message):
+                return "bia"
+            if _automatic(message):
+                return "automatica"
+            mtype = message.get("message_type")
+            return "humano" if mtype in (1, "outgoing") else "atividade" if mtype in (2, "activity") else "outro"
+        after = [{"id": m["id"], "tipo": kind(m), "em": m.get("created_at")} for m in messages
+                 if last and int(m["id"]) > int(last["id"]) and not _incoming(m)]
+        return {"piloto": {"no_piloto": bool(listed), "variacao": variation,
+                           "final_do_telefone": (received or "")[-4:] or None},
+                "status": detail.get("status") if isinstance(detail, dict) else None,
+                "pode_responder": detail.get("can_reply") if isinstance(detail, dict) else None,
+                "tem_responsavel": meta.get("assignee") is not None,
+                "ultima_do_lead": {"id": last["id"], "em": last.get("created_at")} if last else None,
+                "depois_dela": after,
+                "resposta_publica_depois": any(item["tipo"] in {"bia", "humano"} for item in after)}
+
+    @app.get("/diagnostico/conversa/<conversation_id>")
+    def diagnostico_conversa(conversation_id):
+        """Release 46: o estado da Bia para uma conversa, só leitura (nada é gravado nem enviado)."""
+        if not diagnostico_authorized():
+            return jsonify(error="unauthorized"), 401
+        if not re.fullmatch(r"[1-9][0-9]{0,19}", str(conversation_id)):
+            return jsonify(error="conversa_invalida"), 400
+        from retomada import DECISOES
+        conv = "chatwoot:" + str(gate.get("account_id")) + ":" + str(conversation_id)
+        try:
+            chatwoot = diagnostico_chatwoot(conversation_id)
+        except Exception as error:
+            chatwoot = {"leitura": "indisponivel", "erro": type(error).__name__}
+        state = repository.load_session(conv) or {}
+        cycle = _mapping(state.get("cycle"))
+        processed = [item for item in (state.get("processed_inbound") or []) if isinstance(item, str)]
+        last = (chatwoot.get("ultima_do_lead") or {}).get("id") if isinstance(chatwoot, dict) else None
+        last_key = "chatwoot:" + str(gate.get("account_id")) + ":" + str(last) if last else None
+        event = repository.event(last_key) if last_key else None
+        source = repository.followup_source(conv)
+        attendance = {
+            "existe": bool(state.get("cycle")),
+            "etapa": cycle.get("phase"), "situacao": cycle.get("status"), "expira": cycle.get("expires_at"),
+            "ultima_processada": processed[-1] if processed else None,
+            "processed_inbound_tem_ultima_do_lead": (last_key in processed) if last_key else None,
+            "evento_da_ultima_do_lead": event.get("status") if event else None,
+            "envios_da_ultima_do_lead": [row.get("status") for row in repository.outbox(last_key)] if event else [],
+            "reprocessed": {key: {"modo": value.get("mode"), "em": value.get("at")}
+                            for key, value in (state.get("reprocessed") or {}).items() if isinstance(value, dict)},
+            "retomada": {"ultimo_lembrete": cycle.get("retomada"), "fonte": (source or {}).get("event_key")},
+            "controle_humano": bool(state.get("human_control")),
+            "pausa_ou_saida": bool(cycle.get("qualification_paused") or state.get("opt_out") or cycle.get("opt_out")),
+            "cadastro": state.get("cadastro_situacao"),
+        }
+        return jsonify(conversa=str(conversation_id), chatwoot=chatwoot, atendimento=attendance,
+                       decisoes=DECISOES.for_conversation(conversation_id)), 200
+
     @app.get("/healthz")
     def healthz():
         return jsonify(status="ok", mode="one_contact_real" if _get(settings, 'tiktok_mode') == 'real' else "one_contact_rehearsal")
