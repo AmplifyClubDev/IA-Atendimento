@@ -25,6 +25,7 @@ WAITING = frozenset({'intro', 'origin', 'tiktok', 'shop', 'agency', 'consent_rea
 SCAN_SECONDS = 60
 CATCH_UP_MIN_AGE = timedelta(minutes=2)
 CATCH_UP_MAX_AGE = timedelta(hours=23)
+LISTING_PAGES = 20  # até 500 conversas abertas na caixa
 
 
 def enabled(settings, name):
@@ -265,11 +266,10 @@ class PosPausa:
     def _scan(self, now):
         gate = self.settings.get('gate') or {}
         base = self.transport.base_url + '/api/v1/accounts/' + str(gate.get('account_id'))
-        data = self._get(base + '/conversations?inbox_id=' + str(gate.get('inbox_id')) + '&status=open&assignee_type=all')
-        listing = ((data or {}).get('data') or {}).get('payload') if isinstance(data, dict) else None
-        if not isinstance(listing, list):
+        listing = self._listing(base, gate, now)
+        if listing is None:
             return {'status': 'unavailable'}
-        for conversation in listing[:100]:
+        for conversation in listing:
             event = self._candidate(conversation, now, base)
             if event is None:
                 continue
@@ -281,6 +281,30 @@ class PosPausa:
             result = self.process(event, resumed={'texts': texts})
             return {'status': 'resumed', 'result': (result or {}).get('status')}
         return {'status': 'idle'}
+
+    def _listing(self, base, gate, now):
+        """Todas as conversas abertas da caixa com atividade nas últimas 23 h, página a página.
+
+        O Chatwoot devolve 25 conversas por página, da atividade mais recente para a mais antiga.
+        A 40 lia só a primeira: em 02/11, 56866 e 56865 (13 h e 16 h sem resposta) ficaram de fora.
+        """
+        listing, seen = [], set()
+        for page in range(1, LISTING_PAGES + 1):
+            data = self._get(base + '/conversations?inbox_id=' + str(gate.get('inbox_id'))
+                             + '&status=open&assignee_type=all&page=' + str(page))
+            payload = ((data or {}).get('data') or {}).get('payload') if isinstance(data, dict) else None
+            if not isinstance(payload, list):
+                return listing if page > 1 else None
+            fresh = [item for item in payload if isinstance(item, dict) and item.get('id') not in seen]
+            if not fresh:
+                break
+            seen.update(item.get('id') for item in fresh)
+            listing.extend(fresh)
+            activity = [clock(item.get('last_activity_at')) for item in fresh]
+            if all(at and now - at > CATCH_UP_MAX_AGE for at in activity):
+                # A página inteira é mais antiga que a janela: as próximas também são.
+                break
+        return listing
 
     def _candidate(self, conversation, now, base):
         gate = self.settings.get('gate') or {}

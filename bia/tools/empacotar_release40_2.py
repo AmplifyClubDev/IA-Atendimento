@@ -1,7 +1,7 @@
-"""Monta e confere o pacote selado da release 40.1 a partir de ./src (sem rede, sem variáveis).
+"""Monta e confere o pacote selado da release 40.2 a partir de ./src (sem rede, sem variáveis).
 
-Uso: python -I empacotar_release40_1.py
-Saída: sealed40-1/ com o zip, o carregador, o manifesto e as partes base64 prontas
+Uso: python -I empacotar_release40_2.py
+Saída: sealed40-2/ com o zip, o carregador, o manifesto e as partes base64 prontas
 para V5_RELEASE_ARCHIVE_PART_1..N e V5_RELEASE_LAUNCHER_B64.
 """
 import base64
@@ -16,10 +16,10 @@ import zipfile
 
 HERE = Path(__file__).resolve().parent
 SRC = HERE / 'src'
-OUT = HERE / 'sealed40-1'
-BASE_LAUNCHER = HERE.parent / 'claude-bia-release40-20261101' / 'sealed40' / 'atendimento-v5-release-20261101-40-launcher.py'
-RELEASE = 'atendimento-v5-release-20261102-40-1'
-BASE_RELEASE = 'atendimento-v5-release-20261101-40'
+OUT = HERE / 'sealed40-2'
+BASE_LAUNCHER = HERE.parent / 'claude-bia-release40-1-20261102' / 'sealed40-1' / 'atendimento-v5-release-20261102-40-1-launcher.py'
+RELEASE = 'atendimento-v5-release-20261102-40-2'
+BASE_RELEASE = 'atendimento-v5-release-20261102-40-1'
 PART_LIMIT = 26000
 STAMP = (2026, 11, 2, 0, 0, 0)
 
@@ -36,7 +36,7 @@ def build():
     files = {name: (SRC / name).read_bytes() for name in names}
     manifest = {'files': [{'bytes': len(files[name]), 'path': name, 'sha256': hashlib.sha256(files[name]).hexdigest()}
                           for name in names],
-                'provenance': {'author': 'claude-bia-release40-1-20261102', 'base_release': BASE_RELEASE},
+                'provenance': {'author': 'claude-bia-release40-2-20261102', 'base_release': BASE_RELEASE},
                 'release': RELEASE, 'source_count': len(names)}
     manifest_bytes = json.dumps(manifest, indent=2, sort_keys=True).encode()
     buffer = io.BytesIO()
@@ -69,9 +69,9 @@ def build():
 def verify(raw, launcher, parts):
     """O próprio carregador confere o pacote, instala numa pasta temporária e lê as partes."""
     with tempfile.TemporaryDirectory() as folder:
-        path = Path(folder) / 'launcher40_1.py'
+        path = Path(folder) / 'launcher40_2.py'
         path.write_text(launcher, encoding='utf-8')
-        spec = importlib.util.spec_from_file_location('launcher40_1', path)
+        spec = importlib.util.spec_from_file_location('launcher40_2', path)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         environ = {'V5_RELEASE_ARCHIVE_PART_' + str(index): part for index, part in enumerate(parts, 1)}
@@ -83,12 +83,12 @@ def verify(raw, launcher, parts):
         return len(bundle)
 
 
-LIVE_RELEASE = 'atendimento-v5-release-20261101-40'
-LIVE_FOLDER = HERE.parent / 'claude-bia-release40-20261101' / 'sealed40'
+LIVE_RELEASE = 'atendimento-v5-release-20261102-40-1'
+LIVE_FOLDER = HERE.parent / 'claude-bia-release40-1-20261102' / 'sealed40-1'
 
 
 def write_rollback():
-    """Variáveis da 40 (a que está no ar, deploy dd7bbe9e) recompostas do pacote selado 40.
+    """Variáveis da 40.1 (a que está no ar, deploy 86a3c144) recompostas do pacote selado 40.1.
 
     O carregador só concatena as partes, então qualquer divisão em 10 partes de até 26000 serve.
     """
@@ -100,7 +100,7 @@ def write_rollback():
     parts = [encoded[index:index + size] for index in range(0, len(encoded), size)]
     assert len(parts) == count and max(map(len, parts)) <= PART_LIMIT
     assert hashlib.sha256(raw).hexdigest().encode() in launcher
-    target = OUT / 'volta40'
+    target = OUT / 'volta40-1'
     target.mkdir(exist_ok=True)
     for index, part in enumerate(parts, 1):
         (target / ('V5_RELEASE_ARCHIVE_PART_' + str(index) + '.txt')).write_text(part, encoding='ascii', newline='')
