@@ -14,6 +14,7 @@ Nenhum caminho aqui envia convite, cria permissão ou repete uma resposta.
 from datetime import datetime, timedelta, timezone
 import hashlib
 import re
+import threading
 
 from contracts import allow_inbound, inbound_key, pilot_phone
 from followup import clock
@@ -31,6 +32,66 @@ LISTING_PAGES = 20  # até 500 conversas abertas na caixa
 # Release 41: lembretes só entre 8h e 21h de Brasília (UTC-3, sem horário de verão).
 BRASILIA = timezone(timedelta(hours=-3))
 SEND_HOURS = (8, 21)
+
+
+# Release 46: toda conversa olhada por uma varredura recebe um motivo fixo (nunca "pulado" sem motivo).
+# Fica só em memória (nada é gravado) e aparece no /ready e em GET /diagnostico/conversa/<id>.
+REASONS = frozenset({
+    # o que aconteceu
+    'respondida', 'reprocessada', 'lembrete_enviado', 'consulta_na_fila',
+    # por que não respondeu
+    'conversa_invalida', 'fora_do_piloto', 'outra_caixa', 'ja_respondida_no_chatwoot', 'sem_mensagem_do_lead',
+    'fora_da_janela_23h', 'fora_da_janela_24h', 'muito_recente', 'historico_indisponivel', 'mensagem_sem_texto',
+    'reprocessamento_ja_usado', 'controle_humano', 'outro_lead_nesta_varredura', 'trava_ocupada', 'sem_atendimento',
+    'atendimento_fechado', 'fase_sem_lembrete', 'mensagem_mais_nova', 'pausa_ou_saida', 'nenhuma_etapa_vencida',
+    'fora_do_horario', 'intervalo_minimo', 'ficha_ilegivel', 'cadastro_confirmado', 'mudou_no_chatwoot',
+    'lembrete_ja_reservado', 'sem_pendencia', 'ponte_fora', 'origem_nao_confirmada', 'resposta_ja_aceita',
+    'consulta_ja_na_fila_da_mensagem',
+})
+ERROR_PREFIX = 'erro_envio:'
+
+
+def valid_reason(reason):
+    return isinstance(reason, str) and (reason in REASONS or bool(re.fullmatch(r'erro_envio:[a-z0-9_]{1,60}', reason)))
+
+
+def send_error(code):
+    code = re.sub(r'[^a-z0-9_]', '_', str(code or 'desconhecido').lower())[:60] or 'desconhecido'
+    return ERROR_PREFIX + code
+
+
+class Decisoes:
+    """A última decisão de cada varredura por conversa e a contagem de motivos da última varredura."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.by_conversation, self.last_scan, self._current = {}, {}, {}
+
+    def start(self, scan):
+        with self._lock:
+            self._current[scan] = {}
+
+    def record(self, scan, conversation, reason, at, **extra):
+        if not valid_reason(reason):
+            raise ValueError('motivo fora da lista: ' + repr(reason))
+        with self._lock:
+            entry = {'motivo': reason, 'em': at.isoformat() if hasattr(at, 'isoformat') else str(at), **extra}
+            self.by_conversation.setdefault(str(conversation), {})[scan] = entry
+            counts = self._current.setdefault(scan, {})
+            counts[reason] = counts.get(reason, 0) + 1
+        return reason
+
+    def finish(self, scan):
+        with self._lock:
+            self.last_scan[scan] = dict(self._current.get(scan) or {})
+            return dict(self.last_scan[scan])
+
+    def for_conversation(self, conversation):
+        with self._lock:
+            return {scan: dict(entry) for scan, entry in (self.by_conversation.get(str(conversation)) or {}).items()}
+
+
+DECISOES = Decisoes()
 
 
 def send_hour(now):
@@ -127,13 +188,17 @@ class Retomada:
             return {'status': 'cooldown'}
         self.next_scan_at = now + timedelta(seconds=SCAN_SECONDS)
         sent = 0
+        DECISOES.start('retomada')
         for conv in self.repository.followup_conversations():
             try:
                 outcome = self._conversation(conv, now)
-            except Exception:
-                outcome = {'status': 'unconfirmed'}
+            except Exception as error:
+                outcome = {'status': 'unconfirmed', 'motivo': send_error(type(error).__name__)}
             sent += outcome.get('status') == 'accepted'
-        self.last = {'status': 'completed', 'at': now.isoformat(), 'sent': sent}
+            DECISOES.record('retomada', conv.rsplit(':', 1)[-1], outcome.get('motivo') or send_error(outcome.get('status')),
+                            now, **({'etapa': outcome['step']} if outcome.get('step') else {}))
+        self.last = {'status': 'completed', 'at': now.isoformat(), 'sent': sent,
+                     'puladas_por_motivo': DECISOES.finish('retomada')}
         return dict(self.last)
 
     def _due(self, state, source, now):
@@ -155,45 +220,57 @@ class Retomada:
             cycle = state.get('cycle') or {}
             event = (source or {}).get('event') or {}
             expires = clock(cycle.get('expires_at'))
-            if (not source or source.get('cycle_id') != cycle.get('id') or cycle.get('mode') != 'real'
-                    or cycle.get('status') != 'open' or cycle.get('phase') not in WAITING
-                    or not expires or now >= expires
-                    or (state.get('processed_inbound') or [None])[-1] != source.get('event_key')
-                    or not allow_inbound(self.settings.get('gate'), event) or inbound_key(event) != source.get('event_key')
-                    or state.get('human_control') or cycle.get('qualification_paused') or cycle.get('pending_profile_changes')
+            # Release 46: cada "não" tem o seu motivo (antes, tudo virava "idle").
+            idle = lambda reason: {'status': 'idle', 'motivo': reason}
+            if not source or not cycle or source.get('cycle_id') != cycle.get('id') or cycle.get('mode') != 'real':
+                return idle('sem_atendimento')
+            if cycle.get('status') != 'open':
+                return idle('atendimento_fechado')
+            if not expires or now >= expires:
+                return idle('fora_da_janela_24h')
+            if cycle.get('phase') not in WAITING:
+                return idle('fase_sem_lembrete')
+            if (state.get('processed_inbound') or [None])[-1] != source.get('event_key') or inbound_key(event) != source.get('event_key'):
+                return idle('mensagem_mais_nova')
+            if not allow_inbound(self.settings.get('gate'), event):
+                return idle('fora_do_piloto')
+            if state.get('human_control'):
+                return idle('controle_humano')
+            if (cycle.get('qualification_paused') or cycle.get('pending_profile_changes')
                     or state.get('opt_out') or cycle.get('opt_out')):
-                return {'status': 'idle'}
+                return idle('pausa_ou_saida')
             step = self._due(state, source, now)
             if step is None:
-                return {'status': 'idle'}
+                return idle('nenhuma_etapa_vencida')
             if not send_hour(now):
                 # A etapa vencida espera as 8h; as anteriores se juntam nela (nunca dois lembretes seguidos).
-                return {'status': 'quiet_hours'}
+                return {'status': 'quiet_hours', 'motivo': 'fora_do_horario'}
             delivery = self.repository.conversation_delivery_context(conv, cycle['opened_at'])
             last_reply = clock((delivery.get('last_accepted_reply') or {}).get('at'))
             if (delivery.get('latest_attempt_status') != 'accepted' or not last_reply
                     or now - last_reply < MIN_GAP or not self.repository.followup_clear(conv, state)):
-                return {'status': 'idle'}
+                return idle('intervalo_minimo')
             if callable(self.registration):
                 situation = self.registration(event)
                 if not isinstance(situation, str):
                     # Sem ler a ficha, nenhum lembrete: ele pode contradizer um cadastro já feito.
-                    return {'status': 'unconfirmed'}
+                    return {'status': 'unconfirmed', 'motivo': 'ficha_ilegivel'}
                 if situation != state.get('cadastro_situacao'):
                     state['cadastro_situacao'] = situation
                     self.repository.save_session(conv, state)
             payload = message(state, step, self.policy())
             if payload is None:
-                return {'status': 'idle'}
+                return idle('cadastro_confirmado' if state.get('cadastro_situacao') == 'confirmado'
+                            or cycle.get('acesso_liberado') else 'fase_sem_lembrete')
             control = self.guard(event)
             if not isinstance(control, dict) or control.get('allowed') is not True:
-                return {'status': 'blocked'}
+                return {'status': 'blocked', 'motivo': 'controle_humano'}
             if not self._source_unchanged(event, state, conv):
-                return {'status': 'source_changed'}
+                return {'status': 'source_changed', 'motivo': 'mudou_no_chatwoot'}
             key = step_key(cycle['id'], source['event_key'], step)
             # Earlier missed steps are retired with this one: never two nudges in a row.
             if not self.repository.reserve_followup(conv, source, state, key, {'text': payload[0], 'buttons': payload[1]}):
-                return {'status': 'blocked'}
+                return {'status': 'blocked', 'motivo': 'lembrete_ja_reservado'}
             for earlier, _ in steps_for(state)[:step - 1]:
                 retired = step_key(cycle['id'], source['event_key'], earlier)
                 if self.repository.reserve_operation(retired, source['event_key'], 'followup'):
@@ -223,7 +300,8 @@ class Retomada:
                         # The lead may answer this ask with the bare @.
                         live['cycle']['arroba_pedido'] = True
                     self.repository.save_session(conv, live)
-            return {'status': status, 'step': step}
+            return {'status': status, 'step': step,
+                    'motivo': 'lembrete_enviado' if status == 'accepted' else send_error(safe.get('reason') or status)}
 
     def _source_unchanged(self, event, state, conv):
         """A fresh provider read: no newer lead message and no unknown public outgoing."""
@@ -288,6 +366,7 @@ class PosPausa:
         # Release 44: as mensagens já entregues nesta execução (a nova tentativa ou a 1ª resposta) nunca voltam;
         # entre reinícios, a marca 'reprocessed' do atendimento faz o mesmo.
         self.handled = set()
+        self.decisions = DECISOES
         # Release 45: contagem para o /ready (a varredura roda a cada minuto, de dia e de noite).
         self.counts = {'varreduras': 0, 'respondidas': 0, 'reprocessadas': 0}
 
@@ -308,7 +387,10 @@ class PosPausa:
         except Exception:
             outcome = {'status': 'unconfirmed'}
         if outcome.get('status') == 'resumed' and outcome.get('result') in {'completed', 'accepted'}:
-            self.counts['reprocessadas' if outcome.get('reprocess') else 'respondidas'] += 1
+            # Release 46: "respondidas" conta toda resposta (a Cristiane, reprocessada, ficou de fora na 45).
+            self.counts['respondidas'] += 1
+            if outcome.get('reprocess'):
+                self.counts['reprocessadas'] += 1
         self.last = {**outcome, 'at': now.isoformat()}
         return outcome
 
@@ -322,22 +404,46 @@ class PosPausa:
         listing = self._listing(base, gate, now)
         if listing is None:
             return {'status': 'unavailable'}
+        decisions = self.decisions
+        decisions.start('pos_pausa')
+        outcome = {'status': 'idle'}
         for conversation in listing:
-            event = self._candidate(conversation, now, base)
+            conv = str((conversation or {}).get('id', '?')) if isinstance(conversation, dict) else '?'
+            if outcome['status'] == 'resumed':
+                # One lead per scan keeps each catch-up reply supervised by the next.
+                decisions.record('pos_pausa', conv, 'outro_lead_nesta_varredura', now)
+                continue
+            event, reason = self._candidate(conversation, now, base)
             if event is None:
+                decisions.record('pos_pausa', conv, reason, now)
                 continue
             texts = event.pop('_texts')
             reprocess = event.pop('_reprocess', False)
             control = self.guard(event)
             if not isinstance(control, dict) or control.get('allowed') is not True:
+                decisions.record('pos_pausa', conv, 'controle_humano', now,
+                                 detalhe=(control or {}).get('reason') if isinstance(control, dict) else None)
                 continue
-            # One lead per scan keeps each catch-up reply supervised by the next.
             resumed = {'texts': texts, **({'reprocess': True} if reprocess else {})}
             self.handled.add(inbound_key(event))
-            result = self.process(event, resumed=resumed)
-            return {'status': 'resumed', 'result': (result or {}).get('status'), 'reprocess': reprocess,
-                    'conversation': event.get('conversation_id')}
-        return {'status': 'idle'}
+            result = self.process(event, resumed=resumed) or {}
+            status = result.get('status')
+            if status in {'completed', 'accepted'}:
+                reason = 'reprocessada' if reprocess else 'respondida'
+            elif status == 'skipped':
+                reason = {'already_reprocessed': 'reprocessamento_ja_usado', 'reply_already_accepted': 'resposta_ja_aceita',
+                          'operation_queued_for_message': 'consulta_ja_na_fila_da_mensagem'}.get(result.get('reason'),
+                                                                                             send_error(result.get('reason')))
+            elif status == 'blocked':
+                reason = 'controle_humano'
+            else:
+                reason = send_error(status)
+            decisions.record('pos_pausa', conv, reason, now)
+            outcome = {'status': 'resumed', 'result': status, 'reprocess': reprocess, 'motivo': reason,
+                       'conversation': event.get('conversation_id')}
+        outcome['puladas_por_motivo'] = decisions.finish('pos_pausa')
+        outcome['conversas_lidas'] = len(listing)
+        return outcome
 
     def _listing(self, base, gate, now):
         """Todas as conversas abertas da caixa com atividade nas últimas 23 h, página a página.
@@ -348,7 +454,7 @@ class PosPausa:
         listing, seen = [], set()
         for page in range(1, LISTING_PAGES + 1):
             data = self._get(base + '/conversations?inbox_id=' + str(gate.get('inbox_id'))
-                             + '&status=open&assignee_type=all&page=' + str(page))
+                             + '&status=open&assignee_type=all&sort_by=last_activity_at_desc&page=' + str(page))
             payload = ((data or {}).get('data') or {}).get('payload') if isinstance(data, dict) else None
             if not isinstance(payload, list):
                 return listing if page > 1 else None
@@ -366,34 +472,45 @@ class PosPausa:
     def _candidate(self, conversation, now, base):
         gate = self.settings.get('gate') or {}
         if not isinstance(conversation, dict) or not re.fullmatch(r'[1-9][0-9]{0,19}', str(conversation.get('id', ''))):
-            return None
+            return None, 'conversa_invalida'
         sender = (conversation.get('meta') or {}).get('sender') or {}
-        if not pilot_phone(gate, sender.get('phone_number')) or str(conversation.get('inbox_id')) != str(gate.get('inbox_id')):
-            return None
+        if str(conversation.get('inbox_id')) != str(gate.get('inbox_id')):
+            return None, 'outra_caixa'
+        if not pilot_phone(gate, sender.get('phone_number')):
+            return None, 'fora_do_piloto'
         # The maintenance notice is an automation reply, so it can be the newest message.
         listed = conversation.get('last_non_activity_message') or (conversation.get('messages') or [None])[-1]
-        if not isinstance(listed, dict) or not (_incoming(listed) or _automatic(listed)):
-            return None
+        # Release 46: nota privada não é resposta ao lead (a regra é saída da Bia não privada).
+        if not isinstance(listed, dict):
+            return None, 'sem_mensagem_do_lead'
+        if listed.get('private') is not True and not (_incoming(listed) or _automatic(listed)):
+            return None, 'ja_respondida_no_chatwoot'
         listed_at = clock(listed.get('created_at'))
-        if not listed_at or now - listed_at > CATCH_UP_MAX_AGE or (_incoming(listed) and now - listed_at < CATCH_UP_MIN_AGE):
-            return None
+        if not listed_at or now - listed_at > CATCH_UP_MAX_AGE:
+            return None, 'fora_da_janela_23h'
+        if _incoming(listed) and now - listed_at < CATCH_UP_MIN_AGE:
+            return None, 'muito_recente'
         conv = 'chatwoot:' + str(gate.get('account_id')) + ':' + str(conversation['id'])
         history = self._get(base + '/conversations/' + str(conversation['id']) + '/messages')
         messages = history.get('payload') if isinstance(history, dict) else None
         if not isinstance(messages, list):
-            return None
+            return None, 'historico_indisponivel'
         messages = sorted((m for m in messages if isinstance(m, dict) and re.fullmatch(r'[1-9][0-9]{0,19}', str(m.get('id', '')))
-                           and not _activity(m)), key=lambda m: int(m['id']))
-        if not messages or str(messages[-1].get('id')) != str(listed.get('id')):
-            return None
+                           and not _activity(m) and m.get('private') is not True), key=lambda m: int(m['id']))
+        if not messages or (listed.get('private') is not True and str(messages[-1].get('id')) != str(listed.get('id'))):
+            return None, 'historico_indisponivel'
         while messages and _automatic(messages[-1]):
             messages.pop()
-        if not messages or not _incoming(messages[-1]):
-            return None
+        if not messages:
+            return None, 'sem_mensagem_do_lead'
+        if not _incoming(messages[-1]):
+            return None, 'ja_respondida_no_chatwoot'
         last = messages[-1]
         created = clock(last.get('created_at')) or (listed_at if str(last['id']) == str(listed.get('id')) else None)
-        if not created or not CATCH_UP_MIN_AGE <= now - created <= CATCH_UP_MAX_AGE:
-            return None
+        if not created or now - created > CATCH_UP_MAX_AGE:
+            return None, 'fora_da_janela_23h'
+        if now - created < CATCH_UP_MIN_AGE:
+            return None, 'muito_recente'
         key = 'chatwoot:' + str(gate.get('account_id')) + ':' + str(last.get('id'))
         session = self.repository.load_session(conv)
         processed = session.get('processed_inbound') or []
@@ -405,8 +522,10 @@ class PosPausa:
             # mensagem do lead (o aviso de manutenção e o de fora do horário não contam), ela responde uma vez,
             # mesmo com a mensagem já registrada ou já marcada como processada (56938, 56935).
             # Atendente humano depois dela já fez a mensagem cair acima; 'reprocessed' impede repetir.
-            if (now - created < REPROCESS_MIN_AGE or key in self.handled or key in (session.get('reprocessed') or {})):
-                return None
+            if now - created < REPROCESS_MIN_AGE:
+                return None, 'muito_recente'
+            if key in self.handled or key in (session.get('reprocessed') or {}):
+                return None, 'reprocessamento_ja_usado'
             reprocess = True
             newest = min(newest, max((int(m['id']) for m in messages if _bia(m)), default=0))
         texts = []
@@ -417,7 +536,7 @@ class PosPausa:
                 texts.insert(0, msg['content'].strip()[:500])
         texts = texts[-5:]
         if not texts:
-            return None
+            return None, 'mensagem_sem_texto'
         event = {'provider': 'chatwoot', 'event': 'message_created', 'account_id': gate.get('account_id'),
                  'inbox_id': conversation.get('inbox_id'), 'conversation_id': conversation['id'],
                  'message_id': last['id'], 'contact_id': str(sender.get('id')) if sender.get('id') else None,
@@ -426,7 +545,7 @@ class PosPausa:
                  'created_at': created.isoformat().replace('+00:00', 'Z')}
         event['source_ref'] = inbound_key(event)
         if not allow_inbound(gate, event):
-            return None
+            return None, 'fora_do_piloto'
         event['_texts'] = texts
         event['_reprocess'] = reprocess
-        return event
+        return event, None
