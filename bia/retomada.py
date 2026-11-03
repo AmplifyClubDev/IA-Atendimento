@@ -51,8 +51,33 @@ REASONS = frozenset({
 ERROR_PREFIX = 'erro_envio:'
 
 
+# Decisões que não mudam enquanto a conversa não tiver atividade nova (as que dependem do relógio ficam de fora).
+STABLE_REASONS = frozenset({'conversa_invalida', 'outra_caixa', 'fora_do_piloto', 'ja_respondida_no_chatwoot',
+                            'sem_mensagem_do_lead', 'mensagem_sem_texto', 'reprocessamento_ja_usado',
+                            'fora_do_gate:sem_telefone'})
+GATE_REASONS = frozenset({'fora_do_gate:renovacao_de_contrato', 'fora_do_gate:responsavel_humano',
+                          'fora_do_gate:controle_humano', 'fora_do_gate:sem_telefone'})
+
+
 def valid_reason(reason):
-    return isinstance(reason, str) and (reason in REASONS or bool(re.fullmatch(r'erro_envio:[a-z0-9_]{1,60}', reason)))
+    return isinstance(reason, str) and (reason in REASONS or reason in GATE_REASONS
+                                        or bool(re.fullmatch(r'erro_envio:[a-z0-9_]{1,60}', reason)))
+
+
+def guard_reason(control, gate):
+    """Release 47: o motivo do controle humano; no modo 'todos', os excluídos aparecem como fora_do_gate:<motivo>."""
+    from contracts import gate_mode
+    reason = control.get('reason') if isinstance(control, dict) else None
+    if isinstance(reason, str) and reason in GATE_REASONS:
+        return reason
+    if gate_mode(gate) == 'todos':
+        if reason == 'human_assignee_blocked':
+            return 'fora_do_gate:responsavel_humano'
+        if reason == 'human_control_blocked':
+            return 'fora_do_gate:controle_humano'
+        # Leitura do Chatwoot falhou: não é exclusão; a pós-pausa tenta de novo em seguida.
+        return send_error(reason or 'controle_nao_confirmado')
+    return 'controle_humano'
 
 
 def send_error(code):
@@ -264,7 +289,7 @@ class Retomada:
                             or cycle.get('acesso_liberado') else 'fase_sem_lembrete')
             control = self.guard(event)
             if not isinstance(control, dict) or control.get('allowed') is not True:
-                return {'status': 'blocked', 'motivo': 'controle_humano'}
+                return {'status': 'blocked', 'motivo': guard_reason(control, self.settings.get('gate') or {})}
             if not self._source_unchanged(event, state, conv):
                 return {'status': 'source_changed', 'motivo': 'mudou_no_chatwoot'}
             key = step_key(cycle['id'], source['event_key'], step)
@@ -366,6 +391,7 @@ class PosPausa:
         # Release 44: as mensagens já entregues nesta execução (a nova tentativa ou a 1ª resposta) nunca voltam;
         # entre reinícios, a marca 'reprocessed' do atendimento faz o mesmo.
         self.handled = set()
+        self.seen = {}
         self.decisions = DECISOES
         # Release 45: contagem para o /ready (a varredura roda a cada minuto, de dia e de noite).
         self.counts = {'varreduras': 0, 'respondidas': 0, 'reprocessadas': 0}
@@ -413,15 +439,24 @@ class PosPausa:
                 # One lead per scan keeps each catch-up reply supervised by the next.
                 decisions.record('pos_pausa', conv, 'outro_lead_nesta_varredura', now)
                 continue
+            activity = conversation.get('last_activity_at') if isinstance(conversation, dict) else None
+            cached = self.seen.get(conv)
+            if cached and activity is not None and cached[0] == activity:
+                # Release 47: sem atividade nova desde a última leitura, a decisão é a mesma (no modo 'todos' são
+                # centenas de conversas; o histórico de cada uma não é lido de novo a cada minuto).
+                decisions.record('pos_pausa', conv, cached[1], now, cache=True)
+                continue
             event, reason = self._candidate(conversation, now, base)
             if event is None:
                 decisions.record('pos_pausa', conv, reason, now)
+                if activity is not None and reason in STABLE_REASONS:
+                    self.seen[conv] = (activity, reason)
                 continue
             texts = event.pop('_texts')
             reprocess = event.pop('_reprocess', False)
             control = self.guard(event)
             if not isinstance(control, dict) or control.get('allowed') is not True:
-                decisions.record('pos_pausa', conv, 'controle_humano', now,
+                decisions.record('pos_pausa', conv, guard_reason(control, self.settings.get('gate') or {}), now,
                                  detalhe=(control or {}).get('reason') if isinstance(control, dict) else None)
                 continue
             resumed = {'texts': texts, **({'reprocess': True} if reprocess else {})}
@@ -477,7 +512,8 @@ class PosPausa:
         if str(conversation.get('inbox_id')) != str(gate.get('inbox_id')):
             return None, 'outra_caixa'
         if not pilot_phone(gate, sender.get('phone_number')):
-            return None, 'fora_do_piloto'
+            from contracts import gate_mode
+            return None, 'fora_do_gate:sem_telefone' if gate_mode(gate) == 'todos' else 'fora_do_piloto'
         # The maintenance notice is an automation reply, so it can be the newest message.
         listed = conversation.get('last_non_activity_message') or (conversation.get('messages') or [None])[-1]
         # Release 46: nota privada não é resposta ao lead (a regra é saída da Bia não privada).

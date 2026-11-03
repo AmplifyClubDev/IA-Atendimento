@@ -1,7 +1,7 @@
-"""Monta e confere o pacote selado da release 46 a partir de ./src (sem rede, sem variáveis).
+"""Monta e confere o pacote selado da release 47 a partir de ./src (sem rede, sem variáveis).
 
-Uso: python -I empacotar_release46.py
-Saída: sealed46/ com o zip, o carregador, o manifesto e as partes base64 prontas
+Uso: python -I empacotar_release47.py
+Saída: sealed47/ com o zip, o carregador, o manifesto e as partes base64 prontas
 para V5_RELEASE_ARCHIVE_PART_1..N e V5_RELEASE_LAUNCHER_B64.
 """
 import base64
@@ -16,16 +16,16 @@ import zipfile
 
 HERE = Path(__file__).resolve().parent
 SRC = HERE / 'src'
-OUT = HERE / 'sealed46'
-BASE_LAUNCHER = HERE.parent / 'claude-bia-release45-20261102' / 'sealed45' / 'atendimento-v5-release-20261102-45-launcher.py'
-RELEASE = 'atendimento-v5-release-20261102-46'
-BASE_RELEASE = 'atendimento-v5-release-20261102-45'
+OUT = HERE / 'sealed47'
+BASE_LAUNCHER = HERE.parent / 'claude-bia-release46-20261102' / 'sealed46' / 'atendimento-v5-release-20261102-46-launcher.py'
+RELEASE = 'atendimento-v5-release-20261103-47'
+BASE_RELEASE = 'atendimento-v5-release-20261102-46'
 PART_LIMIT = 26000
 STAMP = (2026, 11, 2, 0, 0, 0)
 
 
 def sources():
-    base = importlib.util.spec_from_file_location('launcher45', BASE_LAUNCHER)
+    base = importlib.util.spec_from_file_location('launcher46', BASE_LAUNCHER)
     module = importlib.util.module_from_spec(base)
     base.loader.exec_module(module)
     return sorted(module.SOURCES)
@@ -36,7 +36,7 @@ def build():
     files = {name: (SRC / name).read_bytes() for name in names}
     manifest = {'files': [{'bytes': len(files[name]), 'path': name, 'sha256': hashlib.sha256(files[name]).hexdigest()}
                           for name in names],
-                'provenance': {'author': 'claude-bia-release46-20261102', 'base_release': BASE_RELEASE},
+                'provenance': {'author': 'claude-bia-release47-20261103', 'base_release': BASE_RELEASE},
                 'release': RELEASE, 'source_count': len(names)}
     manifest_bytes = json.dumps(manifest, indent=2, sort_keys=True).encode()
     buffer = io.BytesIO()
@@ -44,7 +44,7 @@ def build():
         for name, content in [*((name, files[name]) for name in names), ('MANIFEST.json', manifest_bytes)]:
             info = zipfile.ZipInfo(name, STAMP)
             info.compress_type = zipfile.ZIP_DEFLATED
-            info.external_attr = 0o646 << 16
+            info.external_attr = 0o647 << 16
             info.create_system = 0
             archive.writestr(info, content)
     raw = buffer.getvalue()
@@ -69,9 +69,9 @@ def build():
 def verify(raw, launcher, parts):
     """O próprio carregador confere o pacote, instala numa pasta temporária e lê as partes."""
     with tempfile.TemporaryDirectory() as folder:
-        path = Path(folder) / 'launcher46.py'
+        path = Path(folder) / 'launcher47.py'
         path.write_text(launcher, encoding='utf-8')
-        spec = importlib.util.spec_from_file_location('launcher46', path)
+        spec = importlib.util.spec_from_file_location('launcher47', path)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         environ = {'V5_RELEASE_ARCHIVE_PART_' + str(index): part for index, part in enumerate(parts, 1)}
@@ -83,12 +83,12 @@ def verify(raw, launcher, parts):
         return len(bundle)
 
 
-LIVE_RELEASE = 'atendimento-v5-release-20261102-45'
-LIVE_FOLDER = HERE.parent / 'claude-bia-release45-20261102' / 'sealed45'
+LIVE_RELEASE = 'atendimento-v5-release-20261102-46'
+LIVE_FOLDER = HERE.parent / 'claude-bia-release46-20261102' / 'sealed46'
 
 
 def write_rollback():
-    """Variáveis da 45 (a que está no ar, deploy 9ae9ac0e) recompostas do pacote selado 45.
+    """Variáveis da 46 (a que está no ar, deploy ab8dd843) recompostas do pacote selado 46.
 
     O carregador só concatena as partes, então qualquer divisão no mesmo número de partes de até 26000 serve.
     """
@@ -100,7 +100,7 @@ def write_rollback():
     parts = [encoded[index:index + size] for index in range(0, len(encoded), size)]
     assert len(parts) == count and max(map(len, parts)) <= PART_LIMIT
     assert hashlib.sha256(raw).hexdigest().encode() in launcher
-    target = OUT / 'volta45'
+    target = OUT / 'volta46'
     target.mkdir(exist_ok=True)
     for index, part in enumerate(parts, 1):
         (target / ('V5_RELEASE_ARCHIVE_PART_' + str(index) + '.txt')).write_text(part, encoding='ascii', newline='')

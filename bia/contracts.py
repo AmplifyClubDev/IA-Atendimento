@@ -88,8 +88,24 @@ def pilot_phones(config) -> tuple[str, ...]:
     return (config.get("phone"),) if config.get("phone") else ()
 
 
+def gate_mode(config) -> str:
+    """Release 47: V5_GATE_MODE. 'lista' (padrão) atende só V5_PILOT_PHONES; 'todos' atende toda a caixa."""
+    return 'todos' if isinstance(config, dict) and config.get('mode') == 'todos' else 'lista'
+
+
+def is_test_phone(config, received) -> bool:
+    return isinstance(config, dict) and bool(config.get('phone')) and same_phone(config.get('phone'), received)
+
+
 def pilot_phone(config, received) -> str | None:
-    """Return the one configured phone that exactly matches ``received``."""
+    """Return the one configured phone that exactly matches ``received``.
+
+    Release 47: no modo 'todos', todo telefone válido entra (o número que o próprio WhatsApp informou);
+    as exclusões (etiqueta, responsável, controle humano) são lidas no Chatwoot pelo controle humano.
+    """
+    if gate_mode(config) == 'todos':
+        number = normalize_phone(received)
+        return '+' + number if number else None
     matches = [phone for phone in pilot_phones(config) if phone_matches(phone, received)]
     return matches[0] if len(matches) == 1 else None
 

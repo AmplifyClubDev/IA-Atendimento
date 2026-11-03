@@ -96,6 +96,23 @@ def build_jobs(event, state, effects):
     return result
 
 
+RENEWAL_LABELS = frozenset({'renovacao de contrato', 'renovacao_de_contrato', 'renovacao-de-contrato'})
+
+
+def gate_exclusion(gate, event, detail):
+    """Release 47: no modo 'todos', quem a Bia não atende (o número de teste sempre entra). None = pode atender."""
+    from contracts import gate_mode, is_test_phone
+    import unicodedata
+    if gate_mode(gate) != 'todos' or is_test_phone(gate, event.get('sender_phone')):
+        return None
+    labels = detail.get('labels') if isinstance(detail.get('labels'), list) else []
+    normal = {''.join(c for c in unicodedata.normalize('NFKD', str(label)).lower() if not unicodedata.combining(c)).strip()
+              for label in labels}
+    if normal & RENEWAL_LABELS:
+        return 'fora_do_gate:renovacao_de_contrato'
+    return None
+
+
 def chatwoot_control_guard(transport, gate, event):
     """Read recipient/control state. Unknown ownership never grants authority."""
     if not allow_inbound(gate, event):
@@ -115,6 +132,9 @@ def chatwoot_control_guard(transport, gate, event):
                 and pilot_phone(gate, sender.get('phone_number')) == pilot_phone(gate, event.get('sender_phone'))
                 and detail.get('can_reply') is True):
             return {'allowed': False, 'reason': 'recipient_or_window_unverified'}
+        excluded = gate_exclusion(gate, event, detail)
+        if excluded:
+            return {'allowed': False, 'reason': excluded}
         custom = detail.get('custom_attributes') or {}
         if not isinstance(custom, dict):
             return {'allowed': False, 'reason': 'human_control_unverified'}
