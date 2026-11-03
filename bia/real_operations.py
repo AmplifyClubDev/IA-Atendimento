@@ -59,6 +59,10 @@ def business_key(cycle_id, creator, operation):
     return 'tiktok-job:' + digest
 
 
+# Release 42: reads of the relations list started by the scan (see real_journey.AGENCY_SOURCES).
+AGENCY_SOURCES = frozenset({'invite_list_proof', 'invite_tracking'})
+
+
 def build_jobs(event, state, effects):
     """Build only known, exact-scope jobs; persist them atomically with state."""
     cycle = state.get('cycle') or {}
@@ -78,6 +82,9 @@ def build_jobs(event, state, effects):
         if operation == 'relationship' and (effect.get('payload') or {}).get('source') == 'chat_acceptance':
             # Each acceptance read (now, 5, 15, 60 min) has its own row.
             key_operation = 'relationship-chat:' + effect['id']
+        if operation == 'relationship' and (effect.get('payload') or {}).get('source') in AGENCY_SOURCES:
+            # Release 42: each read of the relations list (proof or follow-up) has its own row.
+            key_operation = 'relationship-agency:' + effect['id']
         if operation == 'precheck' and (effect.get('payload') or {}).get('source') == 'bridge_retry':
             # Each check after the bridge comes back has its own row (release 40).
             key_operation = 'precheck-bridge:' + effect['id']
@@ -198,7 +205,7 @@ class RealExecutor:
         expires = _clock(cycle.get('expires_at'))
         if (self.settings.get('relationship_check_in_form') is True
                 and job.get('operation') == 'relationship'
-                and (job.get('payload') or {}).get('source') not in {'form', 'chat_acceptance'}):
+                and (job.get('payload') or {}).get('source') not in {'form', 'chat_acceptance'} | AGENCY_SOURCES):
             return False
         if (self.settings.get('tiktok_mode') != 'real' or self.settings.get('real_worker_enabled') is not True
                 or self.settings.get('contact_sync_enabled') is not True

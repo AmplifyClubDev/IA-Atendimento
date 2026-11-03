@@ -1,14 +1,16 @@
-"""Quem recebe mensagem na primeira varredura da release 41. Só lê.
+"""Quem recebe mensagem na primeira varredura da release 42. Só lê.
 
 Uso: python -I listar_primeira_varredura.py <cópia do state.sqlite3> [instante ISO]
 
 Trabalha numa cópia temporária do banco: o arquivo indicado não é aberto para escrita.
-Cobre as três varreduras que mandam mensagem sem o lead escrever:
-- reconferência: perfil (ponte de Pré-validação) e, novo na 41, convite (ponte de Convites);
-- retomada: lembretes (na 41, só das 8h às 21h e só depois de ler a ficha);
-- pós-pausa: depende do Chatwoot (mensagens sem resposta); aqui só aparece quem tem evento já registrado,
-  porque esses a pós-pausa pula.
-Mostra em destaque 56935 (Cristiane) e 56933 (@gabinaresse).
+Cobre as varreduras que mandam mensagem sem o lead escrever:
+- reconferência: perfil (ponte de Pré-validação), convite sem prova (ponte de Convites, 41) e, novo na 42,
+  a lista de vínculos (ponte de Agenciamento): prova do convite incerto e acompanhamento do convite pendente;
+- retomada: lembretes (só das 8h às 21h e só depois de ler a ficha);
+- pós-pausa: depende do Chatwoot (mensagens sem resposta); aqui só aparece quem tem evento já registrado.
+A varredura começa um lead por minuto, na ordem da lista. O que cada leitura manda depende do que a lista mostrar:
+not_found → reenvio único e o texto 1; pending → nada (ou o passo a passo, se era a prova); linked → o texto 2.
+Mostra em destaque 56933 (@gabinaresse), 56932 (@viralstoresbr), 56629 (@ma.ribeiroh) e 56931 (@sabrinasalazar33).
 """
 from datetime import datetime, timezone
 import json
@@ -25,7 +27,9 @@ import retomada  # noqa: E402
 from reconferencia import candidates, precheck_reason  # noqa: E402
 from repository import Repository  # noqa: E402
 
-FOCUS = ('chatwoot:1:56935', 'chatwoot:1:56933')
+FOCUS = ('chatwoot:1:56933', 'chatwoot:1:56932', 'chatwoot:1:56629', 'chatwoot:1:56931', 'chatwoot:1:56935')
+ON_RESULT = {'invite_list_proof': 'not_found: reenvia uma vez e manda o texto 1; pending: passo a passo; linked: texto 2',
+             'invite_tracking': 'linked: texto 2 com o botão Fazer cadastro; pending: nada'}
 
 
 def invite_why_not(state, now):
@@ -40,10 +44,56 @@ def invite_why_not(state, now):
     if record.get('status') not in {'verification_pending', 'failed', 'outcome_unknown'}:
         return 'convite ' + str(record.get('status'))
     if not all(real_journey._invite_no_write(e.get('result_receipt')) for e in attempts):
-        return 'sem a prova de que nada chegou ao TikTok: não reenvia (evitaria convite duplicado)'
+        return 'sem a prova de que nada chegou ao TikTok (na 42, a lista de vínculos decide)'
     if cycle.get('invite_retry'):
         return 'tentativa em andamento'
     return 'outra condição (controle humano, consentimento ou limite de tentativas)'
+
+
+def agency_why_not(state, now):
+    """Por que a lista de vínculos não é lida agora para este atendimento (42)."""
+    cycle = state.get('cycle') or {}
+    operations = cycle.get('real_operations') or {}
+    invite, relationship = operations.get('invite') or {}, operations.get('relationship') or {}
+    creator = real_journey._creator((cycle.get('facts') or {}).get('tiktok_declarado'))
+    try:
+        expires = engine._clock(cycle.get('expires_at'))
+    except (TypeError, ValueError, OverflowError):
+        expires = None
+    if cycle.get('status') != 'open':
+        return 'atendimento ' + str(cycle.get('status')) + ': sem janela de 24 h, só um modelo aprovado poderia avisar'
+    if not expires or now + real_journey.READ_MARGIN >= expires:
+        return 'a janela de 24 h fecha às ' + str(cycle.get('expires_at')) + ': depois disso só com modelo aprovado'
+    if not (retomada.send_hour(now) and retomada.send_hour(now + real_journey.READ_MARGIN)):
+        return 'fora do horário (8h–21h de Brasília): fica para as 8h'
+    if state.get('cadastro_situacao') == 'confirmado':
+        return 'cadastro confirmado na cópia'
+    if cycle.get('relationship_check_in_form') is not True:
+        return 'atendimento sem a conferência do vínculo no formulário'
+    if state.get('human_control') or cycle.get('qualification_paused') or state.get('opt_out') or cycle.get('opt_out'):
+        return 'controle humano, pausa ou saída pedida'
+    if real_journey._linked(cycle):
+        return 'vínculo já confirmado neste atendimento'
+    if creator and real_journey.resend_used(state, creator) and invite.get('status') in real_journey.LIST_PROOF_STATUSES:
+        return 'o reenvio único já foi usado'
+    if any(e.get('type') == 'tiktok_operation' and e.get('cycle_id') == cycle.get('id')
+           and e.get('operation') in {'precheck', 'invite', 'relationship'}
+           and e.get('status') in {'pending', 'running'} for e in (state.get('effects') or {}).values()):
+        return 'há uma consulta do TikTok em andamento'
+    if not (invite or relationship):
+        return 'sem convite neste atendimento'
+    if invite.get('status') in real_journey.LIST_PROOF_STATUSES:
+        mark = cycle.get('invite_list_proof') or {}
+        return ('prova da lista: ' + (('resultado ' + mark['result']) if mark.get('result') else
+                                      str(mark.get('reads') or 0) + ' de ' + str(real_journey.LIST_PROOF_READ_LIMIT)
+                                      + ' leituras; espera 10 min da tentativa e 15 min entre leituras'))
+    since = real_journey._tracking_since(state)
+    if since:
+        mark = cycle.get('invite_tracking') or {}
+        last = max([engine._clock(v) for v in (mark.get('last_read_at'),) if v] + [since])
+        return 'próxima leitura às ' + (last + real_journey.tracking_interval(now - since)).isoformat()
+    return ('convite ' + str(invite.get('status')) + ', fase ' + str(cycle.get('phase'))
+            + ', prova da lista: ' + json.dumps(cycle.get('invite_list_proof') or {}, ensure_ascii=False))
 
 
 def reminder(repo, conv, now):
@@ -70,17 +120,19 @@ def reminder(repo, conv, now):
 
 def focus(repo, conv, now):
     state = repo.load_session(conv)
+    if not state:
+        return {'conversation': conv, 'situacao': 'não encontrado na cópia'}
     cycle = state.get('cycle') or {}
-    events = []
-    with repo._connection() as db:
-        for row in db.execute("SELECT event_key,status FROM inbound_events WHERE conversation_key=? "
-                              "ORDER BY created_at DESC LIMIT 5", (conv,)):
-            outbox = db.execute("SELECT status FROM outbox WHERE outbox_key=?", (row[0] + ':reply',)).fetchone()
-            events.append({'evento': row[0], 'status': row[1], 'resposta': outbox[0] if outbox else None})
-    return {'conversation': conv, 'fase': cycle.get('phase'), 'situacao': cycle.get('status'),
-            'cadastro_na_copia': state.get('cadastro_situacao'), 'expira': cycle.get('expires_at'),
-            'convite': ((cycle.get('real_operations') or {}).get('invite') or {}).get('status'),
-            'ultimos_eventos': events}
+    operations = cycle.get('real_operations') or {}
+    source = real_journey.agency_read_due(state, now)
+    return {'conversation': conv, 'creator': (cycle.get('facts') or {}).get('tiktok_declarado'),
+            'fase': cycle.get('phase'), 'situacao': cycle.get('status'), 'expira': cycle.get('expires_at'),
+            'cadastro_na_copia': state.get('cadastro_situacao'),
+            'convite': (operations.get('invite') or {}).get('status'),
+            'vinculo_na_ultima_leitura': (operations.get('relationship') or {}).get('status'),
+            'leitura_da_lista_agora': source,
+            'se_ler': ON_RESULT.get(source) if source else agency_why_not(state, now),
+            'reenvio_usado': (state.get('invite_resends') or {})}
 
 
 def main():
@@ -91,16 +143,21 @@ def main():
         shutil.copyfile(source, copy)
         repo = Repository(copy)
         chosen = candidates(repo, now)
+        for row in chosen:
+            row['se_ler'] = ON_RESULT.get(row['reason']) if row['kind'] == 'agency' else None
         picked = {row['conversation'] for row in chosen}
         left_out = []
         for conv in repo.precheck_conversations():
             state = repo.load_session(conv)
             cycle = state.get('cycle') or {}
-            if conv in picked or cycle.get('phase') != 'blocked':
+            if conv in picked or cycle.get('status') != 'open':
                 continue
-            if (cycle.get('real_operations') or {}).get('invite'):
-                left_out.append({'conversation': conv, 'tipo': 'convite', 'fica_de_fora_porque': invite_why_not(state, now)})
-            else:
+            operations = cycle.get('real_operations') or {}
+            if operations.get('invite') or operations.get('relationship'):
+                left_out.append({'conversation': conv, 'tipo': 'convite', 'convite': (operations.get('invite') or {}).get('status'),
+                                 'lista_de_vinculos': agency_why_not(state, now),
+                                 'ponte_de_convites': invite_why_not(state, now) if cycle.get('phase') == 'blocked' else None})
+            elif cycle.get('phase') == 'blocked':
                 left_out.append({'conversation': conv, 'tipo': 'perfil',
                                  'motivo_da_consulta': precheck_reason(repo, state)})
         reminders = [row for row in (reminder(repo, conv, now) for conv in repo.followup_conversations()) if row]

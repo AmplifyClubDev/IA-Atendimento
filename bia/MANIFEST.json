@@ -31,9 +31,9 @@
       "sha256": "8c80dc7e3a6d8dedf06acc28ea20dabc397a3ae3aaab1d8c95661acceabe326b"
     },
     {
-      "bytes": 8132,
+      "bytes": 9126,
       "path": "conversao.py",
-      "sha256": "94827c8afb9aa834de757f3e0b812969d5eeb99016437e60d70a7a4840e85f46"
+      "sha256": "9943f54489f705bc584441c77a98f13e6f59fa8c1e9e86c5546333b8a6919786"
     },
     {
       "bytes": 32562,
@@ -116,14 +116,14 @@
       "sha256": "7bfd3365ddff0eebceccb3212e0b355d94f176ba1c32eaa29b74b2037f608d16"
     },
     {
-      "bytes": 128910,
+      "bytes": 146759,
       "path": "real_journey.py",
-      "sha256": "dcf4e32b5f4653899104f151d9a275fc93e686745e4756248725d5c7dfd08a33"
+      "sha256": "330b0e67efe02b50e38bd191aa40d1eeea55b690f8cffa0fee044f95c4e2847a"
     },
     {
-      "bytes": 27301,
+      "bytes": 27761,
       "path": "real_operations.py",
-      "sha256": "f817463432bca53d0a8a2c917ac9e73f981e6250953c05584100c11efe63c36c"
+      "sha256": "ecc1ecb80227647c4a8ec076f6df75a5b18f2d2a2cfd0a20d630693fef77128e"
     },
     {
       "bytes": 11753,
@@ -131,9 +131,9 @@
       "sha256": "317a220a91ce3c3e30090d7497607c97b6d619e1d1787649cd1947a32ba6a308"
     },
     {
-      "bytes": 5156,
+      "bytes": 5646,
       "path": "reconferencia.py",
-      "sha256": "7249cadc8ed7186d8b0e44e07d01e0bac3c34557f871cf909f7555678b537a62"
+      "sha256": "0e0ed21544dff19549d8c7bd8b7582ee4fa959569329e3325e002775b46be614"
     },
     {
       "bytes": 13460,
@@ -161,9 +161,9 @@
       "sha256": "7f3049ccf0f1030555ce41aceabb778f99de28b9848edef166da13673bb7bdbb"
     },
     {
-      "bytes": 73812,
+      "bytes": 75337,
       "path": "server.py",
-      "sha256": "d7cf4956eb3720d0a0bbacd1592f15db8a275058d17b689b4a9b417923114330"
+      "sha256": "9e4a1244527e06fa82649142aea9f8a7e017f0a1a74cb58a4982bb5d792590d9"
     },
     {
       "bytes": 5013,
@@ -182,9 +182,9 @@
     }
   ],
   "provenance": {
-    "author": "claude-bia-release41-20261102",
-    "base_release": "atendimento-v5-release-20261102-40-2"
+    "author": "claude-bia-release42-20261102",
+    "base_release": "atendimento-v5-release-20261102-41"
   },
-  "release": "atendimento-v5-release-20261102-41",
+  "release": "atendimento-v5-release-20261102-42",
   "source_count": 36
 }

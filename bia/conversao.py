@@ -59,6 +59,22 @@ SHOP_STEPS = ('Te mostro o caminho 😊\n'
               '3. Siga os passos para ativar a conta de criador do TikTok Shop.\n\n'
               'Quando aparecer como ativo, me manda “pronto” que eu confiro de novo.')
 
+
+# Release 42 (02/11, textos aprovados pelo usuário). Saem como estão, sem o filtro de um emoji por parágrafo.
+def invite_sent_now(name):
+    return ('Pronto' + (', ' + name if name else '') + '! Seu convite da Amplify foi enviado agora 🎉 '
+            'Abra o TikTok Shop Creator → Parcerias ou Notificações → aceite o convite da Amplify. '
+            'Quando aceitar, eu já fico sabendo e te mando o cadastro 😊')
+
+
+INVITE_ACCEPTED = ('Vi aqui que você aceitou o convite! 🎉 Agora falta só o cadastro, '
+                   'e seu acesso ao Club sai na hora em que você envia.')
+INVITE_IS_THERE = ('Seu convite está lá, sim! 😊 Para achar:\n'
+                   '1. Abra o TikTok Shop Creator (não é o TikTok comum)\n'
+                   '2. Toque em Parcerias (ou no sininho de Notificações)\n'
+                   '3. Procure o convite da Amplify e toque em Aceitar.\n\n'
+                   'Se não achar mesmo, me avisa que eu envio de novo.')
+
 CONSENT_BUTTONS = ['Pode mandar', 'Tenho uma dúvida']
 CONSENT_QUESTION = 'Posso te mandar o convite no TikTok?'
 DOUBT = ('Claro, pode perguntar! 😊 As dúvidas mais comuns:\n'
