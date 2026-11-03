@@ -156,14 +156,14 @@
       "sha256": "3711150716a8ecfd90a7b19cd7e49adab180e63686a26c035abc47c939f096ec"
     },
     {
-      "bytes": 33237,
+      "bytes": 33570,
       "path": "retomada.py",
-      "sha256": "3f8b06f0a139ee5714cfbe87bdcc38a40d7ea1eb7ac283a33f699ee69c8adf2b"
+      "sha256": "0a05f86140dec41658aacc0b9991de023088a5dd872de034d95151e1aa301656"
     },
     {
-      "bytes": 89278,
+      "bytes": 89604,
       "path": "server.py",
-      "sha256": "da8a14c876626b014c41663d56d3c530b008294856b90b5d63bb502693876ff8"
+      "sha256": "431684cc6a4ac106b788518d60ec4db7c32bd219dff82449c842aa80c228ba06"
     },
     {
       "bytes": 5013,
@@ -171,9 +171,9 @@
       "sha256": "cb389caa9c8119d00013d75752c91bbc2dd70579aa2b187899b894f8c80708f2"
     },
     {
-      "bytes": 23514,
+      "bytes": 26299,
       "path": "transport.py",
-      "sha256": "965c0380df13e001ebd977705509a785964df8fd61ed23a21607d722b250f55e"
+      "sha256": "dc220191f2306f7a6f9a7150e2118d2275a86a00bd09625402bac2de769430d7"
     },
     {
       "bytes": 3324,
@@ -182,9 +182,9 @@
     }
   ],
   "provenance": {
-    "author": "claude-bia-release47-20261103",
-    "base_release": "atendimento-v5-release-20261102-46"
+    "author": "claude-bia-etiquetas-20261103",
+    "base_release": "atendimento-v5-release-20261103-47"
   },
-  "release": "atendimento-v5-release-20261103-47",
+  "release": "atendimento-v5-release-20261103-48",
   "source_count": 36
 }

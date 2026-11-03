@@ -63,8 +63,9 @@ class InactivityStage29Tests(unittest.TestCase):
     def test_timeout_projects_closed_and_preserves_other_team_label(self):
         result = self.progress.sync(self.event, self.state, self.proof())
         self.assertEqual(result['status'], 'confirmed')
-        self.assertEqual(set(self.adapter.labels), {'encerrado', 'outra-equipe'})
-        self.assertEqual(self.adapter.writes, [['encerrado']])
+        # Release 48: a etapa onde o lead parou fica junto de "encerrado".
+        self.assertEqual(set(self.adapter.labels), {'qualificação', 'encerrado', 'outra-equipe'})
+        self.assertEqual(self.adapter.writes, [['encerrado', 'qualificação']])
     def test_explicit_close_projects_same_closed_label(self):
         self.state['cycle']['reason'] = 'inactivity_user_close'; self.save()
         self.assertEqual(self.progress.sync(self.event, self.state, self.proof())['status'], 'confirmed')
@@ -76,7 +77,7 @@ class InactivityStage29Tests(unittest.TestCase):
         self.assertEqual(self.progress.sync(self.event, self.state, self.proof())['status'], 'confirmed')
         self.assertEqual(set(self.adapter.labels), {'conhecer', 'outra-equipe'})
     def test_completed_form_keeps_registration_label(self):
-        self.state['cycle'].update(phase='form', reason='validated_form'); self.save()
+        self.state['cycle'].update(phase='form', reason='validated_form', form_receipt={'creator_id': self.state['creator_id']}); self.save()
         self.progress.sync(self.event, self.state, self.proof())
         self.assertEqual(set(self.adapter.labels), {'cadastro', 'outra-equipe'})
     def test_wrong_channel_never_changes_labels(self):

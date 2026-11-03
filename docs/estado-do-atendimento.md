@@ -1,6 +1,6 @@
 # Atendimento Amplify: documento principal
 
-Atualizado em 03/11/2026 às 01h (Brasília). Tudo o que está no ar, onde fica, como funciona e o que falta. As auditorias antigas ficam como histórico (lista no fim).
+Atualizado em 03/11/2026 às 06h (Brasília). Tudo o que está no ar, onde fica, como funciona e o que falta. As auditorias antigas ficam como histórico (lista no fim).
 
 ---
 
@@ -8,13 +8,15 @@ Atualizado em 03/11/2026 às 01h (Brasília). Tudo o que está no ar, onde fica,
 
 | | Item | Situação |
 |---|---|---|
-| ✅ | **Bia** (WhatsApp) | release **46** no ar (deploy `ab8dd843`), `/ready` pronto |
+| ✅ | **Bia** (WhatsApp) | release **48** no ar (deploy `d0d71fe6`), `/ready` pronto |
+| ✅ | **Entrada** | todo lead novo da caixa 3 entra na Bia (`V5_GATE_MODE=todos`); ficam fora "Renovacao de contrato" e conversas com responsável |
+| ✅ | **Etiquetas** | etapa + `encerrado` quando o lead para (ex.: `validação` + `encerrado`); o `encerrado` sai quando ele volta |
+| ✅ | **Conhecimento** | 20 cards ativos no banco (`interno.contextos_ia`), revisados em 03/11 depois da auditoria de 32 conversas |
 | ✅ | **3 pontes do TikTok** | autenticadas, sem erro |
 | ✅ | **Formulário** `/cadastro` | no ar, grava no banco novo |
 | ✅ | **Acesso ao Circle + boas-vindas** | automático, em cerca de 5 s depois do envio do formulário |
 | ✅ | **Alertas por e-mail** | ponte caída, lead parado, Bia fora do ar (só quando ela não responde mesmo) |
 | ✅ | **Diagnóstico** | a Bia registra o motivo de cada conversa que não respondeu |
-| ⚠️ | **Piloto** | só **37 telefones** têm a Bia; o resto recebe "manutenção" |
 | ⚠️ | **Ponte de Convites** | volta com o login, mas ainda pede o clique em "Concluí" |
 
 ## 2. Resultado (30/10 a 02/11)
@@ -43,7 +45,7 @@ Atualizado em 03/11/2026 às 01h (Brasília). Tudo o que está no ar, onde fica,
 
 | Peça | Onde | Como funciona |
 |---|---|---|
-| **Bia** | Railway › "Atendimento V5 - Ensaio". Pacote em `artifacts/claude-bia-release46-20261102/` | O código roda de um zip selado guardado nas variáveis `V5_RELEASE_ARCHIVE_PART_1..12` + `V5_RELEASE_LAUNCHER_B64`. Publicar = trocar as variáveis + redeploy (`railway up` **não** muda o código) |
+| **Bia** | Railway › "Atendimento V5 - Ensaio". Código em `bia/` (GitHub) e pacote em `artifacts/claude-bia-etiquetas-20261103/` | O código roda de um zip selado guardado nas variáveis `V5_RELEASE_ARCHIVE_PART_1..12` + `V5_RELEASE_LAUNCHER_B64`. Publicar = trocar as variáveis + redeploy (`railway up` **não** muda o código) |
 | **Piloto** | `V5_PILOT_PHONES` (Bia, limite 100) + regra 3 do Chatwoot | A Bia só atende a lista. A regra 3 manda "manutenção" para quem está fora; os números da lista ficam na exceção (com e sem "+") |
 | **Formulário + entrega** | Railway › "Cadastro" (`amplify-cadastro.up.railway.app/cadastro`). Código em `artifacts/claude-cadastro-v5-20261030/app/` | Confere o vínculo na ponte de agenciamento, lê o print do GMV, grava a ficha, cria o acesso no Circle (categoria pelo GMV), manda as boas-vindas (o lead entra com o mesmo e-mail e cria a senha) e avisa no WhatsApp |
 | **Banco** | Supabase `divlvdmsqbwplervsqwu` | Migrações 001 a 006 em `.../claude-cadastro-v5-20261030/sql/`. Ficha em `interno.creators`, conversa em `interno.atendimentos` (@ declarado em `qualificacao.tiktok_declarado`) |
@@ -84,7 +86,7 @@ Cada código de retorno das pontes (`linked`, `pending`, `not_found`, `eligible`
 
 | # | Falta | Proposta | Depende de |
 |---|---|---|---|
-| 1 | 🔴 **Entrada de leads é manual** (lotes de 10, escolhidos à mão) | Todo lead novo de anúncio entra na Bia sozinho; ficam fora só "Renovacao de contrato" e as conversas de atendente | sessão da Bia + autorização |
+| 1 | ✅ **Entrada de leads** | Feito na 47: todo lead novo entra na Bia sozinho | — |
 | 2 | 🟠 **Leads parados há mais de 24 h** (janela do WhatsApp fechada) | Retomada com modelo aprovado da Meta, em 26 h e 72 h | aprovação dos modelos na Meta |
 | 3 | 🟠 **Ponte de Convites** ainda pede o "Concluí" | Republicar com a versão das outras duas | autorização |
 | 4 | 🟡 **Ver a conversão** depende de pedir | Relatório diário às 8h com ✅/❌ e o funil | autorização |
@@ -107,7 +109,8 @@ Cada código de retorno das pontes (`linked`, `pending`, `not_found`, `eligible`
   4. Fazer o redeploy.
   5. Conferir o `/ready` e o diagnóstico.
 
-  **Para voltar da 46 para a 45**, repor as 11 partes e **apagar a `V5_RELEASE_ARCHIVE_PART_12`**.
+  **Para voltar da 48 para a 47**, repor as 13 variáveis de `sealed48/volta47/` (mesmas 12 partes) e fazer o redeploy.
+- **Mudar o conhecimento da Bia:** editar `interno.contextos_ia` no Supabase (vale na próxima resposta, sem deploy). Cópia atual em `bia/contexto-ia/cards.json`.
 - **Publicar o Cadastro:** rodar `railway up -s Cadastro --ci` dentro de `.../claude-cadastro-v5-20261030/app/`.
 - **Liberar leads, enquanto o item 6.1 não sair:**
   1. Acrescentar o telefone em `V5_PILOT_PHONES` e fazer o redeploy da Bia.
