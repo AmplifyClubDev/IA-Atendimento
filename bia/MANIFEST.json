@@ -156,9 +156,9 @@
       "sha256": "3711150716a8ecfd90a7b19cd7e49adab180e63686a26c035abc47c939f096ec"
     },
     {
-      "bytes": 18504,
+      "bytes": 19717,
       "path": "retomada.py",
-      "sha256": "3192c000db5351bffa1bef31bfaa2d7edb3477e4c7fbb524ca9dd99b34698aef"
+      "sha256": "4d638d2b8e5df823d90ec47091fb98f0f6a7e6774d0d61dadff09aa4c2a36939"
     },
     {
       "bytes": 72090,
@@ -182,9 +182,9 @@
     }
   ],
   "provenance": {
-    "author": "claude-bia-release40-1-20261102",
-    "base_release": "atendimento-v5-release-20261101-40"
+    "author": "claude-bia-release40-2-20261102",
+    "base_release": "atendimento-v5-release-20261102-40-1"
   },
-  "release": "atendimento-v5-release-20261102-40-1",
+  "release": "atendimento-v5-release-20261102-40-2",
   "source_count": 36
 }
