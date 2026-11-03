@@ -1,0 +1,954 @@
+{
+  "version": "atendimento-v5-ensaio-data-1",
+  "form_version": "amplify-cadastro-v2",
+  "consent_version": "2026-09-09-v1",
+  "source_file": ".worktrees/origin-filter/AmplifyOS/backend/src/cadastro_contract.json",
+  "source_sha256": "bcf1f6dc5909330ddca8ffcf6194bd85bdf83bd2b914a0cee05596416336d6e6",
+  "catalog": "AmplifyOS-v5; ref divlvdmsqbwplervsqwu; metadata checked 2026-10-27",
+  "names": {
+    "creators": "Pessoa",
+    "creators_oportunidades": "Oportunidades",
+    "creators_gmv": "GMV",
+    "creators_pagamentos": "Pagamentos",
+    "creators_aquisicao": "Entrada",
+    "creators_enderecos": "Endereco",
+    "creators_perfil": "Perfil",
+    "creators_circle": "Acesso"
+  },
+  "fields": [
+    {
+      "id": "nome",
+      "name": "Nome completo",
+      "table": "creators",
+      "column": "nome",
+      "type": "text",
+      "conversion": "text",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.nome"
+    },
+    {
+      "id": "email",
+      "name": "E-mail para acessar o Club",
+      "table": "creators",
+      "column": "email",
+      "type": "email",
+      "conversion": "email",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.email"
+    },
+    {
+      "id": "whatsapp",
+      "name": "WhatsApp com DDD",
+      "table": "creators",
+      "column": "whatsapp",
+      "type": "phone_number",
+      "conversion": "phone_number",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.whatsapp"
+    },
+    {
+      "id": "foto_perfil",
+      "name": "Sua foto de perfil",
+      "table": "creators_perfil",
+      "column": "foto_perfil_referencia",
+      "type": "file",
+      "conversion": "private_file",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.foto_perfil"
+    },
+    {
+      "id": "mini_bio",
+      "name": "Apresente você e seu conteúdo",
+      "table": "creators_perfil",
+      "column": "mini_bio",
+      "type": "textarea",
+      "conversion": "textarea",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.mini_bio"
+    },
+    {
+      "id": "canal_origem",
+      "name": "Como você conheceu a Amplify?",
+      "table": "creators_aquisicao",
+      "column": "origem_informada_formulario",
+      "type": "select",
+      "conversion": "select",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.canal_origem",
+      "options": [
+        "Conheci no instagram",
+        "Conheci no TikTok",
+        "Me indicaram",
+        "Entraram em contato comigo",
+        "Outro jeito"
+      ]
+    },
+    {
+      "id": "origem_outro",
+      "name": "Como?",
+      "table": "creators_aquisicao",
+      "column": "origem_outro",
+      "type": "text",
+      "conversion": "text",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.origem_outro",
+      "condition": {
+        "field": "canal_origem",
+        "equals": "Outro jeito"
+      }
+    },
+    {
+      "id": "expectativas",
+      "name": "Que tipo de apoio você espera da Amplify?",
+      "table": "creators_perfil",
+      "column": "expectativas",
+      "type": "textarea",
+      "conversion": "textarea",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.expectativas"
+    },
+    {
+      "id": "meta_renda_mensal",
+      "name": "Qual é sua meta de renda mensal com conteúdo? (R$)",
+      "table": "creators_perfil",
+      "column": "meta_renda_mensal",
+      "type": "number",
+      "conversion": "decimal",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.meta_renda_mensal"
+    },
+    {
+      "id": "contexto_adicional",
+      "name": "Há algo mais que o time precisa saber sobre você?",
+      "table": "creators_perfil",
+      "column": "contexto_adicional",
+      "type": "textarea",
+      "conversion": "textarea",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.contexto_adicional"
+    },
+    {
+      "id": "plataformas",
+      "name": "Plataformas de atuação",
+      "table": "creators_perfil",
+      "column": "plataformas",
+      "type": "multi_select",
+      "conversion": "multi_select",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.plataformas",
+      "options": [
+        "TikTok",
+        "Instagram",
+        "YouTube",
+        "Shopee",
+        "Mercado Livre",
+        "Amazon",
+        "Shein",
+        "Outros"
+      ]
+    },
+    {
+      "id": "instagram",
+      "name": "Qual seu @ do Instagram?",
+      "table": "creators_perfil",
+      "column": "instagram",
+      "type": "text",
+      "conversion": "text",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.instagram",
+      "condition": {
+        "field": "plataformas",
+        "includes": "Instagram"
+      }
+    },
+    {
+      "id": "plataformas_outros",
+      "name": "Quais outras plataformas?",
+      "table": "creators_perfil",
+      "column": "plataformas_outros",
+      "type": "text",
+      "conversion": "text",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.plataformas_outros",
+      "condition": {
+        "field": "plataformas",
+        "includes": "Outros"
+      }
+    },
+    {
+      "id": "experiencia_live_shop",
+      "name": "Você tem experiência com Live Shop?",
+      "table": "creators_perfil",
+      "column": "experiencia_live_shop",
+      "type": "select",
+      "conversion": "select",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.experiencia_live_shop",
+      "options": [
+        "Nenhuma",
+        "Básico",
+        "Intermediário",
+        "Avançado"
+      ]
+    },
+    {
+      "id": "agencia_anterior",
+      "name": "Já fez parte de outra agência?",
+      "table": "creators_perfil",
+      "column": "teve_agencia_anterior",
+      "type": "select",
+      "conversion": "boolean",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.agencia_anterior",
+      "options": [
+        "Sim",
+        "Não"
+      ]
+    },
+    {
+      "id": "nome_agencia_anterior",
+      "name": "Agência anterior",
+      "table": "creators_perfil",
+      "column": "nome_agencia_anterior",
+      "type": "text",
+      "conversion": "text",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.nome_agencia_anterior",
+      "condition": {
+        "field": "agencia_anterior",
+        "equals": "Sim"
+      }
+    },
+    {
+      "id": "experiencia_agencia",
+      "name": "Qual sua experiência e opinião com a última agência",
+      "table": "creators_perfil",
+      "column": "experiencia_agencia",
+      "type": "textarea",
+      "conversion": "textarea",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.experiencia_agencia",
+      "condition": {
+        "field": "agencia_anterior",
+        "equals": "Sim"
+      }
+    },
+    {
+      "id": "produtos_excluidos",
+      "name": "Tipos de produto que NÃO trabalha",
+      "table": "creators_perfil",
+      "column": "produtos_excluidos",
+      "type": "textarea",
+      "conversion": "textarea",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.produtos_excluidos"
+    },
+    {
+      "id": "gmv_declarado",
+      "name": "Quanto você vendeu no TikTok Shop nos últimos 28 dias? (R$)",
+      "table": "creators_gmv",
+      "column": "valor",
+      "type": "number",
+      "conversion": "decimal",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.gmv_declarado"
+    },
+    {
+      "id": "inicio_amplify_informado",
+      "name": "Quando você começou na Amplify?",
+      "table": "creators_perfil",
+      "column": "inicio_amplify_informado",
+      "type": "date",
+      "conversion": "date",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.inicio_amplify_informado"
+    },
+    {
+      "id": "cpf",
+      "name": "CPF",
+      "table": "creators_pagamentos",
+      "column": "cpf",
+      "type": "text",
+      "conversion": "cpf",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.cpf"
+    },
+    {
+      "id": "nascimento",
+      "name": "Data de nascimento",
+      "table": "creators_perfil",
+      "column": "data_nascimento",
+      "type": "date",
+      "conversion": "date",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.nascimento"
+    },
+    {
+      "id": "genero",
+      "name": "Com qual gênero você se identifica?",
+      "table": "creators_perfil",
+      "column": "genero",
+      "type": "select",
+      "conversion": "select",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.genero",
+      "options": [
+        "Masculino",
+        "Feminino",
+        "Prefiro não responder"
+      ]
+    },
+    {
+      "id": "estado_civil",
+      "name": "Estado civil",
+      "table": "creators_perfil",
+      "column": "estado_civil",
+      "type": "select",
+      "conversion": "select",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.estado_civil",
+      "options": [
+        "Solteiro",
+        "Namorando",
+        "Casado",
+        "Prefiro não informar"
+      ]
+    },
+    {
+      "id": "camiseta",
+      "name": "Qual tamanho de camiseta você usa?",
+      "table": "creators_perfil",
+      "column": "camiseta",
+      "type": "select",
+      "conversion": "select",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.camiseta",
+      "options": [
+        "P",
+        "M",
+        "G",
+        "GG",
+        "Outro"
+      ]
+    },
+    {
+      "id": "camiseta_outro",
+      "name": "Informe o tamanho da camiseta",
+      "table": "creators_perfil",
+      "column": "camiseta_outro",
+      "type": "text",
+      "conversion": "text",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.camiseta_outro",
+      "condition": {
+        "field": "camiseta",
+        "equals": "Outro"
+      }
+    },
+    {
+      "id": "estado",
+      "name": "Em qual estado você mora?",
+      "table": "creators_enderecos",
+      "column": "endereco_estado",
+      "type": "select",
+      "conversion": "select",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.estado",
+      "options": [
+        "Acre",
+        "Alagoas",
+        "Amapá",
+        "Amazonas",
+        "Bahia",
+        "Ceará",
+        "Distrito Federal",
+        "Espírito Santo",
+        "Goiás",
+        "Maranhão",
+        "Mato Grosso",
+        "Mato Grosso do Sul",
+        "Minas Gerais",
+        "Pará",
+        "Paraíba",
+        "Paraná",
+        "Pernambuco",
+        "Piauí",
+        "Rio de Janeiro",
+        "Rio Grande do Norte",
+        "Rio Grande do Sul",
+        "Rondônia",
+        "Roraima",
+        "Santa Catarina",
+        "São Paulo",
+        "Sergipe",
+        "Tocantins"
+      ]
+    },
+    {
+      "id": "cidade",
+      "name": "Cidade",
+      "table": "creators_enderecos",
+      "column": "endereco_cidade",
+      "type": "text",
+      "conversion": "text",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.cidade"
+    },
+    {
+      "id": "logradouro",
+      "name": "Endereço para receber as amostras/produtos",
+      "table": "creators_enderecos",
+      "column": "endereco_logradouro",
+      "type": "text",
+      "conversion": "text",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.logradouro"
+    },
+    {
+      "id": "bairro",
+      "name": "Bairro",
+      "table": "creators_enderecos",
+      "column": "endereco_bairro",
+      "type": "text",
+      "conversion": "text",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.bairro"
+    },
+    {
+      "id": "numero",
+      "name": "Número",
+      "table": "creators_enderecos",
+      "column": "endereco_numero",
+      "type": "text",
+      "conversion": "text",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.numero"
+    },
+    {
+      "id": "complemento",
+      "name": "Complemento do endereço (ou “Sem complemento”)",
+      "table": "creators_enderecos",
+      "column": "endereco_complemento",
+      "type": "text",
+      "conversion": "text",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.complemento"
+    },
+    {
+      "id": "cep",
+      "name": "CEP para receber amostras/produtos",
+      "table": "creators_enderecos",
+      "column": "endereco_cep",
+      "type": "text",
+      "conversion": "cep",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.cep"
+    },
+    {
+      "id": "pix",
+      "name": "Chave PIX",
+      "table": "creators_pagamentos",
+      "column": "pix_chave",
+      "type": "text",
+      "conversion": "text",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.pix"
+    },
+    {
+      "id": "possui_cnpj",
+      "name": "Você possui CNPJ?",
+      "table": "creators_pagamentos",
+      "column": "possui_cnpj",
+      "type": "select",
+      "conversion": "boolean",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.possui_cnpj",
+      "options": [
+        "Sim",
+        "Não"
+      ]
+    },
+    {
+      "id": "cnpj",
+      "name": "CNPJ",
+      "table": "creators_pagamentos",
+      "column": "cnpj",
+      "type": "text",
+      "conversion": "cnpj",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.cnpj",
+      "condition": {
+        "field": "possui_cnpj",
+        "equals": "Sim"
+      }
+    },
+    {
+      "id": "nichos",
+      "name": "Quais são seus nichos de conteúdo?",
+      "table": "creators_perfil",
+      "column": "nichos",
+      "type": "multi_select",
+      "conversion": "multi_select",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.nichos",
+      "options": [
+        "Lifestyle",
+        "Tecnologia",
+        "Moda",
+        "Beleza",
+        "Fitness & Saúde",
+        "Viagens",
+        "Culinária & Gastronomia",
+        "Educação & Conhecimento",
+        "Casa e Decoração",
+        "Gaming (Jogos)",
+        "Pets",
+        "Família & Parentalidade",
+        "Negócios & Empreendedorismo",
+        "Eletrônicos",
+        "Outros"
+      ]
+    },
+    {
+      "id": "nichos_outros",
+      "name": "Quais outros nichos?",
+      "table": "creators_perfil",
+      "column": "nichos_outros",
+      "type": "text",
+      "conversion": "text",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.nichos_outros",
+      "condition": {
+        "field": "nichos",
+        "includes": "Outros"
+      }
+    },
+    {
+      "id": "rotina",
+      "name": "Qual sua rotina?",
+      "table": "creators_perfil",
+      "column": "rotina",
+      "type": "select",
+      "conversion": "select",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.rotina",
+      "options": [
+        "Tenho outro trabalho além de criar conteúdo",
+        "Me dedico 100% ao conteúdo",
+        "Outro"
+      ]
+    },
+    {
+      "id": "rotina_outro",
+      "name": "Como é sua rotina?",
+      "table": "creators_perfil",
+      "column": "rotina_outro",
+      "type": "textarea",
+      "conversion": "textarea",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.rotina_outro",
+      "condition": {
+        "field": "rotina",
+        "equals": "Outro"
+      }
+    },
+    {
+      "id": "tem_filhos",
+      "name": "Tem filhos?",
+      "table": "creators_oportunidades",
+      "column": "tem_filhos",
+      "type": "select",
+      "conversion": "boolean",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.tem_filhos",
+      "options": [
+        "Sim",
+        "Não"
+      ]
+    },
+    {
+      "id": "cabelo",
+      "name": "Qual o tipo do seu cabelo?",
+      "table": "creators_perfil",
+      "column": "cabelo",
+      "type": "select",
+      "conversion": "select",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.cabelo",
+      "options": [
+        "liso",
+        "Ondulado",
+        "Cacheado",
+        "Crespo",
+        "Sem cabelo",
+        "Prefiro não informar"
+      ]
+    },
+    {
+      "id": "calcado",
+      "name": "Qual seu número de calçado?",
+      "table": "creators_perfil",
+      "column": "calcado",
+      "type": "number",
+      "conversion": "decimal",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.calcado"
+    },
+    {
+      "id": "cor_raca",
+      "name": "Como você se autodeclara em relação à sua cor/raça?",
+      "table": "creators_oportunidades",
+      "column": "cor_raca",
+      "type": "select",
+      "conversion": "select",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.cor_raca",
+      "options": [
+        "Branca",
+        "Parda",
+        "Preta",
+        "Amarela (descendentes de asiáticos)",
+        "Indígena",
+        "Prefiro não informar"
+      ]
+    },
+    {
+      "id": "alimentacao",
+      "name": "Qual o seu tipo de dieta/alimentação?",
+      "table": "creators_oportunidades",
+      "column": "alimentacao",
+      "type": "select",
+      "conversion": "select",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.alimentacao",
+      "options": [
+        "Sem restrições (como de tudo)",
+        "Vegetariano/Vegano (não come carne)",
+        "Tenho restrições alimentares (especificar)"
+      ]
+    },
+    {
+      "id": "restricao_alimentar",
+      "name": "Qual restrição alimentar",
+      "table": "creators_oportunidades",
+      "column": "restricao_alimentar",
+      "type": "text",
+      "conversion": "text",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.restricao_alimentar",
+      "condition": {
+        "field": "alimentacao",
+        "equals": "Tenho restrições alimentares (especificar)"
+      }
+    },
+    {
+      "id": "casa_praia_campo",
+      "name": "Tem casa de praia/campo?",
+      "table": "creators_oportunidades",
+      "column": "casa_praia_campo",
+      "type": "select",
+      "conversion": "boolean",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.casa_praia_campo",
+      "options": [
+        "Sim",
+        "Não"
+      ]
+    },
+    {
+      "id": "carro",
+      "name": "Tem carro?",
+      "table": "creators_oportunidades",
+      "column": "carro",
+      "type": "select",
+      "conversion": "boolean",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.carro",
+      "options": [
+        "Sim",
+        "Não"
+      ]
+    },
+    {
+      "id": "moto",
+      "name": "Tem moto?",
+      "table": "creators_oportunidades",
+      "column": "moto",
+      "type": "select",
+      "conversion": "boolean",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.moto",
+      "options": [
+        "Sim",
+        "Não"
+      ]
+    },
+    {
+      "id": "celular",
+      "name": "Tipo de celular",
+      "table": "creators_oportunidades",
+      "column": "celular",
+      "type": "select",
+      "conversion": "select",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.celular",
+      "options": [
+        "iPhone",
+        "Android",
+        "Ambos",
+        "Outros"
+      ]
+    },
+    {
+      "id": "computador",
+      "name": "Tem computador?",
+      "table": "creators_oportunidades",
+      "column": "computador",
+      "type": "select",
+      "conversion": "boolean",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.computador",
+      "options": [
+        "Sim",
+        "Não"
+      ]
+    },
+    {
+      "id": "tripe",
+      "name": "Tem tripé",
+      "table": "creators_oportunidades",
+      "column": "tripe",
+      "type": "select",
+      "conversion": "boolean",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.tripe",
+      "options": [
+        "Sim",
+        "Não"
+      ]
+    },
+    {
+      "id": "microfone",
+      "name": "Tem microfone de lapela?",
+      "table": "creators_oportunidades",
+      "column": "microfone",
+      "type": "select",
+      "conversion": "boolean",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.microfone",
+      "options": [
+        "Sim",
+        "Não"
+      ]
+    },
+    {
+      "id": "academia",
+      "name": "Tem acesso a academia?",
+      "table": "creators_oportunidades",
+      "column": "academia",
+      "type": "select",
+      "conversion": "boolean",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.academia",
+      "options": [
+        "Sim",
+        "Não"
+      ]
+    },
+    {
+      "id": "tem_pet",
+      "name": "Tem pet de estimação?",
+      "table": "creators_oportunidades",
+      "column": "tem_pet",
+      "type": "select",
+      "conversion": "boolean",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.tem_pet",
+      "options": [
+        "Sim",
+        "Não"
+      ]
+    },
+    {
+      "id": "pets",
+      "name": "Pets (quais)",
+      "table": "creators_oportunidades",
+      "column": "pets",
+      "type": "text",
+      "conversion": "text",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.pets",
+      "condition": {
+        "field": "tem_pet",
+        "equals": "Sim"
+      }
+    },
+    {
+      "id": "outro_idioma",
+      "name": "Você fala outro idioma?",
+      "table": "creators_oportunidades",
+      "column": "outro_idioma",
+      "type": "select",
+      "conversion": "boolean",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.outro_idioma",
+      "options": [
+        "Sim",
+        "Não"
+      ]
+    },
+    {
+      "id": "video_idioma",
+      "name": "Link vídeo falando outro idioma",
+      "table": "creators_oportunidades",
+      "column": "video_idioma",
+      "type": "url",
+      "conversion": "url",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.video_idioma",
+      "condition": {
+        "field": "outro_idioma",
+        "equals": "Sim"
+      }
+    },
+    {
+      "id": "idiomas",
+      "name": "Idiomas",
+      "table": "creators_oportunidades",
+      "column": "idiomas",
+      "type": "multi_select",
+      "conversion": "multi_select",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.idiomas",
+      "options": [
+        "Inglês",
+        "Espanhol",
+        "Francês",
+        "Alemão",
+        "Italiano",
+        "Japonês",
+        "Mandarim (Chinês)",
+        "Coreano",
+        "Árabe",
+        "Russo",
+        "Hindi",
+        "Outros"
+      ],
+      "condition": {
+        "field": "outro_idioma",
+        "equals": "Sim"
+      }
+    },
+    {
+      "id": "idiomas_outros",
+      "name": "Quais outros idiomas?",
+      "table": "creators_oportunidades",
+      "column": "idiomas_outros",
+      "type": "text",
+      "conversion": "text",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.idiomas_outros",
+      "condition": {
+        "field": "idiomas",
+        "includes": "Outros"
+      }
+    },
+    {
+      "id": "mais_2000_seguidores",
+      "name": "Você tem +2.000 seguidores no TikTok?",
+      "table": "creators_perfil",
+      "column": "declarou_mais_2000_seguidores",
+      "type": "select",
+      "conversion": "boolean",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.mais_2000_seguidores",
+      "options": [
+        "Sim",
+        "Não"
+      ]
+    },
+    {
+      "id": "print_gmv",
+      "name": "Print do GMV dos últimos 28 dias",
+      "table": "creators_gmv",
+      "column": "comprovante_referencia",
+      "type": "file",
+      "conversion": "private_file",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.print_gmv"
+    },
+    {
+      "id": "tiktok",
+      "name": "Seu @ no TikTok",
+      "table": "creators",
+      "column": "tiktok",
+      "type": "text",
+      "conversion": "tiktok",
+      "required_when_visible": true,
+      "source": "formulario_declarado",
+      "source_path": "answers.tiktok"
+    }
+  ]
+}

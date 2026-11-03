@@ -1,0 +1,793 @@
+{
+  "revision": "amplify-cadastro-v2",
+  "sections": [
+    {
+      "id": "acesso",
+      "title": "Sua jornada começa aqui.",
+      "subtitle": "Confira seus dados para acessar o Amplify Club. 💙",
+      "name": "Seu acesso",
+      "icon": "↗"
+    },
+    {
+      "id": "perfil",
+      "title": "Seu talento tem identidade.",
+      "subtitle": "Conte um pouco sobre você e o conteúdo que ama criar.",
+      "name": "Seu perfil",
+      "icon": "✦"
+    },
+    {
+      "id": "jornada",
+      "title": "Vamos conhecer seus planos.",
+      "subtitle": "Suas experiências e objetivos ajudam o time a acompanhar você.",
+      "name": "Sua jornada",
+      "icon": "↗"
+    },
+    {
+      "id": "endereco",
+      "title": "O próximo produto pode chegar aí.",
+      "subtitle": "Informe onde você recebe amostras e produtos para campanhas.",
+      "name": "Entregas",
+      "icon": "⌂"
+    },
+    {
+      "id": "pagamentos",
+      "title": "Tudo organizado para o futuro.",
+      "subtitle": "Dados para eventuais pagamentos da operação.",
+      "name": "Pagamentos",
+      "icon": "✓"
+    },
+    {
+      "id": "oportunidades",
+      "title": "Encontre o seu próximo match.",
+      "subtitle": "Sua rotina e suas preferências ajudam a identificar oportunidades.",
+      "name": "Oportunidades",
+      "icon": "✧"
+    }
+  ],
+  "fields": [
+    {
+      "id": "nome",
+      "section": "acesso",
+      "label": "Nome completo",
+      "type": "text",
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "email",
+      "section": "acesso",
+      "label": "E-mail para acessar o Club",
+      "type": "email",
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "whatsapp",
+      "section": "acesso",
+      "label": "WhatsApp com DDD",
+      "type": "phone_number",
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "foto_perfil",
+      "section": "perfil",
+      "label": "Sua foto de perfil",
+      "type": "file",
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "mini_bio",
+      "section": "perfil",
+      "label": "Apresente você e seu conteúdo",
+      "type": "textarea",
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "canal_origem",
+      "section": "jornada",
+      "label": "Como você conheceu a Amplify?",
+      "type": "select",
+      "options": [
+        "Conheci no instagram",
+        "Conheci no TikTok",
+        "Me indicaram",
+        "Entraram em contato comigo",
+        "Outro jeito"
+      ],
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "origem_outro",
+      "section": "jornada",
+      "label": "Como?",
+      "type": "text",
+      "requiredProposed": true,
+      "conditionProposed": {
+        "field": "canal_origem",
+        "equals": "Outro jeito"
+      }
+    },
+    {
+      "id": "expectativas",
+      "section": "jornada",
+      "label": "Que tipo de apoio você espera da Amplify?",
+      "type": "textarea",
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "meta_renda_mensal",
+      "section": "jornada",
+      "label": "Qual é sua meta de renda mensal com conteúdo? (R$)",
+      "type": "number",
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "contexto_adicional",
+      "section": "jornada",
+      "label": "Há algo mais que o time precisa saber sobre você?",
+      "type": "textarea",
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "plataformas",
+      "section": "jornada",
+      "label": "Plataformas de atuação",
+      "type": "multi_select",
+      "options": [
+        "TikTok",
+        "Instagram",
+        "YouTube",
+        "Shopee",
+        "Mercado Livre",
+        "Amazon",
+        "Shein",
+        "Outros"
+      ],
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "instagram",
+      "section": "jornada",
+      "label": "Qual seu @ do Instagram?",
+      "type": "text",
+      "requiredProposed": true,
+      "conditionProposed": {
+        "field": "plataformas",
+        "includes": "Instagram"
+      }
+    },
+    {
+      "id": "plataformas_outros",
+      "section": "jornada",
+      "label": "Quais outras plataformas?",
+      "type": "text",
+      "requiredProposed": true,
+      "conditionProposed": {
+        "field": "plataformas",
+        "includes": "Outros"
+      }
+    },
+    {
+      "id": "experiencia_live_shop",
+      "section": "jornada",
+      "label": "Você tem experiência com Live Shop?",
+      "type": "select",
+      "options": [
+        "Nenhuma",
+        "Básico",
+        "Intermediário",
+        "Avançado"
+      ],
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "agencia_anterior",
+      "section": "jornada",
+      "label": "Já fez parte de outra agência?",
+      "type": "select",
+      "options": [
+        "Sim",
+        "Não"
+      ],
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "nome_agencia_anterior",
+      "section": "jornada",
+      "label": "Agência anterior",
+      "type": "text",
+      "requiredProposed": true,
+      "conditionProposed": {
+        "field": "agencia_anterior",
+        "equals": "Sim"
+      }
+    },
+    {
+      "id": "experiencia_agencia",
+      "section": "jornada",
+      "label": "Qual sua experiência e opinião com a última agência",
+      "type": "textarea",
+      "requiredProposed": true,
+      "conditionProposed": {
+        "field": "agencia_anterior",
+        "equals": "Sim"
+      }
+    },
+    {
+      "id": "produtos_excluidos",
+      "section": "jornada",
+      "label": "Tipos de produto que NÃO trabalha",
+      "type": "textarea",
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "gmv_declarado",
+      "section": "jornada",
+      "label": "Quanto você vendeu no TikTok Shop nos últimos 28 dias? (R$)",
+      "type": "number",
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "inicio_amplify_informado",
+      "section": "jornada",
+      "label": "Quando você começou na Amplify?",
+      "type": "date",
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "cpf",
+      "section": "pagamentos",
+      "label": "CPF",
+      "type": "text",
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "nascimento",
+      "section": "perfil",
+      "label": "Data de nascimento",
+      "type": "date",
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "genero",
+      "section": "perfil",
+      "label": "Com qual gênero você se identifica?",
+      "type": "select",
+      "options": [
+        "Masculino",
+        "Feminino",
+        "Prefiro não responder"
+      ],
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "estado_civil",
+      "section": "perfil",
+      "label": "Estado civil",
+      "type": "select",
+      "options": [
+        "Solteiro",
+        "Namorando",
+        "Casado",
+        "Prefiro não informar"
+      ],
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "camiseta",
+      "section": "perfil",
+      "label": "Qual tamanho de camiseta você usa?",
+      "type": "select",
+      "options": [
+        "P",
+        "M",
+        "G",
+        "GG",
+        "Outro"
+      ],
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "camiseta_outro",
+      "section": "perfil",
+      "label": "Informe o tamanho da camiseta",
+      "type": "text",
+      "requiredProposed": true,
+      "conditionProposed": {
+        "field": "camiseta",
+        "equals": "Outro"
+      }
+    },
+    {
+      "id": "estado",
+      "section": "endereco",
+      "label": "Em qual estado você mora?",
+      "type": "select",
+      "options": [
+        "Acre",
+        "Alagoas",
+        "Amapá",
+        "Amazonas",
+        "Bahia",
+        "Ceará",
+        "Distrito Federal",
+        "Espírito Santo",
+        "Goiás",
+        "Maranhão",
+        "Mato Grosso",
+        "Mato Grosso do Sul",
+        "Minas Gerais",
+        "Pará",
+        "Paraíba",
+        "Paraná",
+        "Pernambuco",
+        "Piauí",
+        "Rio de Janeiro",
+        "Rio Grande do Norte",
+        "Rio Grande do Sul",
+        "Rondônia",
+        "Roraima",
+        "Santa Catarina",
+        "São Paulo",
+        "Sergipe",
+        "Tocantins"
+      ],
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "cidade",
+      "section": "endereco",
+      "label": "Cidade",
+      "type": "text",
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "logradouro",
+      "section": "endereco",
+      "label": "Endereço para receber as amostras/produtos",
+      "type": "text",
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "bairro",
+      "section": "endereco",
+      "label": "Bairro",
+      "type": "text",
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "numero",
+      "section": "endereco",
+      "label": "Número",
+      "type": "text",
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "complemento",
+      "section": "endereco",
+      "label": "Complemento do endereço (ou “Sem complemento”)",
+      "type": "text",
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "cep",
+      "section": "endereco",
+      "label": "CEP para receber amostras/produtos",
+      "type": "text",
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "pix",
+      "section": "pagamentos",
+      "label": "Chave PIX",
+      "type": "text",
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "possui_cnpj",
+      "section": "pagamentos",
+      "label": "Você possui CNPJ?",
+      "type": "select",
+      "options": [
+        "Sim",
+        "Não"
+      ],
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "cnpj",
+      "section": "pagamentos",
+      "label": "CNPJ",
+      "type": "text",
+      "requiredProposed": true,
+      "conditionProposed": {
+        "field": "possui_cnpj",
+        "equals": "Sim"
+      }
+    },
+    {
+      "id": "nichos",
+      "section": "perfil",
+      "label": "Quais são seus nichos de conteúdo?",
+      "type": "multi_select",
+      "options": [
+        "Lifestyle",
+        "Tecnologia",
+        "Moda",
+        "Beleza",
+        "Fitness & Saúde",
+        "Viagens",
+        "Culinária & Gastronomia",
+        "Educação & Conhecimento",
+        "Casa e Decoração",
+        "Gaming (Jogos)",
+        "Pets",
+        "Família & Parentalidade",
+        "Negócios & Empreendedorismo",
+        "Eletrônicos",
+        "Outros"
+      ],
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "nichos_outros",
+      "section": "perfil",
+      "label": "Quais outros nichos?",
+      "type": "text",
+      "requiredProposed": true,
+      "conditionProposed": {
+        "field": "nichos",
+        "includes": "Outros"
+      }
+    },
+    {
+      "id": "rotina",
+      "section": "jornada",
+      "label": "Qual sua rotina?",
+      "type": "select",
+      "options": [
+        "Tenho outro trabalho além de criar conteúdo",
+        "Me dedico 100% ao conteúdo",
+        "Outro"
+      ],
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "rotina_outro",
+      "section": "jornada",
+      "label": "Como é sua rotina?",
+      "type": "textarea",
+      "requiredProposed": true,
+      "conditionProposed": {
+        "field": "rotina",
+        "equals": "Outro"
+      }
+    },
+    {
+      "id": "tem_filhos",
+      "section": "oportunidades",
+      "label": "Tem filhos?",
+      "type": "select",
+      "options": [
+        "Sim",
+        "Não"
+      ],
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "cabelo",
+      "section": "perfil",
+      "label": "Qual o tipo do seu cabelo?",
+      "type": "select",
+      "options": [
+        "liso",
+        "Ondulado",
+        "Cacheado",
+        "Crespo",
+        "Sem cabelo",
+        "Prefiro não informar"
+      ],
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "calcado",
+      "section": "perfil",
+      "label": "Qual seu número de calçado?",
+      "type": "number",
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "cor_raca",
+      "section": "perfil",
+      "label": "Como você se autodeclara em relação à sua cor/raça?",
+      "type": "select",
+      "options": [
+        "Branca",
+        "Parda",
+        "Preta",
+        "Amarela (descendentes de asiáticos)",
+        "Indígena",
+        "Prefiro não informar"
+      ],
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "alimentacao",
+      "section": "oportunidades",
+      "label": "Qual o seu tipo de dieta/alimentação?",
+      "type": "select",
+      "options": [
+        "Sem restrições (como de tudo)",
+        "Vegetariano/Vegano (não come carne)",
+        "Tenho restrições alimentares (especificar)"
+      ],
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "restricao_alimentar",
+      "section": "oportunidades",
+      "label": "Qual restrição alimentar",
+      "type": "text",
+      "requiredProposed": true,
+      "conditionProposed": {
+        "field": "alimentacao",
+        "equals": "Tenho restrições alimentares (especificar)"
+      }
+    },
+    {
+      "id": "casa_praia_campo",
+      "section": "oportunidades",
+      "label": "Tem casa de praia/campo?",
+      "type": "select",
+      "options": [
+        "Sim",
+        "Não"
+      ],
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "carro",
+      "section": "oportunidades",
+      "label": "Tem carro?",
+      "type": "select",
+      "options": [
+        "Sim",
+        "Não"
+      ],
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "moto",
+      "section": "oportunidades",
+      "label": "Tem moto?",
+      "type": "select",
+      "options": [
+        "Sim",
+        "Não"
+      ],
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "celular",
+      "section": "oportunidades",
+      "label": "Tipo de celular",
+      "type": "select",
+      "options": [
+        "iPhone",
+        "Android",
+        "Ambos",
+        "Outros"
+      ],
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "computador",
+      "section": "oportunidades",
+      "label": "Tem computador?",
+      "type": "select",
+      "options": [
+        "Sim",
+        "Não"
+      ],
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "tripe",
+      "section": "oportunidades",
+      "label": "Tem tripé",
+      "type": "select",
+      "options": [
+        "Sim",
+        "Não"
+      ],
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "microfone",
+      "section": "oportunidades",
+      "label": "Tem microfone de lapela?",
+      "type": "select",
+      "options": [
+        "Sim",
+        "Não"
+      ],
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "academia",
+      "section": "oportunidades",
+      "label": "Tem acesso a academia?",
+      "type": "select",
+      "options": [
+        "Sim",
+        "Não"
+      ],
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "tem_pet",
+      "section": "oportunidades",
+      "label": "Tem pet de estimação?",
+      "type": "select",
+      "options": [
+        "Sim",
+        "Não"
+      ],
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "pets",
+      "section": "oportunidades",
+      "label": "Pets (quais)",
+      "type": "text",
+      "requiredProposed": true,
+      "conditionProposed": {
+        "field": "tem_pet",
+        "equals": "Sim"
+      }
+    },
+    {
+      "id": "outro_idioma",
+      "section": "oportunidades",
+      "label": "Você fala outro idioma?",
+      "type": "select",
+      "options": [
+        "Sim",
+        "Não"
+      ],
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "video_idioma",
+      "section": "oportunidades",
+      "label": "Link vídeo falando outro idioma",
+      "type": "url",
+      "requiredProposed": true,
+      "conditionProposed": {
+        "field": "outro_idioma",
+        "equals": "Sim"
+      }
+    },
+    {
+      "id": "idiomas",
+      "section": "oportunidades",
+      "label": "Idiomas",
+      "type": "multi_select",
+      "options": [
+        "Inglês",
+        "Espanhol",
+        "Francês",
+        "Alemão",
+        "Italiano",
+        "Japonês",
+        "Mandarim (Chinês)",
+        "Coreano",
+        "Árabe",
+        "Russo",
+        "Hindi",
+        "Outros"
+      ],
+      "requiredProposed": true,
+      "conditionProposed": {
+        "field": "outro_idioma",
+        "equals": "Sim"
+      }
+    },
+    {
+      "id": "idiomas_outros",
+      "section": "oportunidades",
+      "label": "Quais outros idiomas?",
+      "type": "text",
+      "requiredProposed": true,
+      "conditionProposed": {
+        "field": "idiomas",
+        "includes": "Outros"
+      }
+    },
+    {
+      "id": "mais_2000_seguidores",
+      "section": "jornada",
+      "label": "Você tem +2.000 seguidores no TikTok?",
+      "type": "select",
+      "options": [
+        "Sim",
+        "Não"
+      ],
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "print_gmv",
+      "section": "jornada",
+      "label": "Print do GMV dos últimos 28 dias",
+      "type": "file",
+      "requiredProposed": true,
+      "conditionProposed": null
+    },
+    {
+      "id": "tiktok",
+      "section": "acesso",
+      "label": "Seu @ no TikTok",
+      "type": "text",
+      "requiredProposed": true,
+      "conditionProposed": null
+    }
+  ],
+  "consent": {
+    "version": "2026-09-09-v1",
+    "title": "Seus dados, com finalidade clara",
+    "paragraphs": [
+      "Autorizo a Amplify a tratar os dados informados neste cadastro para me identificar, prestar atendimento, organizar minha participação nas ações da empresa, administrar meu acesso ao Amplify Club e viabilizar a comunicação, o envio de produtos e eventuais pagamentos relacionados à operação.",
+      "Meus dados não serão vendidos nem compartilhados com terceiros para publicidade ou finalidades alheias a essas atividades. Quando necessário, somente os dados pertinentes à prestação dos serviços serão utilizados por fornecedores que apoiam a operação, como a plataforma da comunidade, o armazenamento do cadastro e os serviços de comunicação. Meu nome e minha foto poderão identificar meu perfil no Amplify Club.",
+      "As informações sobre cor/raça e restrições alimentares serão utilizadas pelo time interno para identificar oportunidades compatíveis com meu perfil. Essas informações não serão exibidas no meu perfil do Club.",
+      "Posso solicitar informações, acesso, correção dos meus dados e a revogação deste consentimento pelo atendimento da Amplify, observadas as hipóteses de conservação previstas na Lei Geral de Proteção de Dados Pessoais (Lei nº 13.709/2018)."
+    ],
+    "label": "Li o termo e concordo com o tratamento dos meus dados para as finalidades descritas acima.",
+    "requirement": "A concordância é necessária para concluir este cadastro.",
+    "lawUrl": "https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/lei/l13709compilado.htm"
+  }
+}
