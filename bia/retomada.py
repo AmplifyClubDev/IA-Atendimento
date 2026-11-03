@@ -24,6 +24,8 @@ MIN_GAP = timedelta(minutes=10)
 WAITING = frozenset({'intro', 'origin', 'tiktok', 'shop', 'agency', 'consent_real', 'await_acceptance', 'form'})
 SCAN_SECONDS = 60
 CATCH_UP_MIN_AGE = timedelta(minutes=2)
+# Release 44: a mensagem já registrada sem resposta da Bia no Chatwoot é reprocessada uma vez, 3 min depois.
+REPROCESS_MIN_AGE = timedelta(minutes=3)
 CATCH_UP_MAX_AGE = timedelta(hours=23)
 LISTING_PAGES = 20  # até 500 conversas abertas na caixa
 # Release 41: lembretes só entre 8h e 21h de Brasília (UTC-3, sem horário de verão).
@@ -283,6 +285,9 @@ class PosPausa:
         self.now = now or (lambda: datetime.now(timezone.utc))
         self.next_scan_at = None
         self.last = {'status': 'not_run'}
+        # Release 44: as mensagens já entregues nesta execução (a nova tentativa ou a 1ª resposta) nunca voltam;
+        # entre reinícios, a marca 'reprocessed' do atendimento faz o mesmo.
+        self.handled = set()
 
     def status(self):
         return {'enabled': enabled(self.settings, 'pos_pausa_enabled'), **self.last}
@@ -316,11 +321,14 @@ class PosPausa:
             if event is None:
                 continue
             texts = event.pop('_texts')
+            reprocess = event.pop('_reprocess', False)
             control = self.guard(event)
             if not isinstance(control, dict) or control.get('allowed') is not True:
                 continue
             # One lead per scan keeps each catch-up reply supervised by the next.
-            result = self.process(event, resumed={'texts': texts})
+            resumed = {'texts': texts, **({'reprocess': True} if reprocess else {})}
+            self.handled.add(inbound_key(event))
+            result = self.process(event, resumed=resumed)
             return {'status': 'resumed', 'result': (result or {}).get('status')}
         return {'status': 'idle'}
 
@@ -380,8 +388,15 @@ class PosPausa:
         if not created or not CATCH_UP_MIN_AGE <= now - created <= CATCH_UP_MAX_AGE:
             return None
         key = 'chatwoot:' + str(gate.get('account_id')) + ':' + str(last.get('id'))
+        reprocess = False
         if self.repository.event(key):
-            return None
+            # Release 44 (aprovado pelo usuário): registrada, mas sem resposta da Bia depois dela no Chatwoot
+            # (o aviso de manutenção e o de fora do horário não contam). 56938: lead às 05:42, nada depois.
+            # Uma vez só por mensagem; atendente humano depois dela já fez a mensagem cair acima.
+            if (now - created < REPROCESS_MIN_AGE or key in self.handled
+                    or key in (self.repository.load_session(conv).get('reprocessed') or {})):
+                return None
+            reprocess = True
         processed = self.repository.load_session(conv).get('processed_inbound') or []
         newest = max((int(item.rsplit(':', 1)[1]) for item in processed
                       if isinstance(item, str) and re.fullmatch(r'chatwoot:1:[1-9][0-9]{0,19}', item)), default=0)
@@ -406,4 +421,5 @@ class PosPausa:
         if not allow_inbound(gate, event):
             return None
         event['_texts'] = texts
+        event['_reprocess'] = reprocess
         return event

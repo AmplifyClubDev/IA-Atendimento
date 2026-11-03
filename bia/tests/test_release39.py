@@ -453,7 +453,11 @@ class PosPausaTests(unittest.TestCase):
         self.repo.reserve_event('chatwoot:1:812', 'chatwoot:1:40002', 'webhook')
         self.subject.next_scan_at = None
         self.subject.tick()
-        self.assertEqual(self.calls, [])
+        # Release 44 (aprovado pelo usuário): registrada e sem resposta da Bia depois dela → 1 reprocessamento, nunca 2.
+        self.assertEqual([resumed.get('reprocess') for _, resumed in self.calls], [True])
+        self.subject.next_scan_at = None
+        self.subject.tick()
+        self.assertEqual(len(self.calls), 1)
 
 
 class TenLeadsAfterMaintenanceTests(unittest.TestCase):

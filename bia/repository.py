@@ -427,6 +427,31 @@ class Repository:
         with self._connection() as db:
             db.execute("UPDATE inbound_events SET status=?,updated_at=? WHERE event_key=?", (status, _now(), event_key))
 
+    def release_unanswered_event(self, event_key, conversation_key):
+        """Release 44: libera o registro de uma mensagem que nunca teve resposta, para um único reprocessamento.
+
+        Só se nenhuma resposta foi aceita e nenhuma consulta ao TikTok ficou na fila por ela. Devolve o que havia
+        (para o registro do reprocessamento) ou None se não puder liberar.
+        """
+        with self._connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT * FROM inbound_events WHERE event_key=?", (event_key,)).fetchone()
+            if not row or row["conversation_key"] != conversation_key:
+                return None
+            if db.execute("SELECT 1 FROM outbox WHERE event_key=? AND status='accepted' LIMIT 1", (event_key,)).fetchone():
+                return None
+            if db.execute("SELECT 1 FROM real_jobs WHERE event_key=? LIMIT 1", (event_key,)).fetchone():
+                return None
+            archive = {"status": row["status"], "created_at": row["created_at"],
+                       "operations": [dict(item) for item in db.execute(
+                           "SELECT operation_key,kind,status FROM operations WHERE event_key=?", (event_key,))],
+                       "outbox": [dict(item) for item in db.execute(
+                           "SELECT outbox_key,status FROM outbox WHERE event_key=?", (event_key,))]}
+            db.execute("DELETE FROM operations WHERE event_key=?", (event_key,))
+            db.execute("DELETE FROM outbox WHERE event_key=?", (event_key,))
+            db.execute("DELETE FROM inbound_events WHERE event_key=?", (event_key,))
+            return archive
+
     def event(self, event_key):
         with self._connection() as db:
             row = db.execute("SELECT * FROM inbound_events WHERE event_key=?", (event_key,)).fetchone()
