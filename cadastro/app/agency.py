@@ -8,6 +8,8 @@ a resposta é devolvida em até ~38 s e a consulta continua em segundo plano.
 """
 from __future__ import annotations
 
+import os
+from bridge_config import bridge_settings, bridge_origin
 import threading
 import time
 import uuid
@@ -19,8 +21,9 @@ AGENCY_URL = "https://tiktok-agenciamento-production.up.railway.app/bridge"
 
 
 class AgencyChecker:
-    def __init__(self, token, *, transport=None, max_parallel=2, wait_seconds=38, cache_seconds=6 * 3600):
-        self.client = PlaywrightClient({"tiktok_agency_url": AGENCY_URL, "tiktok_agency_token": token or "",
+    def __init__(self, token, *, env=None, transport=None, max_parallel=2, wait_seconds=38, cache_seconds=6 * 3600):
+        env = os.environ if env is None else env
+        self.client = PlaywrightClient({**bridge_settings(env), "tiktok_agency_url": bridge_origin(env, "agency", AGENCY_URL.removesuffix("/bridge")) + "/bridge", "tiktok_agency_token": token or "",
                                         "tiktok_timeout_seconds": 30, "tiktok_status_timeout_seconds": 5},
                                        transport=transport)
         self.pool = ThreadPoolExecutor(max_workers=max_parallel, thread_name_prefix="agenciamento")

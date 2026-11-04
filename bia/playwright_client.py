@@ -6,6 +6,7 @@ Injected transport returns ``(http_status, decoded_json_object)``.
 """
 from __future__ import annotations
 
+from bridge_config import allowed_host, nonproduction
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 import json
@@ -234,7 +235,10 @@ class PlaywrightClient:
             parsed = urlsplit(base)
             common = (not parsed.username and not parsed.password and not parsed.query and not parsed.fragment
                       and not any(ord(c) < 33 for c in base) and not base.endswith("//"))
-            if role == "lookup":
+            if nonproduction(self.settings):
+                valid = (common and parsed.scheme == "https" and allowed_host(self.settings, role, parsed.hostname)
+                         and parsed.port in (None, 443) and parsed.path in ("/bridge", "/bridge/"))
+            elif role == "lookup":
                 valid = (common and parsed.scheme == "http" and parsed.hostname == "consulta-tiktok.railway.internal"
                          and parsed.port is not None and 1 <= parsed.port <= 65535 and parsed.path in ("", "/"))
             else:

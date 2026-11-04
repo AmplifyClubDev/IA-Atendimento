@@ -101,7 +101,7 @@ def deps_from_env():
         entrega=Entrega(v5, circle_token=env.get("CIRCLE_ADMIN_TOKEN", ""), settings=settings_from_env(),
                         enabled=env.get("CADASTRO_ENTREGA_CIRCLE_ATIVA", "false").lower() == "true",
                         alert=alerta_por_email(env)),
-        agency=AgencyChecker(env.get("V5_TIKTOK_AGENCY_TOKEN", "")),
+        agency=AgencyChecker(env.get("V5_TIKTOK_AGENCY_TOKEN", ""), env=env),
         email=EmailSender(host=env.get("SMTP_HOST", "smtp.gmail.com"), port=env.get("SMTP_PORT", "465"),
                           user=env.get("SMTP_USUARIO", ""), password=env.get("SMTP_SENHA_APP", "")),
         gmv_reader=GmvPrintReader(env.get("OPENAI_API_KEY", ""), env.get("GMV_PRINT_MODEL", "")),

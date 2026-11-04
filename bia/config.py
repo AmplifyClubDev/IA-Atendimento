@@ -1,4 +1,5 @@
 """Explicit configuration for the single-contact rehearsal; no dotenv loading."""
+from bridge_config import bridge_settings, nonproduction
 import os
 import re
 from datetime import datetime
@@ -70,12 +71,13 @@ def load_settings(environ=None):
         'whatsapp_cloud_token': get('V5_WHATSAPP_CLOUD_TOKEN'),
         'whatsapp_cloud_phone_number_id': get('V5_WHATSAPP_PHONE_NUMBER_ID'),
     }
+    settings.update(bridge_settings(values))
     for role, default_url in (
             ('precheck', 'https://tiktok-pre-validacao-production.up.railway.app/bridge'),
             ('agency', 'https://tiktok-agenciamento-production.up.railway.app/bridge'),
             ('invites', 'https://tiktok-partner-bridge-production.up.railway.app/bridge'),
             ('lookup', ''), ('gmv', '')):
-        settings['tiktok_' + role + '_url'] = get('V5_TIKTOK_' + role.upper() + '_URL', default_url)
+        settings['tiktok_' + role + '_url'] = get('V5_TIKTOK_' + role.upper() + '_URL', '' if nonproduction(settings) else default_url)
         settings['tiktok_' + role + '_token'] = get('V5_TIKTOK_' + role.upper() + '_TOKEN')
     settings['simulated_checks'] = settings['tiktok_mode'] != 'real'
     issues = []
