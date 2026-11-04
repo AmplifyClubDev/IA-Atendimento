@@ -153,7 +153,7 @@ class ListScriptTests(unittest.TestCase):
     """O script de leitura antes de ligar 'todos': só GET, contagem e fila de 1 por minuto."""
 
     def test_lists_who_would_receive_and_why_the_others_not(self):
-        sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
         import listar_entrada_todos as script
         now = datetime(2026, 11, 3, 15, 0, tzinfo=timezone.utc)
 

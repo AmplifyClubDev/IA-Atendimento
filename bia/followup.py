@@ -1,4 +1,6 @@
 """Pilot reminders and optional 5+5 closure; no AI call or uncertain-send retry."""
+
+from offline_policy import effects_allowed, require_effects
 from copy import deepcopy
 from datetime import datetime, timezone, timedelta
 import hashlib
@@ -22,6 +24,8 @@ def clock(value):
 
 
 def configured(settings):
+    if not effects_allowed(settings=settings):
+        return False
     gate = settings.get('gate') or {}
     baseline = clock(settings.get('followup_start_at'))
     return (settings.get('followup_enabled') is True
@@ -189,6 +193,8 @@ class Followup:
                     and self.repository.load_session(CONVERSATION) == state)
 
     def tick(self):
+        if not effects_allowed(settings=self.settings):
+            return {'status': 'disabled', 'reason': 'nonproduction_external_effects_disabled'}
         outcome = self._tick()
         self.last_status = outcome['status']
         self.last_stage = outcome.get('stage')

@@ -15,6 +15,8 @@ differs, authoritative API identity/time/content plus the last stored inbound
 and its completed contact receipt can revalidate the source for technical reads.
 No values or variants are guessed to match a hash.
 """
+
+from offline_policy import effects_allowed, require_effects
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -156,6 +158,8 @@ def recover_stalled(app):
     All source/projection checks happen while holding the normal conversation
     lock; the callback owns durable at-most-once reservation and scheduling.
     """
+    if not effects_allowed(settings=app.extensions.get('v5_settings')):
+        return {'status': 'disabled', 'reason': 'nonproduction_external_effects_disabled'}
     extensions = app.extensions
     callback = extensions.get("v5_reconcile_initial")
     if not callable(callback):

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from offline_policy import effects_allowed, require_effects
+
 import json
 import hashlib
 import re
@@ -220,6 +222,7 @@ class _NoRedirect(HTTPRedirectHandler):
 
 
 def _http(*, method, url, headers, json_body=None, timeout=15):
+    require_effects()
     encoded = json.dumps(json_body, ensure_ascii=False).encode() if json_body is not None else None
     request = Request(url, data=encoded, headers=headers, method=method)
     with build_opener(_NoRedirect()).open(request, timeout=timeout) as response:
@@ -240,7 +243,7 @@ class ChatwootTransport:
     progress_owned_merge = True
     supports_reply_fencing = True
 
-    def __init__(self, base_url, token, gate, http=None, interactive=True, cloud=None):
+    def __init__(self, base_url, token, gate, http=None, interactive=True, cloud=None, settings=None):
         self.base_url = str(base_url or "").rstrip("/")
         # Optional WhatsApp Cloud API access, used only for the form URL button.
         cloud = cloud if isinstance(cloud, dict) else {}
@@ -248,10 +251,17 @@ class ChatwootTransport:
                       if cloud.get("token") and re.fullmatch(r"[0-9]{5,30}", str(cloud.get("phone_number_id") or "")) else None)
         self.token = str(token or "")
         self.gate = dict(gate or {})
-        self.http = http or _http
+        self.settings = settings
+        self._http_adapter = http or _http
         self.interactive = interactive is True
 
+    def http(self, **kwargs):
+        require_effects(settings=self.settings)
+        return self._http_adapter(**kwargs)
+
     def ready(self):
+        if not effects_allowed(settings=self.settings):
+            return False
         try:
             parsed = urlsplit(self.base_url)
             parsed.port
@@ -268,6 +278,7 @@ class ChatwootTransport:
         return f"{self.base_url}/api/v1/accounts/{account}/conversations/{conversation}"
 
     def _read_target(self, event, require_reply_window=True, *, timeout=15, require_contact=False):
+        require_effects(settings=self.settings)
         detail = self.http(method="GET", url=self._conversation_url(event),
                            headers={"api_access_token": self.token, "Accept": "application/json"}, timeout=timeout)
         if not isinstance(detail, dict):
@@ -294,6 +305,7 @@ class ChatwootTransport:
                      or _id(event.get("conversation_id")) == "26097" and _id(event.get("contact_id")) == "3"))
 
     def read_progress(self, event):
+        require_effects(settings=self.settings)
         if not self._progress_allowed(event):
             return None
         try:
@@ -308,6 +320,8 @@ class ChatwootTransport:
 
     def write_progress(self, event, labels, operation_key):
         """Enqueue one bounded label delta; HTTP 200 alone is never completion."""
+        if not effects_allowed(settings=self.settings):
+            return {'status': 'disabled', 'reason': 'nonproduction_external_effects_disabled'}
         if not self._progress_allowed(event):
             return {"status": "failed", "reason": "outside_stage_pilot"}
         owned = _progress_owned(self.gate)
@@ -336,6 +350,8 @@ class ChatwootTransport:
         return {"status": "outcome_unknown", "reason": "stage_job_enqueued"}
 
     def send_reply(self, event, text, buttons, idempotency_key, *, before_write=None):
+        if not effects_allowed(settings=self.settings):
+            return {'status': 'disabled', 'reason': 'nonproduction_external_effects_disabled'}
         if not allow_inbound(self.gate, event):
             return {"status": "failed", "reason": "outside_pilot"}
         if not self.ready():
@@ -406,6 +422,7 @@ class ChatwootTransport:
 
     def _send_url_button(self, event, button):
         """One Cloud API cta_url message to the verified pilot phone; False on any doubt."""
+        require_effects(settings=self.settings)
         if not pilot_phone(self.gate, event.get("sender_phone")):
             return False
         # Release 43: the number WhatsApp itself reported for the lead, never the list's spelling of it
@@ -429,6 +446,8 @@ class ChatwootTransport:
 
     def reconcile_reply(self, event, idempotency_key):
         """Read-only lookup; never a retry and never proof of WhatsApp delivery."""
+        if not effects_allowed(settings=self.settings):
+            return {'status': 'disabled', 'reason': 'nonproduction_external_effects_disabled'}
         if not self.ready() or not allow_inbound(self.gate, event):
             return {"status": "outcome_unknown"}
         try:

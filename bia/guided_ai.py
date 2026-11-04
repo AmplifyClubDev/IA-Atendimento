@@ -1,6 +1,8 @@
 """One bounded AI turn. The model proposes; conversation.py validates and acts."""
 from __future__ import annotations
 
+from offline_policy import effects_allowed, require_effects
+
 import json
 import re
 from decimal import Decimal, InvalidOperation
@@ -210,6 +212,8 @@ def _parse(response, topics, *, real_mode=False):
 
 def plan_turn(text, context, settings, transport=None):
     """Never executes tools, writes data, sends messages or retries a provider POST."""
+    if not effects_allowed(settings=settings):
+        return dict(_fallback(_context(context)['phase'], 'disabled', 'offline'), reason='nonproduction_external_effects_disabled')
     from context_ia import ContextUnavailable, style_instructions
     try:
         knowledge = load_knowledge(settings)

@@ -5,6 +5,8 @@ O comando operacional exige creator explícito e configuração habilitada.
 """
 from __future__ import annotations
 
+from offline_policy import effects_allowed, require_effects, REASON
+
 import html
 import json
 import os
@@ -52,6 +54,7 @@ class Circle:
         self.session.headers.update({"Authorization": "Bearer " + token, "Content-Type": "application/json"})
 
     def call(self, path, method="GET", body=None, missing=False):
+        require_effects()
         response = self.session.request(method, "https://app.circle.so/api/admin/v2" + path, json=body, timeout=30)
         if missing and response.status_code == 404:
             return None
@@ -71,6 +74,7 @@ class Circle:
         raise RuntimeError("circle_paginacao_incompleta")
 
     def provision(self, *, email, name, tier, before_write, require_new=False, expected_member_id=None, allow_downgrade=False):
+        require_effects()
         import time
         groups = self.records("/access_groups")
         for label, ident in GROUPS.items():
@@ -173,6 +177,7 @@ def welcome_message(settings, job, tier):
 
 
 def send_welcome(settings, job, tier):
+    require_effects(settings=settings)
     message = welcome_message(settings, job, tier)
     if getattr(settings, 'email_transport', 'smtp') == 'gmail_api':
         from .gmail_api import GmailAPI
@@ -200,12 +205,15 @@ class ChatwootAccessNotifier:
             })
 
     def configured(self):
+        if not effects_allowed():
+            return False
         return bool(self.enabled and self.base_url and self.account_id and self.token)
 
     def messages_url(self, conversation_id):
         return f"{self.base_url}/api/v1/accounts/{self.account_id}/conversations/{conversation_id}/messages"
 
     def already_sent(self, conversation_id, key):
+        require_effects()
         response = self.session.get(self.messages_url(conversation_id), timeout=30)
         response.raise_for_status()
         body = response.json()
@@ -217,6 +225,8 @@ class ChatwootAccessNotifier:
         return False
 
     def send(self, job):
+        if not effects_allowed():
+            return {"notice_status": "disabled", "reason": REASON}
         conversation_id = job.get("conversation_id")
         if not self.configured():
             return {"notice_status": "aviso_chatwoot_desativado"}
@@ -243,10 +253,14 @@ class ChatwootAccessNotifier:
 
 
 def notify_access_released(job):
+    if not effects_allowed():
+        return {"notice_status": "disabled", "reason": REASON}
     return ChatwootAccessNotifier().send(job)
 
 
 def deliver(gateway, circle, settings, creator_id, send=send_welcome, notify=notify_access_released):
+    if not effects_allowed(settings=settings):
+        return {"status": "disabled", "reason": REASON}
     job = gateway.rpc("cadastro_v2_preparar_entrega", {"p_criador_id": creator_id})
     if not job["ready"]:
         return {"status": job["reason"]}

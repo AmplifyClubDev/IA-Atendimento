@@ -7,6 +7,8 @@ No Supabase credential, session cookie, redirect or POST retry is used here.
 """
 from __future__ import annotations
 
+from offline_policy import effects_allowed, require_effects, REASON
+
 import hashlib
 import hmac
 import json
@@ -65,6 +67,8 @@ class NoRedirect(HTTPRedirectHandler):
 
 def _http(*, method, url, headers, body, timeout):
     """One bounded call. Never follow redirects or environment proxy settings."""
+    if not effects_allowed():
+        raise PilotError(REASON, 503)
     if not url.startswith(UPSTREAM):
         raise PilotError('pilot_target_invalid')
     opener = build_opener(ProxyHandler({}), HTTPSHandler(context=ssl.create_default_context()), NoRedirect())
@@ -95,6 +99,8 @@ def _json(raw):
 
 
 def _call(transport, path, method, token, *, body=None, content_type='application/json', query=''):
+    if not effects_allowed():
+        raise PilotError(REASON, 503)
     headers = {'Authorization': 'Bearer ' + token, 'Accept': 'application/json'}
     if body is not None:
         headers['Content-Type'] = content_type
@@ -247,6 +253,10 @@ def _request_body(limit):
 
 def create_app(*, base_app_factory=None, transport=None, environ=None):
     """Production entrypoint: cadastro_pilot:create_app(); one explicit flag."""
+    values = os.environ if environ is None else environ
+    if not effects_allowed(env=values):
+        from cadastro_server import offline_app
+        return offline_app()
     if base_app_factory is None:
         from cadastro_server import create_app as base_app_factory
     app = base_app_factory()

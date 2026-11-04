@@ -12,6 +12,9 @@
 """
 from __future__ import annotations
 
+from offline_policy import effects_allowed, require_effects, REASON
+
+from bridge_config import bridge_origin, activation_allowed
 import hmac
 import html
 import http.cookiejar
@@ -21,7 +24,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote
-from urllib.request import HTTPCookieProcessor, ProxyHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, HTTPCookieProcessor, ProxyHandler, Request, build_opener
 
 from flask import Blueprint, abort, current_app, make_response, redirect
 
@@ -40,11 +43,18 @@ LOGIN = {"human_login_required", "login_required", "session_or_partner_context_i
          "partner_probe_rejected", "captcha_required", "mfa_required", "human_verification_required"}
 
 
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 def ler_status(base, token, timeout=10):
     """status do /bridge/ready; a ponte que pede login responde erro HTTP com o status no corpo."""
+    if not effects_allowed():
+        return "disabled"
     request_ = Request(base + "/bridge/ready", headers={"Authorization": "Bearer " + token, "Accept": "application/json"})
     try:
-        with build_opener(ProxyHandler({})).open(request_, timeout=timeout) as response:
+        with build_opener(_NoRedirect(), ProxyHandler({})).open(request_, timeout=timeout) as response:
             return json.loads(response.read(65536)).get("status") or "desconhecido"
     except Exception as error:
         try:
@@ -60,7 +70,8 @@ class Painel:
         self.base, self.chave, self.timeout = base, chave, timeout
 
     def _abrir(self, path, method="GET"):
-        opener = build_opener(ProxyHandler({}), HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        require_effects()
+        opener = build_opener(_NoRedirect(), ProxyHandler({}), HTTPCookieProcessor(http.cookiejar.CookieJar()))
         origem = {"Origin": self.base}
         opener.open(Request(self.base + "/console/session", method="POST",
                             headers={**origem, "Authorization": "Bearer " + self.chave}), timeout=20).read()
@@ -83,8 +94,15 @@ class Painel:
 
 def pontes(env=None):
     env = env if env is not None else os.environ
-    return [{"chave": k, "nome": n, "base": b, "token": env.get(t, ""), "console": env.get(c, ""), "ativa_sozinha": a}
-            for k, n, b, t, c, a in PONTES]
+    roles = {"agenciamento": "agency", "prevalidacao": "precheck", "convites": "invites"}
+    result = []
+    for k, n, b, t, c, a in PONTES:
+        base = bridge_origin(env, roles[k], b)
+        if base:
+            result.append({"chave": k, "nome": n, "base": base, "token": env.get(t, ""),
+                           "console": env.get(c, "") if activation_allowed(env) and effects_allowed(env=env) else "",
+                           "external_effects_enabled": effects_allowed(env=env), "ativa_sozinha": a})
+    return result
 
 
 class Ativador:
@@ -103,6 +121,7 @@ class Ativador:
 
     def __init__(self, lista, *, painel=Painel, ler=None, intervalo=30, confirmacoes=2, espera_reinicio=1800,
                  relogio=time.time, dormir=time.sleep):
+        self.effects_enabled = all(p.get("external_effects_enabled", True) for p in lista)
         self.pontes = [(p["nome"], p["base"], p["token"], painel(p["base"], p["console"]), p["ativa_sozinha"])
                        for p in lista if p["console"] and p["token"]]
         self.ler = ler or (lambda base, token: ler_status(base, token))
@@ -111,6 +130,8 @@ class Ativador:
 
     def _reiniciar(self, nome, painel):
         """Ponte antiga: reabrir + ativar seguidos, no máximo 1 vez a cada 30 min."""
+        if not self.effects_enabled or not effects_allowed():
+            return {"status": "disabled", "reason": REASON}
         agora = self.relogio()
         if agora - self.ultimo_reinicio.get(nome, -self.espera_reinicio) < self.espera_reinicio:
             return None
@@ -123,6 +144,8 @@ class Ativador:
         return ("reiniciada", nome) if ok else ("reinicio_sem_sucesso", nome)
 
     def rodada(self):
+        if not self.effects_enabled or not effects_allowed():
+            return [("disabled", REASON)]
         feitos = []
         for nome, base, token, painel, ativa_sozinha in self.pontes:
             modo = painel.modo()
@@ -153,6 +176,8 @@ class Ativador:
         return feitos
 
     def iniciar(self):
+        if not self.effects_enabled or not effects_allowed():
+            return {"status": "disabled", "reason": REASON}
         def loop():
             while True:
                 try:
@@ -200,8 +225,12 @@ def _destino(ponte):
 @bp.get("/pontes/<segredo>")
 def painel(segredo):
     _conferir(segredo)
+    if not effects_allowed(env=_cfg()["env"]):
+        return _pagina("<p>Integrações externas desabilitadas neste ambiente.</p>", status=503)
     lista = [p for p in pontes(_cfg()["env"]) if p["token"]]
-    with ThreadPoolExecutor(len(lista) or 1) as pool:
+    if not lista:
+        return _pagina("<p>Pontes desabilitadas ou não configuradas neste ambiente.</p>", status=503)
+    with ThreadPoolExecutor(len(lista)) as pool:
         status = list(pool.map(lambda p: ler_status(p["base"], p["token"]), lista))
     caidas = [p for p, s in zip(lista, status) if s != "ready"]
     for ponte in caidas:  # já deixa o navegador da ponte aberto na tela de login do TikTok
@@ -216,17 +245,21 @@ def painel(segredo):
     for p, s in zip(lista, status):
         no_ar = s == "ready"
         selo = '<span class="s ok">NO AR</span>' if no_ar else '<span class="s no">PRECISA DE LOGIN</span>'
-        botao = "" if no_ar else f'<a class="b" href="/pontes/{quote(segredo)}/{p["chave"]}" target="_blank" rel="noreferrer">Fazer login</a>'
+        botao = "" if no_ar or not p["console"] else f'<a class="b" href="/pontes/{quote(segredo)}/{p["chave"]}" target="_blank" rel="noreferrer">Fazer login</a>'
         linhas += f'<div class="p"><div><b>{html.escape(p["nome"])}</b><br>{selo}</div>{botao}</div>'
-    topo = ("Todas as pontes estão no ar. ✅" if not caidas else
+    topo = ("Todas as pontes configuradas estão no ar. ✅" if not caidas else
             "Clique em <b>Fazer login</b> e entre no TikTok na janela que abrir. A ponte se ativa sozinha "
             "quando o login termina (na de Convites, clique em “Concluí a verificação — ativar”).")
+    if caidas and not any(p["console"] for p in caidas):
+        topo = "Há pontes indisponíveis. Login e ativação estão desabilitados ou não configurados neste ambiente."
     return _pagina(f"<p>{topo}</p>{linhas}<p><small>Esta página se atualiza sozinha.</small></p>", recarregar=bool(caidas))
 
 
 @bp.get("/pontes/<segredo>/<chave>")
 def abrir(segredo, chave):
     _conferir(segredo)
+    if not effects_allowed(env=_cfg()["env"]):
+        abort(503)
     ponte = next((p for p in pontes(_cfg()["env"]) if p["chave"] == chave and p["console"]), None)
     if ponte is None:
         abort(404)

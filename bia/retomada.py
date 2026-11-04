@@ -11,6 +11,8 @@ retomando o pedido de cada um em vez de uma saudação genérica.
 
 Nenhum caminho aqui envia convite, cria permissão ou repete uma resposta.
 """
+
+from offline_policy import effects_allowed, require_effects
 from datetime import datetime, timedelta, timezone
 import hashlib
 import re
@@ -127,6 +129,8 @@ def send_hour(now):
 
 def enabled(settings, name):
     """config.load_settings liga por padrão; V5_RETOMADA_ENABLED=false ou V5_POS_PAUSA_ENABLED=false desligam."""
+    if not effects_allowed(settings=settings):
+        return False
     return (settings.get(name) is True and settings.get('tiktok_mode') == 'real'
             and settings.get('real_worker_enabled') is True and settings.get('conversation_enabled') is True
             and (settings.get('gate') or {}).get('enabled') is True)
@@ -209,6 +213,8 @@ class Retomada:
         return {'enabled': enabled(self.settings, 'retomada_enabled'), **self.last}
 
     def tick(self):
+        if not effects_allowed(settings=self.settings):
+            return {'status': 'disabled', 'reason': 'nonproduction_external_effects_disabled'}
         now = clock(self.now())
         if not enabled(self.settings, 'retomada_enabled') or not now:
             return {'status': 'disabled'}
@@ -406,6 +412,8 @@ class PosPausa:
                 'horario_silencioso': False, **self.counts, **self.last}
 
     def tick(self):
+        if not effects_allowed(settings=self.settings):
+            return {'status': 'disabled', 'reason': 'nonproduction_external_effects_disabled'}
         now = clock(self.now())
         if not enabled(self.settings, 'pos_pausa_enabled') or not now:
             return {'status': 'disabled'}

@@ -11,6 +11,10 @@ def main(environ=None):
     if runtime not in sys.path:
         sys.path.insert(0, runtime)
     try:
+        from offline_policy import effects_allowed
+        if not effects_allowed(env=environ):
+            print(json.dumps({"passed": False, "status": "disabled", "reason": "nonproduction_external_effects_disabled"}))
+            return 1
         from config import load_settings
         settings = load_settings(environ)
         if settings.get("context_db_enabled") is not True:

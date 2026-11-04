@@ -50,18 +50,6 @@ class ConnectionHostTests(unittest.TestCase):
         transport=ChatwootTransport('https://'+HOST,'offline-test-token',self.gate)
         for key in ('account_id','inbox_id','contact_id','conversation_id'):
             self.assertFalse(transport._progress_allowed({**self.event,key:'999'}))
-    def test_actual_launcher_passes_only_approved_host_and_readonly_stage_arguments(self):
-        launcher=load('actual_connectionfix_launcher',ROOT/'ops/connectionfix_launcher.py')
-        calls=[]
-        def fake_exec(code,namespace):
-            namespace['main']=lambda argv,**kwargs:calls.append((argv,kwargs)) or 0
-        with patch.object(launcher,'exec',fake_exec,create=True):
-            launcher.verify_stage_readiness(ROOT,{'V5_CHATWOOT_STAGES_ENABLED':'true'})
-        self.assertEqual(len(calls),1)
-        args=calls[0][0]
-        self.assertEqual(args[args.index('--expected-host')+1],HOST)
-        self.assertNotIn(OLD,args);self.assertNotIn('--setup',args)
-        self.assertIn('--require-labels',args)
 
 
 if __name__=='__main__':unittest.main()

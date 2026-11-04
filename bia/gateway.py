@@ -1,4 +1,6 @@
 """One transactional form call to the exact V5 project; no automatic retries."""
+
+from offline_policy import effects_allowed, require_effects
 import json
 import re
 from datetime import datetime, timedelta, timezone
@@ -91,6 +93,7 @@ class Gateway:
         self.transport = transport
 
     def _rpc(self, name, body):
+        require_effects(settings=self.settings)
         base = self.settings.get('v5_url', '').rstrip('/')
         try:
             parsed = urlsplit(base)

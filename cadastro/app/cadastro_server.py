@@ -5,6 +5,8 @@ fábrica para manter vivo o link /cadastro/ensaio que a Bia envia hoje aos leads
 """
 from __future__ import annotations
 
+from offline_policy import effects_allowed, require_effects, REASON
+
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -49,6 +51,8 @@ class Deps:
 
 def enviar_alerta(env):
     """E-mail para a equipe (ALERTA_EMAIL); None quando não configurado."""
+    if not effects_allowed(env=env):
+        return None
     destino = env.get("ALERTA_EMAIL", "").strip()
     if not destino:
         return None
@@ -70,6 +74,8 @@ def alerta_por_email(env):
 
 def vigia_da_ponte(env):
     """Um vigia por ponte configurada; o botão do e-mail é o link único das pontes."""
+    if not effects_allowed(env=env):
+        return []
     enviar = enviar_alerta(env)
     if not enviar:
         return []
@@ -80,6 +86,8 @@ def vigia_da_ponte(env):
 
 def vigia_dos_atendimentos(env, v5):
     """Só erro da máquina: lead sem resposta e Bia fora do ar, por e-mail à equipe."""
+    if not effects_allowed(env=env):
+        return None
     enviar = enviar_alerta(env)
     if not enviar or not all(env.get(k) for k in ("CHATWOOT_BASE_URL", "CHATWOOT_ACCOUNT_ID", "CHATWOOT_API_TOKEN")):
         return None
@@ -89,6 +97,7 @@ def vigia_dos_atendimentos(env, v5):
 
 
 def deps_from_env():
+    require_effects()
     env = os.environ
     secret = env["ONBOARDING_FORM_SECRET"]
     if len(secret) < 32:
@@ -101,7 +110,7 @@ def deps_from_env():
         entrega=Entrega(v5, circle_token=env.get("CIRCLE_ADMIN_TOKEN", ""), settings=settings_from_env(),
                         enabled=env.get("CADASTRO_ENTREGA_CIRCLE_ATIVA", "false").lower() == "true",
                         alert=alerta_por_email(env)),
-        agency=AgencyChecker(env.get("V5_TIKTOK_AGENCY_TOKEN", "")),
+        agency=AgencyChecker(env.get("V5_TIKTOK_AGENCY_TOKEN", ""), env=env),
         email=EmailSender(host=env.get("SMTP_HOST", "smtp.gmail.com"), port=env.get("SMTP_PORT", "465"),
                           user=env.get("SMTP_USUARIO", ""), password=env.get("SMTP_SENHA_APP", "")),
         gmv_reader=GmvPrintReader(env.get("OPENAI_API_KEY", ""), env.get("GMV_PRINT_MODEL", "")),
@@ -123,6 +132,8 @@ def page_headers(response):
 
 
 def create_app(deps=None):
+    if not effects_allowed():
+        return offline_app()
     deps = deps or deps_from_env()
     app = Flask(__name__)
     app.config.update(MAX_CONTENT_LENGTH=publico.MAX_IMAGE + 65536)
@@ -172,5 +183,23 @@ def create_app(deps=None):
     @app.get("/health")
     def health():
         return {"status": "ok", "service": "cadastro", "destino": "amplifyos-v5", "formulario_publico": deps.enabled}
+
+    return app
+
+
+def offline_app():
+    """Liveness only, without constructing live adapters or starting workers."""
+    app = Flask(__name__)
+    state = {"status": "disabled", "reason": REASON, "service": "cadastro",
+             "formulario_publico": False, "external_effects_enabled": False}
+
+    @app.get("/health")
+    def offline_health():
+        return {**state, "live": True}
+
+    @app.route("/", defaults={"path": ""}, methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+    @app.route("/<path:path>", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+    def offline_disabled(path):
+        return state, 503
 
     return app

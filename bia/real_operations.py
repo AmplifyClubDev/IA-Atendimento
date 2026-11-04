@@ -7,6 +7,8 @@ again. No tokens or provider response bodies are logged here.
 """
 from __future__ import annotations
 
+from offline_policy import effects_allowed, require_effects
+
 import hashlib
 import json
 import logging
@@ -178,6 +180,8 @@ class RealExecutor:
         self.retention_status = {'enabled': settings.get('retention_enabled') is True, 'status': 'not_run'}
 
     def configured(self):
+        if not effects_allowed(settings=self.settings):
+            return False
         try:
             return self.client.configuration().get('configured') is True
         except Exception:
@@ -186,17 +190,19 @@ class RealExecutor:
     def status(self):
         checked = _clock(self.sessions_checked_at)
         fresh = bool(checked and 0 <= (self.clock() - checked).total_seconds() <= 60)
+        allowed = effects_allowed(settings=self.settings)
         return {'mode': self.settings.get('tiktok_mode', 'simulated'),
+                **({} if allowed else {'status': 'disabled', 'reason': 'nonproduction_external_effects_disabled'}),
                 **({'relationship_check_in_form': True}
                    if self.settings.get('relationship_check_in_form') is True else {}),
-                'worker_enabled': self.settings.get('real_worker_enabled') is True,
+                'worker_enabled': allowed and self.settings.get('real_worker_enabled') is True,
                 'worker_running': bool(self.thread and self.thread.is_alive()),
                 'core_configured': self.configured(), 'control': self.last_guard,
                 'last_error': self.last_error,
                 'retention': dict(self.retention_status),
                 'followup': self.followup_status() if callable(self.followup_status) else {'enabled': False, 'configured': False},
                 'sessions': {'checked_at': self.sessions_checked_at, 'fresh': fresh,
-                             'ready': fresh and len(self.session_checks) == 3
+                             'ready': allowed and fresh and len(self.session_checks) == 3
                                       and all(row['ready'] for row in self.session_checks.values()),
                              'functions': dict(self.session_checks)},
                 'functions': {operation: self.client.configuration(operation).get('configured') is True
@@ -204,6 +210,8 @@ class RealExecutor:
 
     def probe_sessions(self):
         """Three read-only readiness calls, no retries or invitation operations."""
+        if not effects_allowed(settings=self.settings):
+            return dict({'status': 'disabled', 'reason': 'nonproduction_external_effects_disabled'}, ready=False)
         if self.settings.get('tiktok_mode') != 'real' or not self.configured():
             return {'ready': False, 'reason': 'not_configured'}
         checks = {}
@@ -293,6 +301,8 @@ class RealExecutor:
 
     def tick(self):
         """One job per call. Tests can exercise this without starting a thread."""
+        if not effects_allowed(settings=self.settings):
+            return {'status': 'disabled', 'reason': 'nonproduction_external_effects_disabled'}
         if (self.settings.get('tiktok_mode') != 'real' or self.settings.get('real_worker_enabled') is not True
                 or not self.configured()):
             return {'status': 'disabled'}
@@ -332,6 +342,7 @@ class RealExecutor:
                 pass
 
     def _apply(self, job):
+        require_effects(settings=self.settings)
         result, now = job.get('result'), self.clock()
         if not isinstance(result, dict):
             self.repository.finish_real_job(job['job_key'], 'outcome_unknown', _stamp(now))
@@ -391,6 +402,9 @@ class RealExecutor:
             return {'status': 'polling' if poll else 'completed'}
 
     def start(self):
+        if not effects_allowed(settings=self.settings):
+            self.last_error = 'nonproduction_external_effects_disabled'
+            return False
         if self.thread and self.thread.is_alive():
             return False
         if (self.settings.get('tiktok_mode') != 'real' or self.settings.get('real_worker_enabled') is not True
@@ -422,6 +436,7 @@ class RealExecutor:
         return True
 
     def _run(self):
+        require_effects(settings=self.settings)
         try:
             while not self.stop_event.is_set():
                 try:
@@ -454,6 +469,8 @@ class RealExecutor:
         waits at least an hour; a crashed claim waits a day. No message, job,
         email, invitation or login is generated here.
         """
+        if not effects_allowed(settings=self.settings):
+            return {'status': 'disabled', 'reason': 'nonproduction_external_effects_disabled'}
         if (self.settings.get('retention_enabled') is not True
                 or self.settings.get('tiktok_mode') != 'real'
                 or self.settings.get('real_worker_enabled') is not True):

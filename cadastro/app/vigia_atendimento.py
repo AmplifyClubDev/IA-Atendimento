@@ -11,6 +11,8 @@ não repete o e-mail.
 """
 from __future__ import annotations
 
+from offline_policy import effects_allowed, require_effects, REASON
+
 import json
 import threading
 import time
@@ -25,6 +27,7 @@ def _hora(instante):
 
 
 def _get(url, headers=None, timeout=30):
+    require_effects()
     with build_opener(ProxyHandler({})).open(Request(url, headers=headers or {}), timeout=timeout) as response:
         return json.loads(response.read(4_000_000))
 
@@ -38,6 +41,7 @@ class Chatwoot:
 
     def sem_resposta(self, agora):
         """Conversas abertas cuja última mensagem (não de sistema) é do lead, entre 30 min e 24 h atrás."""
+        require_effects()
         achadas = []
         for pagina in range(1, 6):
             dados = _get(f"{self.base}/api/v1/accounts/{self.conta}/conversations?inbox_id={self.caixa}&status=open"
@@ -62,6 +66,8 @@ def _bia_pronta():
     Um 503 com o corpo do /ready é a Bia respondendo com alguma ponte do TikTok não confirmada:
     isso já tem o alerta das pontes, e a Bia segue recebendo as mensagens (em 02/11 às 18:02 foi assim).
     """
+    if not effects_allowed():
+        return False, REASON
     try:
         dados = _get(BIA_READY, timeout=20)
         return True, ", ".join(dados.get("issues") or [])
@@ -97,6 +103,8 @@ class VigiaAtendimento:
             pass
 
     def checar(self, agora=None):
+        if not effects_allowed():
+            return {"status": "disabled", "reason": REASON}
         agora = agora or time.time()
         feitos = []
         pronta, motivo = self.bia()
@@ -134,6 +142,8 @@ class VigiaAtendimento:
         return feitos
 
     def iniciar(self, intervalo=600):
+        if not effects_allowed():
+            return {"status": "disabled", "reason": REASON}
         def loop():
             while True:
                 try:

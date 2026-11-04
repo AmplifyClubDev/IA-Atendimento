@@ -33,6 +33,11 @@ INVITE_WHERE = ('O convite da *Amplify* fica no app do TikTok Shop Creator, em *
                 'Às vezes ele leva alguns minutos para aparecer. Quando aceitar, me manda “aceitei” que eu confiro na hora. 😊')
 
 # Release 41 (conversas de 02/11, aprovadas pelo usuário).
+REGISTRATION_CONFIRMED = ('Seu cadastro está confirmado. Ainda não tenho confirmação da liberação do seu acesso '
+                          'ao *Amplify Club* nem do envio do convite de acesso por e-mail.')
+REGISTRATION_MISSIONS = ('As campanhas e missões ficam no *Amplify Club*, no Circle. '
+                        'Quando seu acesso estiver disponível, você poderá consultar as oportunidades abertas '
+                        'e se candidatar às que combinam com seu perfil. 😊')
 ACCESS_DONE = ('Seu cadastro já está feito e seu acesso ao *Amplify Club* foi liberado 🎉 '
                'Para entrar, use o Circle com o mesmo e-mail do cadastro: o convite de acesso foi para esse e-mail. '
                'Se precisar de algo, é só me chamar por aqui.')
@@ -93,8 +98,8 @@ INVITE_ALREADY_THERE = 'Seu convite já está no TikTok. 😊'
 RELATIONSHIP_RETRY = 'Não consegui consultar o TikTok agora.'
 INVITE_CONFIRMING = 'Tô confirmando o envio no TikTok, já te aviso 😊'
 INVITE_RETRYING = 'Tive um probleminha para enviar, já tô tentando de novo 😊'
-INVITE_FAILED_TEAM = ('Não consegui enviar seu convite agora 😕 Já avisei a equipe da Amplify, e a gente te chama aqui '
-                      'assim que resolver.')
+INVITE_FAILED_TEAM = ('Não consegui enviar seu convite agora 😕 Ainda não tenho confirmação de que a equipe '
+                      'da Amplify recebeu um alerta sobre essa falha.')
 PROFILE_INELIGIBLE = ('Conferi seu perfil e, por enquanto, ele ainda não pode entrar na Amplify 😕 Quando o seu TikTok '
                       'Shop Creator estiver ativo e liberado, é só me chamar aqui que eu confiro de novo 💙')
 SHOP_RECHECK_SOON = ('Acabei de conferir há pouquinho 😊 Me manda “pronto” de novo daqui a uns 10 minutos que eu '

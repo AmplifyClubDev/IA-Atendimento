@@ -1,5 +1,8 @@
 """Single automation process: Chatwoot, form, data, email. No dashboard."""
+
+from offline_policy import effects_allowed, require_effects
 from config import load_settings
+from startup_preflight import verify_stage_readiness
 from gateway import Gateway
 from smtp import SmtpSender
 from server import create_app as create_server
@@ -8,11 +11,16 @@ from forms import register_forms
 
 def create_app(settings=None):
     settings = load_settings() if settings is None else settings
+    stage_readiness = verify_stage_readiness(settings)
     app = create_server(settings=settings)
+    app.extensions['v5_stage_preflight'] = stage_readiness
     app.extensions['v5_data_gateway'] = Gateway(settings)
     app.extensions['v5_real_executor'].retention_cleanup = app.extensions['v5_data_gateway'].cleanup_retention
     app.extensions['v5_email_sender'] = SmtpSender(settings)
     register_forms(app, settings, app.extensions['v5_repository'])
+    if not effects_allowed(settings=settings):
+        app.extensions['v5_external_effects'] = {'status': 'disabled', 'reason': 'nonproduction_external_effects_disabled'}
+        return app
     if settings.get('form_public_url'):
         import json
         with app.app_context():

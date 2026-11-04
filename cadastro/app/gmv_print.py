@@ -6,6 +6,8 @@ leitura incerta nunca vira zero e nunca vira GMV verificado.
 """
 from __future__ import annotations
 
+from offline_policy import effects_allowed, require_effects, REASON
+
 import base64
 import json
 import re
@@ -140,6 +142,7 @@ class _NoRedirect(HTTPRedirectHandler):
 
 
 def _http(*, url, headers, body, timeout):
+    require_effects()
     request = Request(url, data=json.dumps(body).encode(), headers=headers, method="POST")
     with build_opener(_NoRedirect(), ProxyHandler({})).open(request, timeout=timeout) as response:
         raw = response.read(MAX_RESPONSE + 1)
@@ -159,6 +162,8 @@ class GmvPrintReader:
         return "openai:" + (re.sub(r"[^A-Za-z0-9_.-]", "-", self.model)[:100] or "nao-configurado")
 
     def read(self, jpeg_bytes, *, today=None):
+        if not effects_allowed():
+            return {**interpret(None, today or datetime.now(timezone.utc).date()), "motivo": REASON, "leitor": self.leitor, "lido_em": _now()}
         today = today or datetime.now(timezone.utc).date()
         base = {"leitor": self.leitor, "lido_em": _now()}
         if not self.api_key or not self.model:

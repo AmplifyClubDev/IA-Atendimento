@@ -7,6 +7,8 @@ e o valor lido pelo bot no print; sem nenhum, Start. Até 3 tentativas com retom
 """
 from __future__ import annotations
 
+from offline_policy import effects_allowed, require_effects, REASON
+
 import os
 import re
 import threading
@@ -23,11 +25,13 @@ class CircleComCache(Circle):
 
     def call(self, path, method="GET", body=None, missing=False):
         # Só as boas-vindas da Amplify (decisão de 31/10): o Circle não manda o convite próprio.
+        require_effects()
         if method == "POST" and path == "/community_members" and isinstance(body, dict):
             body = {**body, "skip_invitation": True}
         return super().call(path, method, body, missing)
 
     def records(self, path):
+        require_effects()
         if path not in ("/access_groups", "/member_tags"):
             return super().records(path)
         import time
@@ -43,7 +47,8 @@ class CircleComCache(Circle):
 
 def settings_from_env():
     env = os.environ
-    return SimpleNamespace(smtp_usuario=env.get("GMAIL_SENDER") or env.get("SMTP_USUARIO", ""),
+    from bridge_config import bridge_settings
+    return SimpleNamespace(**bridge_settings(env), smtp_usuario=env.get("GMAIL_SENDER") or env.get("SMTP_USUARIO", ""),
                            smtp_senha_app=env.get("SMTP_SENHA_APP", ""),
                            email_transport=env.get("CADASTRO_EMAIL_TRANSPORT", "smtp"),
                            gmail_client_id=env.get("GMAIL_API_CLIENT_ID", ""),
@@ -76,6 +81,8 @@ class Entrega:
         self._lock = threading.Lock()
 
     def iniciar(self, event_id, on_done=None, gmv_lido=None):
+        if not effects_allowed(settings=self.settings):
+            return None
         if not self.enabled or not self.token:
             return None
 
@@ -89,10 +96,14 @@ class Entrega:
         return thread
 
     def executar(self, event_id, gmv_lido=None):
+        if not effects_allowed(settings=self.settings):
+            return {"status": "disabled", "reason": REASON}
         with self._lock:  # uma entrega por vez: poupa a cota da Circle e evita corrida com a retomada
             return self._executar(event_id, gmv_lido)
 
     def _executar(self, event_id, gmv_lido):
+        if not effects_allowed(settings=self.settings):
+            return {"status": "disabled", "reason": REASON}
         job = self.v5.rpc("preparar_entrega_circle_v5", {"p_evento": event_id})
         if not job.get("ready"):
             return {"status": job.get("reason")}
@@ -134,6 +145,8 @@ class Entrega:
 
     def retomar_pendentes(self):
         """Refaz entregas que não terminaram (reinício do serviço, Circle lento)."""
+        if not effects_allowed(settings=self.settings):
+            return [{"status": "disabled", "reason": REASON}]
         if not self.enabled or not self.token:
             return []
         resultados = []
@@ -142,6 +155,8 @@ class Entrega:
         return resultados
 
     def iniciar_retomada(self, intervalo=300):
+        if not effects_allowed(settings=self.settings):
+            return {"status": "disabled", "reason": REASON}
         def loop():
             import time
             while True:
