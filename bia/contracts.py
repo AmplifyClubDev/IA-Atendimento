@@ -36,7 +36,7 @@ def _phone_variants(value) -> frozenset[str]:
     if re.fullmatch(r"55[1-9][0-9]9[6-9][0-9]{7}", number):
         values.add(number[:4] + number[5:])
     elif re.fullmatch(r"55[1-9][0-9][6-9][0-9]{7}", number):
-        # Release 43: the same identity from the other side (56938, +558396914946 sem o 9).
+        # Release 43: the same identity from the other side (representação sem o nono dígito).
         values.add(number[:4] + "9" + number[4:])
     return frozenset(values)
 

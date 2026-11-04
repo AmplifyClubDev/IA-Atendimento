@@ -20,12 +20,12 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import re
+import pilot_scope
 from uuid import UUID
 
 from contracts import allow_inbound, inbound_key, phone_matches, same_phone
 
 
-CONVERSATION = "chatwoot:1:26097"
 READS = frozenset({"lookup", "precheck", "relationship"})
 PHASES = frozenset({"intro", "origin", "tiktok", "shop", "agency", "checking"})
 
@@ -87,17 +87,17 @@ def _state_ready(state, now):
 
 def _target(detail, gate):
     sender = _dict(_dict(detail.get("meta")).get("sender"))
-    return (type(detail) is dict and _id(detail.get("id")) == "26097"
+    return (type(detail) is dict and _id(detail.get("id")) == pilot_scope.conversation_id()
             and _id(detail.get("account_id")) == "1" and _id(detail.get("inbox_id")) == "3"
-            and _id(sender.get("id")) == "3" and phone_matches(gate.get("phone"), sender.get("phone_number")))
+            and _id(sender.get("id")) == pilot_scope.contact_id() and phone_matches(gate.get("phone"), sender.get("phone_number")))
 
 
 def _source_event(message, detail, gate):
     sender = _dict(message.get("sender"))
     contact = _dict(_dict(detail.get("meta")).get("sender"))
-    if (_id(sender.get("id")) != "3" or message.get("private") is not False
+    if (_id(sender.get("id")) != pilot_scope.contact_id() or message.get("private") is not False
             or not (message.get("message_type") == "incoming" or type(message.get("message_type")) is int and message["message_type"] == 0)
-            or _id(message.get("conversation_id")) != "26097"
+            or _id(message.get("conversation_id")) != pilot_scope.conversation_id()
             or message.get("inbox_id") is not None and _id(message.get("inbox_id")) != "3"
             or message.get("account_id") is not None and _id(message.get("account_id")) != "1"
             or sender.get("type") is not None and str(sender["type"]).lower() != "contact"
@@ -109,7 +109,7 @@ def _source_event(message, detail, gate):
     created = _time(message.get("created_at")).isoformat().replace("+00:00", "Z")
     event = {"provider": "chatwoot", "event": "message_created", "account_id": detail["account_id"],
              "inbox_id": detail["inbox_id"], "conversation_id": detail["id"], "message_id": message["id"],
-             "contact_id": "3", "sender_phone": phone, "sender_type": sender.get("type", contact.get("type")),
+             "contact_id": pilot_scope.contact_id(), "sender_phone": phone, "sender_type": sender.get("type", contact.get("type")),
              "message_type": "incoming", "private": False, "text": message["content"], "created_at": created}
     event["source_ref"] = inbound_key(event)
     if not allow_inbound(gate, event):
@@ -118,7 +118,7 @@ def _source_event(message, detail, gate):
 
 
 def _read_source(transport, gate, expected_key):
-    seed = {"account_id": "1", "conversation_id": "26097"}
+    seed = {"account_id": "1", "conversation_id": pilot_scope.conversation_id()}
     url = transport._conversation_url(seed)
     headers = {"api_access_token": transport.token, "Accept": "application/json"}
     detail = transport.http(method="GET", url=url, headers=headers, timeout=8)
@@ -165,15 +165,15 @@ def recover_stalled(app):
     repository, transport = extensions.get("v5_repository"), extensions.get("v5_transport")
     lock_for = extensions.get("v5_conversation_lock_for")
     guard = getattr(extensions.get("v5_real_executor"), "guard", None)
-    if (settings.get("tiktok_mode") != "real" or settings.get("contact_sync_enabled") is not True
+    if (not pilot_scope.scope_ready(pilot_scope.load_scope()) or settings.get("tiktok_mode") != "real" or settings.get("contact_sync_enabled") is not True
             or settings.get("real_worker_enabled") is not True or gate.get("enabled") is not True
             or gate.get("provider") != "chatwoot" or _id(gate.get("account_id")) != "1"
             or _id(gate.get("inbox_id")) != "3" or not callable(lock_for) or not callable(guard)
             or not repository or not transport or not transport.ready()):
         return _result("blocked", "recovery_scope_invalid")
     try:
-        with lock_for(CONVERSATION):
-            state = repository.load_session(CONVERSATION)
+        with lock_for(pilot_scope.conversation_key()):
+            state = repository.load_session(pilot_scope.conversation_key())
             now = _utc_now()
             if not _state_ready(state, now):
                 return _result("noop", "qualification_not_stalled")
@@ -188,7 +188,7 @@ def recover_stalled(app):
             source = repository.event(source_key)
             receipt = repository.get_operation(source_key + ":contact:" + str(revision))
             if (any(proof.get(key) != value for key, value in expected.items())
-                    or not source or source.get("conversation_key") != CONVERSATION or source.get("status") != "completed"
+                    or not source or source.get("conversation_key") != pilot_scope.conversation_key() or source.get("status") != "completed"
                     or not receipt or receipt.get("status") != "completed"
                     or any(_dict(receipt.get("result")).get(key) != value for key, value in expected.items())):
                 return _result("blocked", "contact_projection_unconfirmed")
@@ -218,7 +218,7 @@ def recover_stalled(app):
             control = guard(event)
             if not isinstance(control, dict) or control.get("allowed") is not True:
                 return _result("blocked", "human_control_unconfirmed")
-            if repository.load_session(CONVERSATION) != state:
+            if repository.load_session(pilot_scope.conversation_key()) != state:
                 return _result("blocked", "state_changed")
             # This callback may persist a technical projection, never a replay.
             try:

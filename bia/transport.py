@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import hashlib
 import re
+import pilot_scope
 from copy import deepcopy
 from datetime import datetime
 from uuid import UUID
@@ -280,18 +281,21 @@ class ChatwootTransport:
             and pilot_phone(self.gate, sender.get("phone_number")) is not None
             and pilot_phone(self.gate, sender.get("phone_number")) == pilot_phone(self.gate, event.get("sender_phone"))
             and (not require_contact or (_id(sender.get("id")) == _id(event.get("contact_id"))
-                                         and (bool(self.gate.get("phones")) or _id(event.get("contact_id")) == "3")))
+                                         and (bool(self.gate.get("phones")) or bool(pilot_scope.contact_id())
+                                              and _id(event.get("contact_id")) == pilot_scope.contact_id())))
             and (not require_reply_window or detail.get("can_reply") is True)
         )
 
     def _progress_allowed(self, event):
         # The metadata pilot is narrower than the message gate: one proven chat.
         return (self.ready() and allow_inbound(self.gate, event)
-                and urlsplit(self.base_url).hostname == "chatwoot.t2ffoz.easypanel.host"
+                and urlsplit(self.base_url).hostname == "chatwoot-web-production-c799.up.railway.app"
                 and urlsplit(self.base_url).port in (None, 443)
                 and _id(event.get("account_id")) == "1" and _id(event.get("inbox_id")) == "3"
                 and (bool(self.gate.get("phones")) and bool(_id(event.get("conversation_id"))) and bool(_id(event.get("contact_id")))
-                     or _id(event.get("conversation_id")) == "26097" and _id(event.get("contact_id")) == "3"))
+                     or bool(pilot_scope.conversation_id()) and bool(pilot_scope.contact_id())
+                     and _id(event.get("conversation_id")) == pilot_scope.conversation_id()
+                     and _id(event.get("contact_id")) == pilot_scope.contact_id()))
 
     def read_progress(self, event):
         if not self._progress_allowed(event):

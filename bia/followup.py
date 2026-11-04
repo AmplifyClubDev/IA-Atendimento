@@ -3,11 +3,11 @@ from copy import deepcopy
 from datetime import datetime, timezone, timedelta
 import hashlib
 import re
+import pilot_scope
 
 from contracts import allow_inbound, inbound_key, phone_matches
 from real_operations import policy_for
 
-CONVERSATION = 'chatwoot:1:26097'
 WAITING = frozenset({'intro', 'origin', 'tiktok', 'shop', 'agency', 'consent_real', 'await_acceptance', 'form'})
 
 
@@ -26,14 +26,14 @@ def configured(settings):
     baseline = clock(settings.get('followup_start_at'))
     return (settings.get('followup_enabled') is True
             and str(settings.get('followup_delay_seconds')) == '300'
-            and baseline is not None
+            and baseline is not None and pilot_scope.scope_ready(settings.get('pilot_scope'))
             and isinstance(settings.get('followup_start_at'), str)
             and re.search(r'(?:Z|\+00:00)$', settings['followup_start_at']) is not None
             and settings.get('tiktok_mode') == 'real' and settings.get('real_worker_enabled') is True
             and settings.get('contact_sync_enabled') is True and settings.get('conversation_enabled') is True
             and gate.get('enabled') is True and gate.get('provider') == 'chatwoot'
             and str(gate.get('account_id')) == '1' and str(gate.get('inbox_id')) == '3'
-            and gate.get('phone') == '+5547991154859'
+            and gate.get('phone') == pilot_scope.restricted_phone(settings)
             and (settings.get('inactivity_close_enabled') is not True
                  or str(settings.get('inactivity_close_delay_seconds')) == '300'))
 
@@ -79,6 +79,8 @@ def reminder(state, settings):
 class Followup:
     def __init__(self, repository, settings, transport, lock_for, guard, *, now=None, close_for_inactivity=None):
         self.repository, self.settings, self.transport = repository, settings, transport
+        self.scope = settings.get("pilot_scope") or {}
+        self.conversation = pilot_scope.conversation_key(self.scope)
         self.lock_for, self.guard = lock_for, guard
         self.now = now or (lambda: datetime.now(timezone.utc))
         self.last_status = 'not_run'
@@ -113,8 +115,8 @@ class Followup:
         if (not configured(self.settings) or cycle.get('mode') != 'real' or cycle.get('status') != 'open'
                 or cycle.get('phase') not in WAITING or source.get('cycle_id') != cycle.get('id')
                 or type(state.get('revision')) is not int or state['revision'] < 1
-                or not allow_inbound(self.settings.get('gate'), event) or str(event.get('contact_id')) != '3'
-                or str(event.get('conversation_id')) != '26097' or inbound_key(event) != source.get('event_key')
+                or not allow_inbound(self.settings.get('gate'), event) or str(event.get('contact_id')) != pilot_scope.contact_id(self.scope)
+                or str(event.get('conversation_id')) != pilot_scope.conversation_id(self.scope) or inbound_key(event) != source.get('event_key')
                 or not processed or processed[-1] != source.get('event_key')
                 or not all((created, expires, last, baseline)) or not baseline < created <= last <= now
                 or not timedelta(seconds=300) <= now-created < timedelta(hours=24) or now >= expires
@@ -141,15 +143,15 @@ class Followup:
         expected = {'creator_id': state.get('creator_id'), 'atendimento_id': cycle.get('id'),
                     'event_id': proof.get('event_id'), 'revision': state.get('revision')}
         return bool(source_row and source_row.get('status') == 'completed'
-                    and source_row.get('conversation_key') == CONVERSATION and state.get('creator_id')
+                    and source_row.get('conversation_key') == self.conversation and state.get('creator_id')
                     and receipt and receipt.get('status') == 'completed'
                     and all(proof.get(key) == value and (receipt.get('result') or {}).get(key) == value
                             for key, value in expected.items())
-                    and self.repository.followup_clear(CONVERSATION, state))
+                    and self.repository.followup_clear(self.conversation, state))
 
     def _source_unchanged(self, event, state, *, contact_verified=False):
         """Fresh provider read catches messages not yet processed by the webhook."""
-        if self.repository.load_session(CONVERSATION) != state:
+        if self.repository.load_session(self.conversation) != state:
             return False
         headers = {'api_access_token': self.transport.token, 'Accept': 'application/json'}
         data = self.transport.http(method='GET', url=self.transport._conversation_url(event) + '/messages?limit=20',
@@ -157,7 +159,7 @@ class Followup:
         messages = data.get('payload') if isinstance(data, dict) else None
         if not isinstance(messages, list) or not 0 < len(messages) <= 20:
             return False
-        accepted_ids = self.repository.followup_accepted_message_ids(CONVERSATION, state['cycle']['opened_at'])
+        accepted_ids = self.repository.followup_accepted_message_ids(self.conversation, state['cycle']['opened_at'])
         found = []
         for msg in messages:
             if not isinstance(msg, dict) or not re.fullmatch(r'[1-9][0-9]{0,19}', str(msg.get('id', ''))):
@@ -179,14 +181,14 @@ class Followup:
         phone_verified = (phone_matches(self.settings['gate']['phone'], sender['phone_number'])
                           if 'phone_number' in sender else contact_verified is True)
         return bool((msg.get('message_type') == 'incoming' or type(msg.get('message_type')) is int and msg['message_type'] == 0)
-                    and msg.get('private') is False and str(msg.get('conversation_id')) == '26097'
-                    and str(sender.get('id')) == '3' and sender.get('type', 'contact').lower() == 'contact'
+                    and msg.get('private') is False and str(msg.get('conversation_id')) == pilot_scope.conversation_id(self.scope)
+                    and str(sender.get('id')) == pilot_scope.contact_id(self.scope) and sender.get('type', 'contact').lower() == 'contact'
                     and phone_verified
                     and (msg.get('account_id') is None or str(msg['account_id']) == '1')
                     and (msg.get('inbox_id') is None or str(msg['inbox_id']) == '3')
                     and msg.get('content') == event.get('text') and created and expected
                     and abs((created-expected).total_seconds()) < 1
-                    and self.repository.load_session(CONVERSATION) == state)
+                    and self.repository.load_session(self.conversation) == state)
 
     def tick(self):
         outcome = self._tick()
@@ -203,9 +205,9 @@ class Followup:
         if not configured(self.settings):
             return {'status': 'disabled'}
         try:
-            with self.lock_for(CONVERSATION):
-                source = self.repository.followup_source(CONVERSATION)
-                state = self.repository.load_session(CONVERSATION)
+            with self.lock_for(self.conversation):
+                source = self.repository.followup_source(self.conversation)
+                state = self.repository.load_session(self.conversation)
                 now = clock(self.now())
                 if not source or not now or not self._eligible(source, state, now):
                     return {'status': 'idle'}
@@ -214,7 +216,7 @@ class Followup:
                     return {'status': 'already_reserved'}
                 if self.next_probe_at and now < self.next_probe_at:
                     return {'status': 'cooldown'}
-                delivery = self.repository.conversation_delivery_context(CONVERSATION, state['cycle']['opened_at'])
+                delivery = self.repository.conversation_delivery_context(self.conversation, state['cycle']['opened_at'])
                 if not delivery.get('last_accepted_reply') or delivery.get('latest_attempt_status') != 'accepted':
                     return {'status': 'blocked'}
                 last_reply_at = clock(delivery['last_accepted_reply'].get('at'))
@@ -234,7 +236,7 @@ class Followup:
                 if not self._source_unchanged(source['event'], state, contact_verified=True):
                     return {'status': 'source_changed'}
                 body = {'text': payload[0], 'buttons': payload[1]}
-                if not self.repository.reserve_followup(CONVERSATION, source, state, key, body):
+                if not self.repository.reserve_followup(self.conversation, source, state, key, body):
                     return {'status': 'blocked'}
                 def before_write():
                     current = clock(self.now())
@@ -282,7 +284,7 @@ class Followup:
 
     def _send_inactivity(self, source, state, key, text, buttons, *, warning=None):
         body = {'text': text, 'buttons': buttons}
-        if not self.repository.reserve_followup(CONVERSATION, source, state, key, body):
+        if not self.repository.reserve_followup(self.conversation, source, state, key, body):
             return {'status': 'blocked'}
         def before_write():
             current = clock(self.now())
@@ -335,9 +337,9 @@ class Followup:
         if not configured(self.settings) or not callable(self.close_for_inactivity):
             return {'status': 'disabled', 'stage': 'inactivity'}
         try:
-            with self.lock_for(CONVERSATION):
-                source = self.repository.followup_source(CONVERSATION)
-                state = self.repository.load_session(CONVERSATION)
+            with self.lock_for(self.conversation):
+                source = self.repository.followup_source(self.conversation)
+                state = self.repository.load_session(self.conversation)
                 now = clock(self.now())
                 cycle = state.get('cycle') or {}
                 if (not source or not now or source.get('cycle_id') != cycle.get('id')
@@ -373,7 +375,7 @@ class Followup:
                     buttons = []
                     key = closure_key
                 else:
-                    delivery = self.repository.conversation_delivery_context(CONVERSATION, cycle['opened_at'])
+                    delivery = self.repository.conversation_delivery_context(self.conversation, cycle['opened_at'])
                     last = delivery.get('last_accepted_reply') or {}
                     if (delivery.get('latest_attempt_status') != 'accepted' or not clock(last.get('at'))
                             or now-clock(last['at']) < timedelta(seconds=300)):

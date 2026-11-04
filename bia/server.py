@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import re
+import pilot_scope
 import threading
 from contextlib import contextmanager
 import logging
@@ -227,13 +228,13 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                           v5_conversation_lock_for=lock_for, v5_reply_fence=reply_fence)
     # With a pilot phone list every listed chat gets its stage labels; the
     # single-contact pilot keeps its exact conversation/contact pin.
-    progress = (ChatwootProgress(repository, gate if gate.get("phones") else {**gate, "conversation_id": "26097", "contact_id": "3"}, transport)
+    progress = (ChatwootProgress(repository, gate if gate.get("phones") else {**gate, "conversation_id": pilot_scope.conversation_id(), "contact_id": pilot_scope.contact_id()}, transport)
                 if contact_sync and _get(settings, "chatwoot_stages_enabled", False) is True else None)
     app.extensions["v5_chatwoot_progress"] = progress
 
     def send_current_reply(event, text, buttons, outbox_key, *, source=None, fenced=True):
         # Release 43: a TikTok result (fenced=False) is news the lead is waiting for; it is sent even when a
-        # newer message is still being processed, instead of being dropped in silence (56932, 02/11 14:42).
+
         authority = (lambda: reply_fence.current(event, source)) if fenced else (lambda: True)
         if not authority():
             return {'status': 'failed', 'reason': 'reply_superseded_by_new_inbound'}
@@ -270,14 +271,14 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
             return None
 
     def project_registration(row, state, receipt):
-        if progress is None or row.get("conversation_key") != "chatwoot:1:26097":
+        if progress is None or row.get("conversation_key") != pilot_scope.conversation_key():
             return {"status": "disabled"}
         prior = state.get("processed_inbound") or []
         reference = prior[-1] if prior else ""
         if not isinstance(reference, str) or not re.fullmatch(r"chatwoot:1:[1-9][0-9]{0,19}", reference):
             return {"status": "ignored", "reason": "source_event_required"}
         event = {"provider": "chatwoot", "account_id": str(row["account_id"]), "inbox_id": str(row["inbox_id"]),
-                 "conversation_id": "26097", "contact_id": "3", "message_id": reference.rsplit(":", 1)[1],
+                 "conversation_id": pilot_scope.conversation_id(), "contact_id": pilot_scope.contact_id(), "message_id": reference.rsplit(":", 1)[1],
                  "sender_phone": gate.get("phone"), "message_type": "incoming", "private": False,
                  "text": "formulario_confirmado"}
         return progress.sync(event, state, {"kind": "registration", "receipt": receipt})
@@ -542,7 +543,7 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
         requested = _result_creator(creator)
         # The form row names its own chat; the original pilot chat stays the default.
         conv = (form_conversation if isinstance(form_conversation, str)
-                and re.fullmatch(r'chatwoot:1:[1-9][0-9]{0,19}', form_conversation) else 'chatwoot:1:26097')
+                and re.fullmatch(r'chatwoot:1:[1-9][0-9]{0,19}', form_conversation) else pilot_scope.conversation_key())
         with app.app_context(), lock_for(conv):
             try:
                 live = repository.load_session(conv)
@@ -972,7 +973,7 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                 or _get(settings, 'real_worker_enabled') is not True
                 or not isinstance(recovery_key, str) or not re.fullmatch(r'[0-9a-f]{64}', recovery_key)
                 or provenance not in {'webhook_digest_confirmed', 'revalidated_chatwoot_source'}
-                or not allow_inbound(gate, event) or conversation_key(event) != 'chatwoot:1:26097'):
+                or not allow_inbound(gate, event) or conversation_key(event) != pilot_scope.conversation_key()):
             return {'status': 'blocked', 'operations': []}
         conv, reference = conversation_key(event), inbound_key(event)
         with lock_for(conv):
@@ -1181,7 +1182,7 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                     # One immutable context snapshot per inbound. Never cache it in
                     # global service settings: the next message must see DB edits.
                     turn_settings = dict(settings)
-    
+
                     def knowledge(question, context):
                         operation_key = key + ":answer"
                         if not repository.reserve_operation(operation_key, key, "answer_question"):
@@ -1195,7 +1196,7 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                         status = "outcome_unknown" if answer.get("provider_status") == "unknown" else "completed"
                         repository.complete_operation(operation_key, answer, status)
                         return answer["text"]
-    
+
                     def plan(question, context):
                         operation_key = key + ":conversation"
                         if not repository.reserve_operation(operation_key, key, "conversation_turn"):
@@ -1248,7 +1249,7 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                         status = "outcome_unknown" if answer.get("provider_status") == "unknown" else "completed"
                         repository.complete_operation(operation_key, answer, status)
                         return answer
-    
+
                     if conversational:
                         import conversation
                         turn_options = {'real_mode': _get(settings, 'tiktok_mode') == 'real',

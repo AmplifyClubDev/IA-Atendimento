@@ -1,0 +1,5 @@
+# Preserve the exact source bytes recorded in MANIFEST.json on every platform.
+*.py -text
+*.json -text
+requirements.txt -text
+Dockerfile -text

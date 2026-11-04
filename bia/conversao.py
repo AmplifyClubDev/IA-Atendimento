@@ -25,20 +25,22 @@ BRIDGE_WAIT = ('Anotei seu @! O sistema do TikTok tá um pouco lento agora, mas 
 BRIDGE_STILL = ('O sistema do TikTok ainda tá lento, mas seu @ está anotado: eu confiro sozinha assim que liberar '
                 'e te chamo aqui. 😊')
 BRIDGE_BACK = 'Pronto, conferi! ✅'
-SHOP_UNKNOWN = ('Conferi seu @, mas o TikTok não mostrou se o seu TikTok Shop Creator está ativo 😕 '
-                'Dá uma olhada no app e, quando estiver ativo, me manda “pronto” que eu confiro de novo.')
+SHOP_UNKNOWN = ('O TikTok ainda não trouxe a informação que preciso para confirmar a elegibilidade do seu perfil. '
+                'Isso não significa que o seu TikTok Shop Creator esteja inativo. '
+                'Se você já usa a Central do criador do TikTok Shop, me manda “pronto” para eu conferir de novo. '
+                'Se o @ estiver diferente do que aparece no app, pode me mandar o @ correto.')
 
 
 def shop_reminder(step):
-    """Release 51: quem precisa ativar o TikTok Shop Creator também recebe lembrete (antes, nenhum)."""
+    """Uma informação ausente não comprova que a conta precisa ser ativada."""
     if step == 1:
-        return ('Conseguiu olhar o seu TikTok Shop Creator? 😊 Quando estiver ativo, me manda “pronto” '
-                'que eu confiro seu perfil de novo.')
+        return ('Seu perfil ainda está sem confirmação de elegibilidade pelo TikTok. '
+                'Se você já usa o TikTok Shop Creator, me manda “pronto” para uma nova consulta.')
     if step == 2:
-        return ('Para ativar, abra o TikTok, vá no seu perfil e procure *TikTok Shop* nas ferramentas de criador; '
-                'os nomes das telas podem variar. Depois é só me mandar “pronto” 👇')
-    return ('Seu @ continua anotado por aqui. Quando o TikTok Shop Creator estiver ativo, me manda “pronto” '
-            'que eu confiro de novo. 💙')
+        return ('Pode conferir se o @ enviado está igual ao que aparece no seu TikTok? '
+                'Se estiver diferente, me manda o @ correto e eu confirmo a alteração antes de consultar. '
+                'Se estiver certo, me manda “pronto” para conferir novamente.')
+    return ('Seu @ continua anotado por aqui. Quando quiser retomar a consulta, me manda “pronto”. 💙')
 
 BRIDGE_NOTE = 'Seu @ continua anotado: eu confiro sozinha assim que o sistema do TikTok liberar e te chamo aqui. 😊'
 INVITING = 'Combinado! Tô enviando o convite da Amplify para o seu TikTok agora 🔎 Te aviso aqui assim que sair.'
@@ -65,12 +67,13 @@ INVITE_STEPS = ('Seu convite da *Amplify* está esperando no TikTok. Para aceita
                 '3. Toque no convite da *Amplify* e em *Aceitar*.\n\n'
                 'Quando aceitar, me manda “aceitei” que eu confiro na hora. 😊')
 PRIOR_INVITE_RESENT = 'Seu convite anterior não está mais no TikTok, então estou enviando um novo agora 🔎 Te aviso aqui assim que sair.'
-SHOP_STEPS = ('Te mostro o caminho 😊\n'
+SHOP_STEPS = ('Vamos conferir o que aparece no seu app 😊\n'
               '1. No app do TikTok, abra o seu *perfil*.\n'
               '2. Toque no menu (as três linhas no canto de cima) e procure *TikTok Shop* ou '
               '*Central do criador do TikTok Shop*.\n'
-              '3. Siga os passos para ativar a conta de criador do TikTok Shop.\n\n'
-              'Quando aparecer como ativo, me manda “pronto” que eu confiro de novo.')
+              '3. Confira se a Central do criador já está disponível e se o @ está igual ao que você me enviou.\n\n'
+              'Se a Central já estiver disponível, me manda “pronto” para eu consultar de novo. '
+              'Se não encontrar essa opção, me diga o que aparece na tela.')
 
 
 # Release 42 (02/11, textos aprovados pelo usuário). Saem como estão, sem o filtro de um emoji por parágrafo.

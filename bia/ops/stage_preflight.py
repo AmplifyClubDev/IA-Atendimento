@@ -24,11 +24,9 @@ from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, HTTPSHandler, ProxyHandler, Request, build_opener
 
 SOURCE_COMMIT = "97bb8ecd326299c46eacea74863976427c96fe94"
-CHAT_HOST = "chatwoot.t2ffoz.easypanel.host"
+CHAT_HOST = "chatwoot-web-production-c799.up.railway.app"
 ACCOUNT_ID = "1"
 INBOX_ID = "3"
-CONVERSATION_ID = "26097"
-CONTACT_ID = "3"
 INBOX_NAME = "Amplify – Aquisição"
 DESCRIPTION = "Etapa de atendimento."
 APPROVED_LABELS = tuple(
@@ -129,11 +127,13 @@ def _settings(environ, target, setup):
     get = lambda key: str(values.get(key, "")).strip()
     token = get("CHATWOOT_API_TOKEN")
     expected_host = _host(target.get("host"))
+    conversation_id = _identifier(get("V5_PILOT_CONVERSATION_ID"))
+    contact_id = _identifier(get("V5_PILOT_CONTACT_ID"))
     valid = (expected_host == CHAT_HOST
              and target.get("account_id") == ACCOUNT_ID
              and target.get("inbox_id") == INBOX_ID
-             and target.get("conversation_id") == CONVERSATION_ID
-             and target.get("contact_id") == CONTACT_ID
+             and bool(conversation_id) and target.get("conversation_id") == conversation_id
+             and bool(contact_id) and target.get("contact_id") == contact_id
              and get("V5_ENABLED").lower() == "true"
              and get("CHATWOOT_ACCOUNT_ID") == ACCOUNT_ID
              and get("CHATWOOT_INBOX_ID") == INBOX_ID
@@ -146,7 +146,8 @@ def _settings(environ, target, setup):
     if not valid:
         raise GateClosed("configuration_or_target_invalid")
     return {"base": "https://" + expected_host, "token": token, "phone": get("V5_TEST_PHONE"),
-            "include_closed": get("V5_INACTIVITY_CLOSE_ENABLED").lower() == "true"}
+            "conversation_id": conversation_id, "contact_id": contact_id,
+             "include_closed": get("V5_INACTIVITY_CLOSE_ENABLED").lower() == "true"}
 
 
 def _request(client, method, url, token, body=None):
@@ -301,12 +302,12 @@ def _scope(client, settings, target):
             or _inbox_name(inbox.get("name")) != _inbox_name(INBOX_NAME)
             or ("account_id" in inbox and _identifier(inbox["account_id"]) != ACCOUNT_ID)):
         raise GateClosed("inbox_scope_unverified")
-    result, conversation, _ = _request(client, "GET", prefix + "/conversations/" + CONVERSATION_ID, settings["token"])
+    result, conversation, _ = _request(client, "GET", prefix + "/conversations/" + settings["conversation_id"], settings["token"])
     if not result["ok"] or not isinstance(conversation, dict):
         raise GateClosed("conversation_scope_unverified")
     meta = conversation.get("meta")
     sender = meta.get("sender") if isinstance(meta, dict) else None
-    if (not isinstance(sender, dict) or _identifier(conversation.get("id")) != CONVERSATION_ID
+    if (not isinstance(sender, dict) or _identifier(conversation.get("id")) != settings["conversation_id"]
             or _identifier(conversation.get("account_id")) != ACCOUNT_ID
             or _identifier(conversation.get("inbox_id")) != INBOX_ID
             or _identifier(sender.get("id")) != target["contact_id"]

@@ -151,7 +151,7 @@ def message(state, step, policy):
     name = _first_name(cycle)
     hello = 'Oi' + (', ' + name if name else '') + '! '
     if phase == 'blocked':
-        # Release 51: o lead parado em "ative o TikTok Shop" recebia nada (57030, 56938). Os outros bloqueios
+
         # (ponte, convite em conferência) dependem do sistema, não do lead: sem lembrete.
         if isinstance(cycle.get('shop_unknown'), dict) and not _invite_known(cycle):
             return hello + conversao.shop_reminder(step), ['Pronto']
@@ -180,11 +180,7 @@ def message(state, step, policy):
 
 
 def reminder_base(state, last_inbound):
-    """Os lembretes contam da última mensagem do lead ou do último envio de convite, o que vier depois.
-
-    Release 43: a 42 reenviou o convite da @gabinaresse às 18:16 e, 11 min depois, saiu o lembrete
-    "Seu convite continua no TikTok", contado da mensagem dela de manhã.
-    """
+    """Private incident details omitted from this review baseline."""
     cycle = state.get('cycle') or {}
     moments = [last_inbound]
     for effect in (state.get('effects') or {}).values():
@@ -222,7 +218,7 @@ class Retomada:
         # Release 48: quem passou da janela de 24 h ganha "encerrado" junto da etiqueta da etapa onde parou.
         self.on_stopped = on_stopped
         self.lock_for, self.guard = lock_for, guard
-        # Release 41: lê a ficha antes de cada lembrete (Cristiane, 56935: "convite continua" depois do acesso).
+
         self.registration = registration
         self.now = now or (lambda: datetime.now(timezone.utc))
         self.policy = policy or (lambda: None)
@@ -406,12 +402,7 @@ def _bia(msg):
 
 
 def _automatic(msg):
-    """Aviso automático do Chatwoot (regra de automação, como o de manutenção): não é uma resposta.
-
-    Mensagem de atendente tem remetente; a de regra de automação não tem e leva automation_rule_id.
-    Release 43: o aviso de fora do horário da caixa é do tipo ``template`` (3), não ``outgoing``
-    (56938 escreveu às 05:42 e a pós-pausa não a via).
-    """
+    """Private incident details omitted from this review baseline."""
     kind = msg.get('message_type')
     if (kind == 'template' or (type(kind) is int and kind == 3)) and msg.get('private') is False:
         return True
@@ -527,11 +518,7 @@ class PosPausa:
         return outcome
 
     def _listing(self, base, gate, now):
-        """Todas as conversas abertas da caixa com atividade nas últimas 23 h, página a página.
-
-        O Chatwoot devolve 25 conversas por página, da atividade mais recente para a mais antiga.
-        A 40 lia só a primeira: em 02/11, 56866 e 56865 (13 h e 16 h sem resposta) ficaram de fora.
-        """
+        """Private incident details omitted from this review baseline."""
         listing, seen = [], set()
         for page in range(1, LISTING_PAGES + 1):
             data = self._get(base + '/conversations?inbox_id=' + str(gate.get('inbox_id'))
@@ -602,7 +589,7 @@ class PosPausa:
         if self.repository.event(key) or newest >= int(last['id']):
             # Release 44/45 (aprovado pelo usuário): a decisão é pelo Chatwoot. Sem saída da Bia depois da última
             # mensagem do lead (o aviso de manutenção e o de fora do horário não contam), ela responde uma vez,
-            # mesmo com a mensagem já registrada ou já marcada como processada (56938, 56935).
+
             # Atendente humano depois dela já fez a mensagem cair acima; 'reprocessed' impede repetir.
             if now - created < REPROCESS_MIN_AGE:
                 return None, 'muito_recente'

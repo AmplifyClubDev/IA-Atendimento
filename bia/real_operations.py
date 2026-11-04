@@ -114,8 +114,7 @@ def gate_exclusion(gate, event, detail):
 
 
 def automation_assignee_ids():
-    """Release 52: o "Amplify Admin" (id 1) é o usuário da API, não uma pessoa (56278, 03/11: lead de anúncio
-    atribuído a ele ficou sem resposta). V5_AUTOMATION_ASSIGNEE_IDS troca a lista (ids separados por vírgula)."""
+    """Private incident details omitted from this review baseline."""
     import os
     raw = os.environ.get('V5_AUTOMATION_ASSIGNEE_IDS', '1')
     return frozenset(part.strip() for part in raw.split(',') if part.strip().isdigit())

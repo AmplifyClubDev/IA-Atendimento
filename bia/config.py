@@ -1,5 +1,6 @@
 """Explicit configuration for the single-contact rehearsal; no dotenv loading."""
 import os
+import pilot_scope
 import re
 from datetime import datetime
 from urllib.parse import urlsplit
@@ -13,11 +14,13 @@ def invite_method_issue(settings):
     if not isinstance(method, str) or method not in {'api', 'ui'}:
         return 'tiktok_invite_method_invalid'
     if method == 'ui':
+        if not pilot_scope.restricted_phone(settings):
+            return 'tiktok_ui_invite_scope_invalid'
         gate = settings.get('gate') or {}
         if (not isinstance(gate, dict) or gate.get('enabled') is not True
                 or gate.get('provider') != 'chatwoot' or gate.get('account_id') != '1'
-                or gate.get('inbox_id') != '3' or gate.get('phone') != '+5547991154859'
-                or settings.get('test_phone') != '+5547991154859'
+                or gate.get('inbox_id') != '3' or gate.get('phone') != pilot_scope.restricted_phone(settings)
+                or settings.get('test_phone') != pilot_scope.restricted_phone(settings)
                 or settings.get('tiktok_mode') != 'real' or settings.get('real_worker_enabled') is not True
                 or settings.get('public_url') != 'https://atendimento-v5-ensaio-production.up.railway.app'):
             return 'tiktok_ui_invite_scope_invalid'
@@ -31,7 +34,7 @@ def load_settings(environ=None):
     settings = {
         'gate': {'enabled': get('V5_ENABLED').lower() == 'true', 'provider': 'chatwoot',
                  'account_id': get('CHATWOOT_ACCOUNT_ID'), 'inbox_id': get('CHATWOOT_INBOX_ID'), 'phone': phone},
-        'test_phone': phone, 'state_dir': get('V5_STATE_DIR', '/data'),
+        'pilot_scope': pilot_scope.load_scope(values), 'test_phone': phone, 'state_dir': get('V5_STATE_DIR', '/data'),
         'webhook_token': get('V5_WEBHOOK_TOKEN'), 'form_secret': get('V5_FORM_SECRET'),
         'chatwoot_base_url': get('CHATWOOT_BASE_URL'), 'chatwoot_api_token': get('CHATWOOT_API_TOKEN'),
         'ai_enabled': get('V5_AI_ENABLED').lower() == 'true',
@@ -96,7 +99,7 @@ def load_settings(environ=None):
     if settings['relationship_check_in_form'] and (
             settings['tiktok_mode'] != 'real'
             or settings['form_public_url'] != 'https://amplify-cadastro.up.railway.app/cadastro/ensaio'
-            or phone != '+5547991154859' or settings['gate']['account_id'] != '1'
+            or not pilot_scope.restricted_phone(settings) or phone != pilot_scope.restricted_phone(settings) or settings['gate']['account_id'] != '1'
             or settings['gate']['inbox_id'] != '3'):
         issues.append('form_relationship_configuration_invalid')
     if settings['inactivity_close_enabled'] and (
@@ -109,7 +112,7 @@ def load_settings(environ=None):
         except (ValueError, TypeError, AttributeError):
             valid_baseline = False
         if (settings['followup_delay_seconds'] != '300' or not valid_baseline
-                or phone != '+5547991154859' or settings['gate']['account_id'] != '1'
+                or not pilot_scope.restricted_phone(settings) or phone != pilot_scope.restricted_phone(settings) or settings['gate']['account_id'] != '1'
                 or settings['gate']['inbox_id'] != '3' or settings['tiktok_mode'] != 'real'):
             issues.append('followup_configuration_invalid')
     if settings['form_public_url'] and settings['form_public_url'] != 'https://amplify-cadastro.up.railway.app/cadastro/ensaio':
@@ -172,5 +175,8 @@ def load_settings(environ=None):
     if settings['contact_sync_enabled']:
         if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,79}', settings['instance_id']):
             issues.append('contact_instance_invalid')
+    if settings['gate']['enabled'] and (not pilot_scope.scope_ready(settings['pilot_scope'])
+            or phone != pilot_scope.restricted_phone(settings)):
+        issues.append('restricted_pilot_scope_missing')
     settings['readiness_issues'] = issues
     return settings

@@ -6,6 +6,7 @@ TikTok event. Legacy simulated facts have no authority in this journey.
 """
 from copy import deepcopy
 import os
+import pilot_scope
 from datetime import timedelta
 import hashlib
 import json
@@ -32,7 +33,7 @@ FIELDS = {"interesse_agenciamento", "nome_declarado", "origem_declarada", "tikto
           "shop_ativo_declarado", "possui_agencia_declarada", "consentimento_convite", "aceite_declarado"}
 PROFILE = {"nome_declarado", "origem_declarada", "origem_canal_declarado", "tiktok_declarado"}
 PROMPTS = {
-    "intro": "Posso te apresentar a Amplify e tirar suas dúvidas sobre a parceria, os benefícios e a comissão. O que você gostaria de conhecer?",
+    "intro": conversao.BENEFITS + "\n\nVocê quer se agenciar ou conhecer a proposta primeiro?",
     "origin": "Como você conheceu a Amplify? Se preferir não informar, pode me dizer.",
     "tiktok": "Qual é o seu @ do TikTok? Vou consultar esse perfil para conferir o caminho do agenciamento.",
     "shop": "Seu TikTok Shop Creator está ativo? Se não souber, posso conferir na consulta.",
@@ -71,12 +72,11 @@ _BRIDGE_STILL = conversao.BRIDGE_STILL
 _BRIDGE_BACK = conversao.BRIDGE_BACK
 # Conversas paradas na ponte em 31/10 (auditoria de 01/11): reconferidas uma vez,
 # qualquer que tenha sido o motivo registrado da falha (menos perfil inelegível).
-INITIAL_RECHECK = frozenset({'chatwoot:1:56747', 'chatwoot:1:56746', 'chatwoot:1:56751',
-                             'chatwoot:1:56748', 'chatwoot:1:56752'})
+INITIAL_RECHECK = pilot_scope.historical_event_keys('V5_INITIAL_RECHECK_EVENT_KEYS')
 # Release 41: o convite também é reenviado sozinho quando a ponte de Convites volta (até 3 vezes, a cada 10 min).
 INVITE_BRIDGE_RETRY_LIMIT = 3
-# @gabinaresse (56933) parou na 40.2 sem a marca de espera: entra uma vez, se a prova de "nada chegou ao TikTok" existir.
-INITIAL_INVITE_RECHECK = frozenset({'chatwoot:1:56933'})
+
+INITIAL_INVITE_RECHECK = pilot_scope.historical_event_keys('V5_INITIAL_INVITE_RECHECK_EVENT_KEYS')
 _YES = {"sim", "confirmo", "sim confirmo", "autorizo", "autorizo sim", "pode enviar"}
 _NO = {"nao", "nao autorizo", "nao quero", "nao confirmo"}
 _FAQ_MENU = {'conhecer amplify','conhecer a amplify','menu de duvidas','menu duvidas','tirar duvidas'}
@@ -321,6 +321,9 @@ def _finish(state, at, *, reply=None, effects=None, status="real", intro=False, 
                    else list(conversao.CONSENT_BUTTONS) if cycle["phase"] == "consent_real" and cycle.get("invite_offer")
                    else ["Verificar aceite"] if cycle["phase"] == "await_acceptance" else [])
     text, buttons = _form_button_once(cycle, text, buttons, force=force_form_button)
+    if cycle.get('phase') in {'intro', 'origin', 'tiktok'} and not _creator(cycle['facts'].get('tiktok_declarado')):
+        cycle['arroba_pedido'] = text in {_HANDLE_UNKNOWN, conversao.HANDLE_HELP} or bool(re.search(
+            r'(?:qual.{0,15}@|(?:me manda|me envie|me manda seu|me informe).{0,20}@)', text, re.I))
     # Release 42: os textos aprovados saem como estão (o filtro tiraria o 2º emoji do parágrafo).
     transition = engine._finish_reply(state, text if exact else conversation._light_format(text), buttons, at, effects)
     transition["planner_status"] = status
@@ -613,7 +616,7 @@ _NOT_INTERESTED = re.compile(
     r'(?:(?:oi|ola|bom dia|boa tarde|boa noite|obrigad[ao]|valeu|ah|entao) )*(?:eu )?'
     r'(?:nao tenho (?:mais )?interesse|nao tenho interesse (?:nao|nenhum)|sem interesse|nao me interessa(?: nao)?|'
     r'nao (?:estou|to|tou) interessad[ao]|nao quero(?: mais)?(?: participar| me agenciar| ser agenciad[ao]| nada| nao)?'
-    # Release 51: "Cancelar" (53898, 03/11) e pedidos para parar de receber mensagens.
+
     r'|(?:pode |quero )?cancela(?:r)?(?: tudo)?|(?:pode )?pare|para de (?:me )?mandar(?: mensage(?:m|ns))?'
     r'|nao (?:me )?mand[ae] mais(?: mensage(?:m|ns))?|(?:quero )?sair|me tira (?:dai|daqui|dessa lista))'
     r'(?: (?:obrigad[ao]|valeu|nao|por enquanto|agora))*')
@@ -639,11 +642,40 @@ def _pause_requested(text):
     return bool(re.search(r'\b(?:depois|mais tarde|outro dia|outro momento|voltar|volto|retornar|retorno)\b', normal))
 
 
+def _other_agency_declaration(text):
+    """A personal declaration pauses sales; it never proves a provider link."""
+    normal = engine._normal(text)
+    if ('?' in text or any(mark in text for mark in ('"', "'", '“', '”'))
+            or re.search(r'\b(?:nao|nunca|talvez|se|caso|exemplo|hipotese)\b', normal)
+            or re.search(r'\b(?:quero|gostaria|pretendo|vou)\b.{0,45}\b(?:mudar|trocar|sair|amplify)\b', normal)):
+        return False
+    return bool(re.fullmatch(
+        r'(?:eu )?(?:hoje |agora |ja )?(?:entrei (?:para|em)|estou (?:em|com)|tenho|'
+        r'estou agenciad[oa] (?:com|por)) (?:uma |outra |a |a minha )?agencia(?: hoje| agora)?', normal))
+
+
+def _declared_profile_change(text, cycle):
+    """Read a correction before a blocked-state retry can reuse the old @."""
+    current = _creator((cycle.get('facts') or {}).get('tiktok_declarado'))
+    if not current or '?' in text:
+        return None
+    explicit = _extract_claims(text, 'tiktok', None).get('tiktok_declarado')
+    linked = profile_link_handle(text)
+    # Bare corrections need handle-shaped punctuation/digits; ordinary words
+    # such as "pronto" remain requests about the current profile.
+    bare = _bare_handle(text) if re.search(r'[._\d]', text) else None
+    proposed = (linked or explicit) if '@' in text or linked else bare
+    return proposed if proposed and proposed != current else None
+
+
 def _refresh_direct_request(state, event, at, *, reason=None):
     from contracts import allow_inbound, inbound_key
-    gate = {'enabled': True, 'provider': 'chatwoot', 'account_id': '1', 'inbox_id': '3', 'phone': '+5547991154859'}
+    scope = pilot_scope.load_scope()
+    if not pilot_scope.scope_ready(scope):
+        return False
+    gate = {'enabled': True, 'provider': 'chatwoot', 'account_id': '1', 'inbox_id': '3', 'phone': scope['phone']}
     if (not isinstance(event, dict) or not allow_inbound(gate, event)
-            or str(event.get('conversation_id')) != '26097' or str(event.get('contact_id')) != '3'
+            or str(event.get('conversation_id')) != scope['conversation_id'] or str(event.get('contact_id')) != scope['contact_id']
             or event.get('source_ref') != inbound_key(event) or not isinstance(event.get('created_at'), str)):
         return False
     try:
@@ -994,11 +1026,11 @@ _NOT_HANDLE = {"oi", "ola", "ok", "okay", "sim", "nao", "talvez", "menu", "duvid
                "tiktok", "instagram", "perfil", "arroba", "usuario", "nenhum", "nenhuma", "naotenho", "seguir"}
 _HANDLE_UNKNOWN = ("Não consegui identificar o seu @ do TikTok. 🙂\n\n"
                    "No TikTok, abra seu perfil: o @ é o nome que aparece logo abaixo da foto e começa com @. "
-                   "Me envie exatamente como aparece lá, por exemplo: @seuperfil")
+                   "Me envie exatamente como aparece lá, por exemplo: @<perfil>")
 
 
 def profile_link_handle(text):
-    """O @ de um link de perfil do TikTok (tiktok.com/@perfil, com ou sem www/m e parâmetros)."""
+    """O @ de um link de perfil do TikTok (tiktok.com/@<perfil>, com ou sem www/m e parâmetros)."""
     if not isinstance(text, str):
         return None
     match = re.search(r'(?:https?://)?(?:www\.|m\.)?tiktok\.com/@([A-Za-z0-9_][A-Za-z0-9_.]{1,23})', text)
@@ -1127,7 +1159,7 @@ def _question_reply(text, plan, cycle, policy=None, *, state=None, now=None):
     educational_reply = approved_educational_reply(text, proposal)
     candidates = []
     if re.search(r'\bamostra', engine._normal(text)):
-        # Release 41: amostras com o que existe, sem tom negativo e sem prometer (56931, 56932, 56933).
+
         candidates.append((conversao.SAMPLES, True, True))
     if cost_reply is not None:
         # Financial facts are rendered from the approved policy, not from an
@@ -1146,7 +1178,7 @@ def _question_reply(text, plan, cycle, policy=None, *, state=None, now=None):
     unavailable = _known_faq_unavailable(text)
     asked = engine._normal(text)
     if re.search(r'\bcampanhas?\b', asked) and not re.search(r'\bamostra', asked):
-        # "Vocês arrumam campanhas?" (56934): a resposta é o cartão dos benefícios.
+
         text, asked = 'Benefícios', 'beneficios'
     local = (_local_topic_answer(text) if unavailable or asked in conversation._TOPIC_TEXT or '?' in text
              or re.search(r'\b(?:beneficio|beneficios|comissao|como funciona|lives?|custa|taxa)\b', asked) else None)
@@ -1192,16 +1224,19 @@ def _question_reply(text, plan, cycle, policy=None, *, state=None, now=None):
         break
     if not reply:
         return ''
+    clarification = (proposal.get('intent') == 'clarify' and reply.count('?') == 1
+                     and conversation._before_interest_reply(reply) == reply
+                     and re.search(r'\bou\b', engine._normal(reply))
+                     and re.search(r'\b(?:comissao|produto|comunidade|campanhas?|beneficios?|parceria|prazo|condicoes)\b',
+                                   engine._normal(reply)))
+    if clarification:
+        # A bounded FAQ disambiguation is a question about the answer, not a
+        # substitute onboarding step. It changes neither facts nor providers.
+        return reply
     if cycle["phase"] == "intro":
-        if faq_action or cost_reply is not None and policy_valid(policy):
+        if faq_action or (backend_answer and local) or cost_reply is not None and policy_valid(policy):
             return reply + '\n\n' + _INTRO_ACTION
         return conversation._before_interest_reply(reply)
-    if (proposal.get("intent") in {'question', 'clarify'} and reply.count('?') == 1
-            and cycle["phase"] in {"origin", "tiktok", "shop", "agency"}
-            and conversation._before_interest_reply(reply) == reply):
-        # One thematic clarification occupies this turn's question. It is not
-        # a request for another onboarding field; do not append collection.
-        return reply
     if cycle["phase"] in {"origin", "tiktok", "shop", "agency"}:
         # The backend owns ONE information request, including imperative asks
         # with no question mark. Keep the answer, replace proposed collection
@@ -1405,7 +1440,7 @@ def _name_instead_of_handle(text, normal):
     return bool(_NAME_LIKE.fullmatch(text.strip()) and not _NOT_NAME_WORDS.search(normal))
 
 
-# Release 41: "como prefere ser chamada?" junto do pedido do @ (56935, 56933, 56931, 56866, 02/11).
+
 _NAME_ASK = re.compile(r'\s*(?:[^.!?\n]*?\b(?:e\s+)?)?(?:como (?:você )?prefere ser chamad[ao]s?|como (?:posso|podemos) '
                        r'(?:te chamar|chamar você)|qual (?:é )?(?:o )?seu nome|por qual nome)[^?]*\?', re.I)
 
@@ -1416,6 +1451,8 @@ def _sell_intro(result, policy):
     cycle = state.get('cycle') or {}
     fixed = result.pop('fixed_greeting', False)
     if (cycle.get('status') != 'open' or cycle.get('phase') != 'intro' or not reply or fixed
+            or cycle.get('qualification_paused')
+            or (cycle.get('facts') or {}).get('interesse_agenciamento') is not True
             or _creator((cycle.get('facts') or {}).get('tiktok_declarado'))):
         # O "resetar" de teste e a volta de um atendimento encerrado mantêm a saudação fixa.
         return
@@ -1428,9 +1465,10 @@ def _sell_intro(result, policy):
         for ending in _INTRO_ENDINGS:
             if body.endswith(ending):
                 body = body[:-len(ending)].rstrip()
-        if body.endswith('?'):
-            # Uma pergunta da própria resposta já é o próximo passo: nunca duas perguntas seguidas.
-            return
+        # The script owns the request. A model question must not replace the
+        # @ request and leave the next literal handle without its input marker.
+        import conversation
+        body = conversation._answer_without_requests(body)
         if conversao.CTA not in body and '@ do TikTok' not in body:
             body = (body + '\n\n' if body else '') + conversao.CTA
         reply = (conversao.OPENING + ' ' + body) if opened else body
@@ -1491,7 +1529,7 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
                   and not (cycle or {}).get('funnel_after_reset'))
     if registered and cycle and cycle.get('status') == 'open' and not cycle.get('acesso_liberado'):
         # Release 41: o formulário encerra no banco o atendimento aberto ("cadastro_confirmado"). Seguir nele faz o
-        # registro de contato ser recusado e a resposta não sai (Cristiane, 56935, 02/11): começa um atendimento novo.
+
         cycle.update(status='closed', reason='cadastro_confirmado', closed_at=engine._stamp(at))
         for effect in state['effects'].values():
             if effect.get('cycle_id') == cycle['id'] and effect.get('status') == 'pending':
@@ -1571,7 +1609,7 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
         cycle['funnel_after_reset'] = True
         return {**_finish(state, at, intro=True, reply=conversation._RESET_GREETING), "fixed_greeting": True}
     if not_interested(text):
-        # Release 43: uma resposta, com respeito, e o atendimento encerra (32922, 02/11 13:52, ficou sem resposta).
+
         cycle.update(status="closed", reason="lead_not_interested", closed_at=engine._stamp(at))
         for effect in state["effects"].values():
             if effect.get("cycle_id") == cycle["id"] and effect.get("status") in {"pending", "running"}:
@@ -1584,6 +1622,44 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
             if effect.get("cycle_id") == cycle["id"] and effect.get("status") in {"pending", "running"}:
                 effect["status"] = "outcome_unknown" if effect.get('operation') == 'invite' else "cancelled"
         return _finish(state, at, reply="Tudo bem. Encerrei este atendimento, preservando o histórico. Quando quiser conversar de novo, pode me chamar.", buttons=[])
+    prequalification = (cycle['phase'] in {'intro', 'origin', 'tiktok'}
+                        and not _creator(cycle['facts'].get('tiktok_declarado')))
+    soft_decline = (prequalification and '?' not in text
+                    and not any(mark in text for mark in ('"', "'", '“', '”'))
+                    and re.match(r'^(?:eu )?(?:ainda |agora )?nao (?:quero|pretendo|tenho interesse em) '
+                                 r'(?:me |ser )?agenciar\b', normal))
+    if soft_decline:
+        cycle['qualification_paused'] = True
+    if (cycle['phase'] in {'intro', 'origin', 'tiktok'}
+            and not _creator(cycle['facts'].get('tiktok_declarado'))
+            and _other_agency_declaration(text)):
+        cycle['facts']['possui_agencia_declarada'] = True
+        cycle['qualification_paused'] = True
+        cycle.setdefault('claim_provenance', []).append({
+            'field': 'possui_agencia_declarada', 'at': engine._stamp(at),
+            'source': 'current_inbound_declaration'})
+        return _finish(state, at, reply=(
+            'Entendi. Você quer entender como trocar para a Amplify ou prefere pausar por aqui?'),
+            buttons=['Quero trocar', 'Pausar'])
+    if cycle.get('qualification_paused'):
+        if '?' not in text and (normal == 'quero trocar' or conversation._explicit_start(text, text)
+                                or re.fullmatch(r'@[A-Za-z0-9_][A-Za-z0-9_.]{1,23}', text.strip())):
+            cycle.pop('qualification_paused', None)
+            cycle['facts']['interesse_agenciamento'] = True
+            cycle['phase'] = _qualification_phase(cycle)
+        else:
+            # Keep answering doubts during a pause, without another sales CTA.
+            context = {'phase': cycle['phase'], 'facts': deepcopy(cycle['facts']),
+                       'real_mode': True, 'current_question': '', 'allowed_claim_fields': [],
+                       'can_confirm_external_events': False}
+            try:
+                proposal = assistant_callback(text, deepcopy(context)) if callable(assistant_callback) else None
+            except Exception:
+                proposal = None
+            answer = _question_reply(text, proposal, cycle, operation_policy, state=state, now=at)
+            answer = conversation._before_interest_reply((answer or '').replace(_INTRO_ACTION, ''))
+            return _finish(state, at, reply=answer or
+                           'Tudo bem. A qualificação fica pausada por aqui. Se quiser entender a troca, me avise.', buttons=[])
     carried = _carried_handle(state) if fresh and not cycle['facts'].get('tiktok_declarado') else None
     if carried:
         # Quem esperou a ponte e voltou depois das 24 h não manda o @ de novo.
@@ -1593,6 +1669,16 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
         jobs = _initial_checks(state, at)
         if jobs:
             return _finish(state, at, reply=conversao.RETURNED.format(handle=carried), effects=jobs, buttons=[])
+    generic_entry = (normal in {'oi', 'ola', 'bom dia', 'boa tarde', 'boa noite', 'tudo bem', 'oi tudo bem',
+                                'oi tudo bem vi o anuncio'}
+                     or re.fullmatch(r'(?:oi )?(?:eu )?(?:quero|gostaria de) saber mais sobre (?:o )?'
+                                     r'agenciamento(?: de creators)?', normal))
+    if (cycle['phase'] == 'intro' and not _creator(cycle['facts'].get('tiktok_declarado'))
+            and cycle['facts'].get('interesse_agenciamento') is not True and generic_entry):
+        # The entry script offers one clear choice; AI still answers concrete
+        # questions, while the native start/profile handlers own progression.
+        return _finish(state, at, intro=fresh, reply=PROMPTS['intro'],
+                       buttons=['Conhecer a Amplify', 'Quero me agenciar'])
     no_handle = not _creator(cycle['facts'].get('tiktok_declarado'))
     if no_handle and cycle['phase'] in {'intro', 'origin', 'tiktok'} and "?" not in text:
         if normal == 'mandar meu':
@@ -1631,9 +1717,26 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
     new_direct = bool(direct_reason and _refresh_direct_request(state, source_event, at, reason=direct_reason))
     if new_direct and not _creator(cycle.get('facts', {}).get('tiktok_declarado')) and '@' not in text:
         return _direct_form(state, at)
+    correction = (_declared_profile_change(text, cycle) if cycle['phase'] == 'blocked'
+                  and not cycle.get('pending_profile_changes') else None)
+    if correction:
+        cycle['pending_profile_changes'] = {'tiktok_declarado': correction}
+        return _finish(state, at, reply=(
+            'Você informou uma mudança: @ do TikTok: ' + cycle['facts']['tiktok_declarado']
+            + ' → ' + correction + '.\n\nConfirma atualizar esses dados?'),
+            buttons=['Confirmo', 'Não confirmo'])
     shop_unknown = cycle['phase'] == 'blocked' and isinstance(cycle.get('shop_unknown'), dict)
-    if shop_unknown and re.search(r'\b(?:como|onde|ativar|passo|passos|nao sei|ajuda)\b', normal):
-        # Release 41: o caminho para ativar o TikTok Shop Creator, não a mesma frase de novo (56937, 02/11).
+    commercial_question = bool(re.search(
+        r'\b(?:comissao|taxa|custa|custo|beneficios?|campanhas?|amostras?|parceria)\b', normal))
+    contextual_shop_help = re.fullmatch(r'(?:como (?:eu )?(?:faco|fazer)(?: isso)?|onde (?:eu )?(?:vejo|encontro) isso|me ajuda)', normal)
+    shop_help = (not commercial_question
+                 and (re.search(r'\b(?:shop|central|ativar|ativacao)\b', normal) or contextual_shop_help)
+                 and re.search(r'\b(?:como|onde|ativar|passo|passos|nao sei|ajuda)\b', normal))
+    shop_recheck = (not commercial_question and (
+        normal in {'pronto', 'prontinho', 'ativei', 'ativado', 'ativo', 'feito', 'consegui', 'liberou', 'liberado'}
+        or re.search(r'\b(?:conferir|confere|reconferir|reconfere|consultar|consulta|verificar|verifica)\b', normal)))
+    if shop_unknown and shop_help:
+
         return _finish(state, at, reply=conversao.SHOP_STEPS, buttons=[])
     if cycle.get('relationship_check_in_form') is True and form_link_requested(text) and not new_direct:
         if _form_stage(cycle) or cycle['phase'] in {'await_acceptance', 'checking_acceptance'}:
@@ -1648,7 +1751,7 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
                        buttons=['Quero me agenciar'] if cycle['phase'] == 'intro' else None)
     if invite_pending and invite_missing(text):
         # Release 41: "Não apareceu o convite" é sobre o convite, não sobre o formulário (gabiosantana1, 30/10).
-        # A Bia confere no TikTok na hora; sem o aceite, explica onde aceitar (ma.ribeiroh, 56629, 02/11).
+
         result = _acceptance_turn(state, at)
         if result.get('effects'):
             # Release 42: o resultado desta leitura responde com o passo a passo (texto 3) ou com o reenvio único.
@@ -1723,7 +1826,7 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
                 result["applied_claims"] = ["consentimento_convite"]
                 return result
             if _prior_invite_requires_reconciliation(state, _creator(cycle["facts"].get("tiktok_declarado"))):
-                # Release 41 (ma.ribeiroh, 56629): o convite antigo é conferido no TikTok. Vínculo → cadastro;
+
                 # pendente → onde aceitar; sumiu → um convite novo, sem pedir a autorização de novo.
                 check = _acceptance_check(state, at, 0, origin=engine._stamp(at))
                 if check:
@@ -1737,7 +1840,7 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
                 fresh_check = _effect(state, "precheck", at)
                 if fresh_check:
                     # Release 41: a autorização já foi dada. A validação é refeita em silêncio e o convite sai em
-                    # seguida, sem pedir o "Pode mandar" de novo (56933, 56934, 02/11).
+
                     cycle["consent_refresh"] = {"at": engine._stamp(at), "precheck_effect_id": fresh_check["id"]}
                     result = _finish(state, at, reply=conversao.INVITING, effects=[fresh_check], buttons=[])
                     result["applied_claims"] = ["consentimento_convite"]
@@ -1751,6 +1854,7 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
     precheck_record = (cycle.get('real_operations') or {}).get('precheck') or {}
     if (cycle["phase"] == "blocked" and not bridge_waiting(cycle) and not _invite_known(cycle)
             and not cycle.get('invite_retry') and precheck_record.get('cycle_id') == cycle['id']
+            and (not shop_unknown or shop_recheck)
             and precheck_record.get('status') in {'verification_pending', 'failed', 'outcome_unknown'}):
         # Quem ficou sem resultado da conferência pode pedir outra escrevendo de novo (no máximo a cada 10 min).
         try:
@@ -1817,7 +1921,10 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
     callback_context=deepcopy(context)
     try:
         direct_input = cycle.get('form_entry_request') and (new_direct or re.fullmatch(r'@[A-Za-z0-9_][A-Za-z0-9_.]{1,23}', text.strip()))
-        plan = assistant_callback(text, callback_context) if callable(assistant_callback) and not direct_input else None
+        literal_handle = re.fullmatch(r'@[A-Za-z0-9_][A-Za-z0-9_.]{1,23}', text.strip())
+        scripted_input = literal_handle or normal in conversation._START
+        plan = (assistant_callback(text, callback_context)
+                if callable(assistant_callback) and not (direct_input or scripted_input) else None)
     except Exception:
         plan = None
     # Interpret the answer against the question that was pending when the lead
@@ -1839,11 +1946,13 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
             claims['tiktok_declarado'] = bare
     linked_handle = profile_link_handle(text)
     if linked_handle and 'tiktok_declarado' not in claims and not _creator(cycle['facts'].get('tiktok_declarado')):
-        # Release 41: o link do perfil vale como @ (56934, 02/11: "Valeu pelo link! … me manda seu @").
+
         claims['tiktok_declarado'] = linked_handle
         claims['interesse_agenciamento'] = True
     handle_by_request = handle_requested and 'tiktok_declarado' in claims
-    if handle_by_request:
+    if handle_by_request or ('tiktok_declarado' in claims and literal_handle):
+        # A literal personal @ is the requested profile declaration, even if
+        # a previous AI reply failed to persist the request marker.
         claims['interesse_agenciamento'] = True
     # Only explicit desire to start permits collecting qualifications.
     if cycle["facts"].get("interesse_agenciamento") is not True and claims.get("interesse_agenciamento") is not True:
@@ -1879,6 +1988,10 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
     if cycle['phase'] == 'consent_real' and not policy_valid(operation_policy):
         cycle.pop('invite_offer', None)
     reply = _question_reply(text, plan, cycle, operation_policy,state=state,now=at)
+    if shop_unknown and cycle['phase'] == 'blocked' and not jobs:
+        # Answer the FAQ, then retain the unresolved provider step. An unknown
+        # Shop result is never an instruction to activate an inactive account.
+        reply = _step_reply(conversation._answer_without_requests(reply or ''), conversao.SHOP_UNKNOWN)
     if ("interesse_agenciamento" in applied and cycle["phase"] == "origin"
             and normal in conversation._START):
         # The planner saw the previous phase before this explicit declaration.
@@ -2213,7 +2326,7 @@ def list_proof_due(state, now):
 def _tracking_since(state):
     cycle = state.get('cycle') or {}
     mark = cycle.get('invite_tracking') or {}
-    # Release 43: a 42 parava de acompanhar quando o convite deste atendimento sumia da lista (56933, 18:16).
+
     if mark.get('stopped') and not (mark.get('stopped') == 'not_found' and _invite_unlanded(cycle)):
         return None
     operations = cycle.get('real_operations') or {}
@@ -2237,7 +2350,7 @@ def tracking_due(state, now):
         return False
     cycle = state['cycle']
     since = _tracking_since(state)
-    # Release 43: também 'checking_acceptance', onde a 56932 ficou quando o resultado do "Já aceitei" se perdeu.
+
     if (not since or cycle.get('phase') not in {'await_acceptance', 'checking_acceptance', 'form', 'blocked'}
             or not timedelta(0) <= at - since < TRACKING_HORIZON):
         return False
@@ -2253,10 +2366,7 @@ def tracking_due(state, now):
 
 
 def linked_notice_missing(cycle):
-    """Release 43: vínculo confirmado sem o aviso entregue (56932: aceitou às 14:42 e nada chegou).
-
-    Sem a marca (atendimentos da 41/42) ou com o envio recusado: mais uma leitura e o texto 2, no máximo 2 vezes.
-    """
+    """Private incident details omitted from this review baseline."""
     notice = cycle.get('linked_notice')
     if not isinstance(notice, dict):
         return True
@@ -2395,7 +2505,7 @@ def _settle_agency_read(state, at, effect, result, policy):
                 return resent
         cycle['phase'] = 'blocked'
     elif status == 'pending' and cycle.pop('invite_verify', None):
-        # Release 43: o envio só é anunciado quando a lista mostra o convite (56933, 02/11 18:16).
+
         return _finish(state, at, reply=conversao.invite_sent_now(_first_name(cycle)), buttons=[], exact=True)
     elif status == 'not_found' and _invite_unlanded(cycle):
         recovered = _recover_absent_invite(state, at, effect, policy)
@@ -2410,7 +2520,7 @@ def _settle_agency_read(state, at, effect, result, policy):
 
 def _invite_unlanded(cycle):
     record = (cycle.get('real_operations') or {}).get('invite') or {}
-    return (record.get('status') in {'sent', 'pending_verification', 'outcome_unknown'}
+    return (record.get('status') in {'sent', 'pending_verification', 'verification_pending', 'outcome_unknown'}
             and record.get('cycle_id') == cycle.get('id'))
 
 
@@ -2596,7 +2706,7 @@ def resolve_tiktok_result(session, effect_id, result, *, now=None, operation_pol
                            reply="O convite ainda não chegou ao TikTok. Vou tentar de novo em alguns minutos, sem duplicar o envio.")
     if (operation == 'invite' and status in {'outcome_unknown', 'verification_pending', 'failed'}
             and result.get('reason') in BRIDGE_DOWN_REASONS and _invite_no_write(record)):
-        # Release 41: a ponte de Convites caiu e o TikTok nunca recebeu o pedido (@gabinaresse, 56933, 02/11).
+
         # A autorização fica anotada e a reconferência envia sozinha quando a ponte voltar.
         cycle['phase'] = 'blocked'
         cycle.pop('invite_retry', None)

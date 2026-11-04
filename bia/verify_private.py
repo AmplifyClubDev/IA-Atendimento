@@ -40,7 +40,7 @@ def verify():
               'private': False, 'text': 'private verification'}
     scope = {
         'configured_contact_matches_gate': allow_inbound(gate, sample),
-        'different_contact_rejected': not allow_inbound(gate, {**sample, 'sender_phone': '+5511999999999'}),
+        'different_contact_rejected': not allow_inbound(gate, {**sample, 'sender_phone': 'invalid-contact'}),
         'different_inbox_rejected': not allow_inbound(gate, {**sample, 'inbox_id': '999999'}),
         'outgoing_rejected': not allow_inbound(gate, {**sample, 'message_type': 'outgoing'}),
         'private_message_rejected': not allow_inbound(gate, {**sample, 'private': True}),

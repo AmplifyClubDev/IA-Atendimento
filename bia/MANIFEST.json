@@ -1,190 +1,200 @@
 {
+  "release": "release-55-sanitized-review-20261104",
+  "source_count": 37,
   "files": [
     {
-      "bytes": 791,
       "path": "Dockerfile",
-      "sha256": "d7beae2e98b48d9302756c893c958e16d2492ebded38f92dedda63eb8fd1a377"
+      "bytes": 856,
+      "sha256": "438e154399e71fb6f19dd0387c75c379794ab1114b0bf858c1de247fbfd53875"
     },
     {
-      "bytes": 13823,
       "path": "answers.py",
+      "bytes": 13823,
       "sha256": "3afc67b84cbae280e082c1f017b9cbed5001b7b8d1f2be7096a800ba3e6b1f93"
     },
     {
-      "bytes": 1593,
       "path": "bootstrap.py",
+      "bytes": 1593,
       "sha256": "337fb5d51b36d4c5a7e71d92b9c40a1687fb75359ea2d9a4537701686814b34a"
     },
     {
-      "bytes": 10950,
       "path": "config.py",
-      "sha256": "c66f823dbb29b0c3c1fdf51491977ddbdf7e7d407b66f4ce9759b3b9b5ee31b4"
+      "bytes": 11523,
+      "sha256": "c1945a8d63d64161277df995ff4329c381e93e18e7029e26adf545dcd8da0ec0"
     },
     {
-      "bytes": 4982,
       "path": "context_ia.py",
+      "bytes": 4982,
       "sha256": "027f2d0433b20ed6a9083f8b47af9dbe13b2b55c2832adab4a0e6bae2a3fcb57"
     },
     {
-      "bytes": 6667,
       "path": "contracts.py",
-      "sha256": "1ceadf6c9199398e3d27576491e77a0dd8a94b948a166e886f87e02118d900d1"
+      "bytes": 6673,
+      "sha256": "8370cd4d1bf46c2189fe1a1ad07ad16f22647ff86046ebd8e7e6648d43ef948d"
     },
     {
-      "bytes": 11080,
       "path": "conversao.py",
-      "sha256": "22c5a2d8efe19dbc84b1775e1d0ddcef94eb51282be000c1ce80f2ae300d8b80"
+      "bytes": 13299,
+      "sha256": "154651cfceda0b5d8b2846e77e1e770fe65dd78d2fe9f2eea9b7cc8e68ca499e"
     },
     {
-      "bytes": 32562,
       "path": "conversation.py",
+      "bytes": 32562,
       "sha256": "7508d58f2ea0f5f07ae1d9457ca594e2e7b60eb8988d342323a06449b64d4743"
     },
     {
-      "bytes": 243,
       "path": "data/__init__.py",
+      "bytes": 243,
       "sha256": "b708ec4efdf9cc20389af9bac7660058d351cfe8e785f5f2b1e011fa9ca7a4cb"
     },
     {
-      "bytes": 20154,
       "path": "data/cadastro_contract.json",
+      "bytes": 20154,
       "sha256": "bcf1f6dc5909330ddca8ffcf6194bd85bdf83bd2b914a0cee05596416336d6e6"
     },
     {
-      "bytes": 26922,
       "path": "data/field-map.json",
+      "bytes": 26922,
       "sha256": "f8dfe8c8bf604d91d00c626e64b14f4a26255d8c57c22f40bd43d6945f9c01cc"
     },
     {
-      "bytes": 15296,
       "path": "data/mapper.py",
+      "bytes": 15296,
       "sha256": "f5619bf16d94abdac5f522485ae337584c1504e96af4e6ce12fa6ec88651019d"
     },
     {
-      "bytes": 19719,
       "path": "engine.py",
+      "bytes": 19719,
       "sha256": "ab1d6d5f124c2f380f8aa009436bea471ac57119dd94d2d2f14c3eb7972218aa"
     },
     {
-      "bytes": 25955,
       "path": "followup.py",
-      "sha256": "063d0a8938e870f30359d06c92f7a086056677dded14e3bd583e650791c7bf00"
+      "bytes": 26344,
+      "sha256": "2b2c661d7a8e643ca8c5253ea2b784a87041f3a883dec6160d9dc820053ffc9c"
     },
     {
-      "bytes": 47946,
       "path": "forms.py",
+      "bytes": 47946,
       "sha256": "961cac6186110eec76c77ce72593cceb70f0c6dd6d9124b459e811c538bbbc75"
     },
     {
-      "bytes": 22245,
       "path": "forms_compat.py",
+      "bytes": 22245,
       "sha256": "ea17e5d94fbbbd48e26faa0fcc93dbf5f00f382263de8552aefe386f40371438"
     },
     {
-      "bytes": 9657,
       "path": "gateway.py",
-      "sha256": "11b88b3d61c71a6f34e212dd983058a587ec38ce9ff164b409dbd8d606794ec8"
+      "bytes": 12637,
+      "sha256": "45c8d23ab7f83daf961b166815bf1ae02ed55de85ffa16c1775f41c9c04bdafa"
     },
     {
-      "bytes": 35233,
       "path": "guided_ai.py",
+      "bytes": 35233,
       "sha256": "9606e35d145279c001a7d2e79e2d5a755ecd40eeab0f60ec1e9decfc0d9ec313"
     },
     {
-      "bytes": 10083,
       "path": "knowledge.json",
+      "bytes": 10083,
       "sha256": "a3050e2cd38a17eaa5d96c48ef72c80fad484f8c097d150f5b8bdfd73aeefced"
     },
     {
-      "bytes": 6138,
       "path": "nome_contextual.py",
+      "bytes": 6138,
       "sha256": "5c8972325fdcb426234f8a423ac0146e615914c0fc5683a54d24f38cd5c8ff95"
     },
     {
-      "bytes": 1225,
       "path": "ops/context_preflight.py",
+      "bytes": 1225,
       "sha256": "b87b29b0516ad03755ab93eac05e21e77581045e2c3f6db569eb634e38a8ff3c"
     },
     {
-      "bytes": 21015,
       "path": "ops/stage_preflight.py",
-      "sha256": "eaaf31cbeb71f4d6e4d89832bfa71d35a60ff7c71546795c2e40d6d1357f50dd"
+      "bytes": 21255,
+      "sha256": "6468ade4699adf50e64b296034b73b50ab8adf31c9cfc62ad033277f7ebe073b"
     },
     {
-      "bytes": 30981,
+      "path": "pilot_scope.py",
+      "bytes": 1918,
+      "sha256": "66abd7989bb150cf85a3a3dd153847ff05aec8d2fdeb98befa6a14ba335f8432"
+    },
+    {
       "path": "playwright_client.py",
+      "bytes": 30981,
       "sha256": "7bfd3365ddff0eebceccb3212e0b355d94f176ba1c32eaa29b74b2037f608d16"
     },
     {
-      "bytes": 161801,
       "path": "real_journey.py",
-      "sha256": "e7c68df84a07a615289321e657da546b73a0bc54c4ddab86e2bc95f197126641"
+      "bytes": 174270,
+      "sha256": "4c60b29719155f92b253527859b9861a2b5772e354499c6edb828a0b98204e5d"
     },
     {
-      "bytes": 29253,
       "path": "real_operations.py",
-      "sha256": "9b6a87df87ba9ff7c389481f0d01b68ae7718215de9b7d6401eb31dfd1cb0bef"
+      "bytes": 29654,
+      "sha256": "e2430493b1deeea6f1b070e00355d6eb7d24a2a5a665c2412a4b41f392e8b36c"
     },
     {
-      "bytes": 11753,
       "path": "receipt_grounding.py",
+      "bytes": 11753,
       "sha256": "317a220a91ce3c3e30090d7497607c97b6d619e1d1787649cd1947a32ba6a308"
     },
     {
-      "bytes": 6895,
       "path": "reconferencia.py",
-      "sha256": "57301b6cfb4158dc132410fde4237ef787b44628b9eaa851a867bd4d5b5b89a4"
+      "bytes": 7393,
+      "sha256": "3a9772c53c005f9c80b49009df4d1871f7126105d25a09f0dbe28e6ab3a3708f"
     },
     {
-      "bytes": 13460,
       "path": "recovery.py",
-      "sha256": "ee7fdbc3698e5e71d8c256f5834b6cde18303c5762317b301e93bf5c2f1d2712"
+      "bytes": 13703,
+      "sha256": "1e917af7c91c91eac5b0ce5eefa298b29e616791fcae1b2b9704b3fa08cf41b0"
     },
     {
-      "bytes": 30553,
       "path": "repository.py",
+      "bytes": 30553,
       "sha256": "27b29326b9bcc057f6b7526ffa3072d4a70c844ddd2c3f61ae7d60d91a9d2941"
     },
     {
-      "bytes": 45,
       "path": "requirements.txt",
+      "bytes": 45,
       "sha256": "2d81d506266155442077b3657acda787529edced11a303faeb7888996206b111"
     },
     {
-      "bytes": 13220,
       "path": "retention.py",
+      "bytes": 13220,
       "sha256": "3711150716a8ecfd90a7b19cd7e49adab180e63686a26c035abc47c939f096ec"
     },
     {
-      "bytes": 33570,
       "path": "retomada.py",
-      "sha256": "0a05f86140dec41658aacc0b9991de023088a5dd872de034d95151e1aa301656"
+      "bytes": 34927,
+      "sha256": "47ffc9445ad875d4e8b235790e80a159847af70af9ca4fb44e3bdc86b6b80eec"
     },
     {
-      "bytes": 89604,
       "path": "server.py",
-      "sha256": "431684cc6a4ac106b788518d60ec4db7c32bd219dff82449c842aa80c228ba06"
+      "bytes": 90865,
+      "sha256": "b3b2fc5b8ea080ba12fc6bf0025e97a913692d93cac8b6c7c07de4b50a039728"
     },
     {
-      "bytes": 5013,
       "path": "smtp.py",
+      "bytes": 5013,
       "sha256": "cb389caa9c8119d00013d75752c91bbc2dd70579aa2b187899b894f8c80708f2"
     },
     {
-      "bytes": 26299,
       "path": "transport.py",
-      "sha256": "dc220191f2306f7a6f9a7150e2118d2275a86a00bd09625402bac2de769430d7"
+      "bytes": 26148,
+      "sha256": "ede5bc2c867771c634ce0646e9bbb0f667e3dd41d36aa313051cc273c687eb3f"
     },
     {
-      "bytes": 3324,
       "path": "verify_private.py",
-      "sha256": "995ff5a8bb6876562d9e6a583354e20799155068d491192f23f26b0c7c7b5fb2"
+      "bytes": 3325,
+      "sha256": "336e4b6dbbfa1026b1bbb621bcd73a883d3e9813bda47b11b07ec419bea63fb7"
     }
   ],
   "provenance": {
-    "author": "claude-bia-etiquetas-20261103",
-    "base_release": "atendimento-v5-release-20261103-47"
-  },
-  "release": "atendimento-v5-release-20261103-48",
-  "source_count": 36
+    "original_release": "atendimento-v5-release-20261103-55-roteiro-ia",
+    "original_deployment_id": "582fbd1f-239c-4772-85ba-e3eb1f9366a3",
+    "original_archive_sha256": "4c7f27cd5f6918c7461e97ab479c98804c988d240ece71d1c24f1e656fc8c68e",
+    "comparison_branch": "fix/bia-51-followup",
+    "comparison_commit": "b01dd6bbb99910a4a7bad54a802e56e1aca875ab",
+    "sanitized": true,
+    "change": "Private pilot identifiers and historical case references removed. Explicit configuration required; no deploy or environment changes."
+  }
 }
