@@ -128,8 +128,8 @@ class Cristiane56935Tests(Unanswered, cristiane.CristianeServerTests):
         self.assertEqual({k: v for k, v in self.pos_pausa().items() if k in ('status', 'result')}, {'status': 'resumed', 'result': 'completed'})
         answers = self.texts(lead)[before:]
         self.assertEqual(len(answers), 1)
-        self.assertIn(conversao.MISSIONS, answers[0])
-        self.assertTrue(self.repo.load_session(conv)['cycle'].get('acesso_liberado'))
+        self.assertIn((conversao.REGISTRATION_MISSIONS + '\n\n' + conversao.REGISTRATION_CONFIRMED), answers[0])
+        self.assertFalse(self.repo.load_session(conv)['cycle'].get('acesso_liberado'))
         self.assertEqual(self.pos_pausa()['status'], 'idle')
 
     test_after_the_form_the_next_messages_are_answered = None

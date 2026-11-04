@@ -46,7 +46,7 @@ class CristianeAfterAccessTests(Assertions):
         state = self.registered()
         old_cycle = state['cycle']['id']
         turn = say('Já aceitei', state)
-        self.assertEqual(turn['reply'], conversao.ACCESS_DONE)
+        self.assertEqual(turn['reply'], conversao.REGISTRATION_CONFIRMED)
         self.assertNotEqual(turn['state']['cycle']['id'], old_cycle)
         self.assertEqual(turn['state']['closed_cycles'][-1]['reason'], 'cadastro_confirmado')
         self.assertEqual(turn['state']['cycle']['phase'], 'acesso')
@@ -56,7 +56,7 @@ class CristianeAfterAccessTests(Assertions):
     def test_missions_question_is_answered_without_promising_dates(self):
         first = say('Já aceitei', self.registered())
         turn = say('Quando vou ter as minhas primeiras missões?', first['state'])
-        self.assertEqual(turn['reply'], conversao.MISSIONS)
+        self.assertEqual(turn['reply'], (conversao.REGISTRATION_MISSIONS + '\n\n' + conversao.REGISTRATION_CONFIRMED))
         self.assertEqual(turn['state']['cycle']['id'], first['state']['cycle']['id'])
         self.assertNotRegex(turn['reply'], r'\d+\s*(?:dias|horas|semanas)')
         self.clean(turn['reply'])
@@ -406,9 +406,9 @@ class CristianeServerTests(RealCasesTests):
         self.gateway.closed.add(state['cycle']['id'])
         self.gateway.situacao = 'confirmado'
         self.say(lead, 'Já aceitei')
-        self.assertEqual(self.texts(lead)[-1], conversao.ACCESS_DONE)
+        self.assertEqual(self.texts(lead)[-1], conversao.REGISTRATION_CONFIRMED)
         self.say(lead, 'Quando vou ter as minhas primeiras missões?')
-        self.assertEqual(self.texts(lead)[-1], conversao.MISSIONS)
+        self.assertEqual(self.texts(lead)[-1], (conversao.REGISTRATION_MISSIONS + '\n\n' + conversao.REGISTRATION_CONFIRMED))
 
     test_emy_and_thaina_are_rechecked_once_each_when_the_bridge_returns = None
     test_bridge_flapping_during_the_retry_stays_silent_and_waits_ten_minutes = None

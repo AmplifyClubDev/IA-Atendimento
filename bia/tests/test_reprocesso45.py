@@ -97,7 +97,7 @@ class Cristiane56935Tests(SendFails, base44.Cristiane56935Tests):
         self.assertEqual(self.pos_pausa()['status'], 'resumed')
         answers = self.texts(lead)[before:]
         self.assertEqual(len(answers), 1)
-        self.assertIn(conversao.MISSIONS, answers[0])
+        self.assertIn(conversao.REGISTRATION_MISSIONS + '\n\n' + conversao.REGISTRATION_CONFIRMED, answers[0])
         self.assertEqual(self.pos_pausa()['status'], 'idle')
 
     test_unanswered_messages_get_the_access_answer = None
@@ -110,3 +110,4 @@ for cls in (Lead56938Tests,):
 
 if __name__ == '__main__':
     unittest.main()
+

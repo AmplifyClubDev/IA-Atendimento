@@ -1258,6 +1258,20 @@ def _local_topic_answer(text):
     return lead_safe(answer.strip()) or None
 
 
+def _after_registration_reply(text, normal):
+    """Keep registered creators out of the funnel without inventing delivery proof."""
+    status = conversao.REGISTRATION_CONFIRMED
+    if re.search(r'\b(?:missao|missoes|campanha|campanhas|oportunidade|oportunidades|marca|marcas)\b', normal):
+        return conversao.REGISTRATION_MISSIONS + '\n\n' + status
+    if re.search(r'\bamostra', normal):
+        return conversao.SAMPLES + '\n\n' + status
+    asked = '?' in text or normal in conversation_topics()
+    answer = _local_topic_answer(text) if asked else None
+    if answer and not re.search(r'\b(?:convite|cadastro|formulario|aceit|acesso|circle)', normal):
+        return answer + '\n\n' + status
+    return status
+
+
 def _after_access_reply(text, normal):
     """Depois do acesso liberado: responde a dúvida e lembra onde entrar, sem convite, @ ou formulário."""
     if re.search(r'\bamostra', normal):
@@ -1388,7 +1402,7 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
     registered = (state.get('cadastro_situacao') == 'confirmado'
                   and not conversation._chat_reset_requested(text, real_mode=True)
                   and not (cycle or {}).get('funnel_after_reset'))
-    if registered and cycle and cycle.get('status') == 'open' and not cycle.get('acesso_liberado'):
+    if registered and cycle and cycle.get('status') == 'open' and not cycle.get('registered_contact'):
         # Release 41: o formulário encerra no banco o atendimento aberto ("cadastro_confirmado"). Seguir nele faz o
         # registro de contato ser recusado e a resposta não sai (Cristiane, 56935, 02/11): começa um atendimento novo.
         cycle.update(status='closed', reason='cadastro_confirmado', closed_at=engine._stamp(at))
@@ -1422,10 +1436,11 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
         except (ValueError,TypeError,OverflowError):
             pass
     normal = engine._normal(text)
-    if registered and (fresh or cycle.get('acesso_liberado')):
-        # Com o acesso liberado, a Bia segue respondendo: Club, missões e onde entrar. Nunca volta ao funil.
-        cycle.update(acesso_liberado=True, phase='acesso')
-        return {**_finish(state, at, reply=_after_access_reply(text, normal), buttons=[]), 'fixed_greeting': True}
+    if registered:
+        # Cadastro is not a Circle/email delivery receipt. Historical acesso_liberado
+        # was inferred from cadastro too, so it cannot authorize an access claim.
+        cycle.update(acesso_liberado=False, registered_contact=True, phase='acesso')
+        return {**_finish(state, at, reply=_after_registration_reply(text, normal), buttons=[]), 'fixed_greeting': True}
     if fresh and _AD_MESSAGE.search(normal) and 'origem_declarada' not in cycle['facts']:
         cycle['facts']['origem_declarada'] = 'anuncio'
         cycle.setdefault('claim_provenance', []).append({'field': 'origem_declarada', 'at': engine._stamp(at),
@@ -2347,7 +2362,7 @@ def _settle_invite_code(state, at, effect, status, result, record, policy):
             check = _schedule_invite_retry(state, at, delay=INVITE_FAILED_RETRY_SECONDS)
             if check:
                 return _finish(state, at, reply=conversao.INVITE_RETRYING, effects=[check], buttons=[])
-        # 2ª falha: o atendimento fica em blocked e o vigia do Cadastro avisa a equipe em 30 min.
+        # Local diagnostic only: no durable alert delivery receipt is available here.
         cycle.update(phase='blocked', block_reason='invite_failed_twice')
         cycle['team_alert'] = {'at': engine._stamp(at), 'reason': 'invite_failed_twice', 'last_reason': reason}
         return _finish(state, at, reply=conversao.INVITE_FAILED_TEAM, buttons=[])
@@ -2373,7 +2388,7 @@ def _settle_list_proof_invite(state, at, effect, status):
         return _finish(state, at, reply=conversao.invite_sent_now(_first_name(cycle)), buttons=[], exact=True)
     cycle['phase'] = 'blocked'
     if status == 'failed':
-        # Release 43 (tabela 5b): o reenvio também falhou; o atendimento fica em blocked e o vigia avisa a equipe.
+        # Local diagnostic only: the retry failed; team notification is unconfirmed.
         cycle['block_reason'] = 'invite_failed_twice'
         cycle['team_alert'] = {'at': engine._stamp(at), 'reason': 'invite_failed_twice'}
         return _finish(state, at, reply=conversao.INVITE_FAILED_TEAM, buttons=[])
