@@ -12,6 +12,7 @@ COPY forms_compat.py ./
 COPY retention.py ./
 COPY followup.py ./
 COPY receipt_grounding.py ./
+COPY conversao.py retomada.py reconferencia.py ./
 COPY nome_contextual.py ./
 COPY data/ ./data/
 CMD ["sh", "-c", "exec gunicorn --bind 0.0.0.0:${PORT:-8000} --workers 1 --threads 4 --timeout 60 --access-logfile /dev/null --error-logfile - 'bootstrap:create_app()'"]
