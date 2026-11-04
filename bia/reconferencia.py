@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 from followup import clock
 from retomada import enabled as _enabled
+from demo_router import production_blocked, excluded_conversations
 
 SCAN_SECONDS = 60
 
@@ -102,6 +103,8 @@ class Reconferencia:
             outcome = {'status': 'idle'}
             looked = set()
             for row in rows:
+                if production_blocked(self.settings, conversation_key=row['conversation']):
+                    continue
                 conv = row['conversation'].rsplit(':', 1)[-1]
                 looked.add(row['conversation'])
                 kind = row.get('kind', 'precheck')

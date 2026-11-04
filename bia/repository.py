@@ -20,6 +20,8 @@ def _now():
 
 class Repository:
     def __init__(self, path):
+        self.excluded_conversations = ()
+        self.demo_scope = None
         self.path = Path(path).resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._connection() as db:
@@ -162,10 +164,28 @@ class Repository:
             row = db.execute('SELECT * FROM followup_sources WHERE conversation_key=?', (conversation_key,)).fetchone()
             return {**dict(row), 'event': json.loads(row['event_json'])} if row else None
 
+    def set_excluded_conversations(self, keys):
+        self.excluded_conversations = tuple(dict.fromkeys(keys))
+
+    def set_demo_scope(self, scope):
+        self.demo_scope = scope
+        self.set_excluded_conversations((scope.conversation_key,))
+
+    def _demo_row_blocked(self, row):
+        if row['conversation_key'] in self.excluded_conversations:
+            return True
+        if self.demo_scope:
+            try:
+                return self.demo_scope.claims(json.loads(row['event_json']))
+            except (ValueError, TypeError, KeyError):
+                return False
+        return False
+
     def followup_conversations(self):
-        """Every chat with a remembered actual inbound (release 39 retomada scan)."""
+        """Remembered chats, excluding a contact reserved for the isolated demo."""
         with self._connection() as db:
-            return [row[0] for row in db.execute('SELECT conversation_key FROM followup_sources ORDER BY conversation_key')]
+            return [row['conversation_key'] for row in db.execute('SELECT conversation_key,event_json FROM followup_sources ORDER BY conversation_key')
+                    if not self._demo_row_blocked(row)]
 
     def followup_accepted_message_ids(self, conversation_key, cycle_opened_at):
         """Only provider receipts prove that a public outgoing belongs to Bia."""
@@ -302,24 +322,28 @@ class Repository:
                                              (effect_id,)).fetchone())
 
     def precheck_conversations(self):
-        """Every chat that ever queued a profile check (release 40 reconferência scan)."""
         with self._connection() as db:
-            return [row[0] for row in db.execute(
-                "SELECT DISTINCT conversation_key FROM real_jobs WHERE operation='precheck' ORDER BY conversation_key")]
+            rows = db.execute("SELECT conversation_key,event_json FROM real_jobs WHERE operation='precheck' ORDER BY conversation_key").fetchall()
+            blocked = set(self.excluded_conversations) | {row['conversation_key'] for row in rows if self._demo_row_blocked(row)}
+            return list(dict.fromkeys(row['conversation_key'] for row in rows if row['conversation_key'] not in blocked))
 
     def claim_real_job(self, at):
-        """Commit the running/uncertain state before leaving SQLite for a provider."""
+        """Hold demo jobs intact; other customers cannot be starved by them."""
         with self._connection() as db:
             db.execute('BEGIN IMMEDIATE')
-            row = db.execute("SELECT * FROM real_jobs WHERE status='result_ready' OR "
-                             "(status IN ('queued','polling') AND next_run_at<=?) "
-                             "ORDER BY CASE status WHEN 'result_ready' THEN 0 ELSE 1 END,next_run_at,job_key LIMIT 1",
-                             (at,)).fetchone()
+            predicate = "(status='result_ready' OR (status IN ('queued','polling') AND next_run_at<=?))"
+            parameters = [at]
+            if self.excluded_conversations:
+                predicate += ' AND conversation_key NOT IN (' + ','.join('?' for _ in self.excluded_conversations) + ')'
+                parameters.extend(self.excluded_conversations)
+            query = 'SELECT * FROM real_jobs WHERE ' + predicate + " ORDER BY CASE status WHEN 'result_ready' THEN 0 ELSE 1 END,next_run_at,job_key"
+            if not self.demo_scope:
+                query += ' LIMIT 1'
+            row = next((candidate for candidate in db.execute(query, parameters) if not self._demo_row_blocked(candidate)), None)
             if not row:
                 return None
             if row['status'] != 'result_ready':
-                db.execute("UPDATE real_jobs SET status='running',attempts=attempts+1,updated_at=? WHERE job_key=?",
-                           (at, row['job_key']))
+                db.execute("UPDATE real_jobs SET status='running',attempts=attempts+1,updated_at=? WHERE job_key=?", (at, row['job_key']))
                 row = db.execute('SELECT * FROM real_jobs WHERE job_key=?', (row['job_key'],)).fetchone()
             return self._real_row(row)
 
@@ -356,6 +380,8 @@ class Repository:
         with self._connection() as db:
             db.execute('BEGIN IMMEDIATE')
             for row in db.execute("SELECT * FROM real_jobs WHERE status='running'").fetchall():
+                if self._demo_row_blocked(row):
+                    continue
                 if row['operation'] == 'invite':
                     result = {'operation': 'invite', 'creator': row['creator'], 'status': 'outcome_unknown',
                               'confirmed': False, 'observed_at': at, 'evidence': {}, 'reason': 'interrupted_write_reconcile'}
@@ -374,6 +400,8 @@ class Repository:
                               "AND operation IN ('lookup','precheck','relationship') "
                               "AND attempts BETWEEN 1 AND 5").fetchall()
             for row in rows:
+                if self._demo_row_blocked(row):
+                    continue
                 session = db.execute('SELECT state_json FROM sessions WHERE conversation_key=?',
                                      (row['conversation_key'],)).fetchone()
                 try:

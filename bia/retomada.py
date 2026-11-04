@@ -18,6 +18,7 @@ import threading
 
 from contracts import allow_inbound, inbound_key, pilot_phone
 from followup import clock
+from demo_router import production_blocked, excluded_conversations
 
 STEPS = ((1, timedelta(minutes=15)), (2, timedelta(hours=2)), (3, timedelta(hours=23, minutes=30)))
 LINKED_STEPS = ((1, timedelta(hours=2)), (2, timedelta(hours=23, minutes=30)))
@@ -264,11 +265,15 @@ class Retomada:
         return due[-1]
 
     def _conversation(self, conv, now):
+        if production_blocked(self.settings, conversation_key=conv):
+            return {'status': 'blocked', 'motivo': 'demo_contact_excluded_from_production'}
         with self.lock_for(conv):
             source = self.repository.followup_source(conv)
             state = self.repository.load_session(conv)
             cycle = state.get('cycle') or {}
             event = (source or {}).get('event') or {}
+            if production_blocked(self.settings, event=event, conversation_key=conv):
+                return {'status': 'blocked', 'motivo': 'demo_contact_excluded_from_production'}
             expires = clock(cycle.get('expires_at'))
             # Release 46: cada "não" tem o seu motivo (antes, tudo virava "idle").
             idle = lambda reason: {'status': 'idle', 'motivo': reason}
@@ -538,10 +543,16 @@ class PosPausa:
         return listing
 
     def _candidate(self, conversation, now, base):
+        if isinstance(conversation, dict) and production_blocked(self.settings, conversation_key='chatwoot:' + str((self.settings.get('gate') or {}).get('account_id')) + ':' + str(conversation.get('id'))):
+            return None, 'demo_contact_excluded_from_production'
         gate = self.settings.get('gate') or {}
         if not isinstance(conversation, dict) or not re.fullmatch(r'[1-9][0-9]{0,19}', str(conversation.get('id', ''))):
             return None, 'conversa_invalida'
         sender = (conversation.get('meta') or {}).get('sender') or {}
+        if production_blocked(self.settings, event={'account_id': gate.get('account_id'),
+                'inbox_id': conversation.get('inbox_id'), 'conversation_id': conversation.get('id'),
+                'contact_id': sender.get('id'), 'sender_phone': sender.get('phone_number')}):
+            return None, 'demo_contact_excluded_from_production'
         if str(conversation.get('inbox_id')) != str(gate.get('inbox_id')):
             return None, 'outra_caixa'
         if not pilot_phone(gate, sender.get('phone_number')):

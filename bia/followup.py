@@ -7,6 +7,7 @@ import pilot_scope
 
 from contracts import allow_inbound, inbound_key, phone_matches
 from real_operations import policy_for
+from demo_router import production_blocked, excluded_conversations
 
 WAITING = frozenset({'intro', 'origin', 'tiktok', 'shop', 'agency', 'consent_real', 'await_acceptance', 'form'})
 
@@ -200,6 +201,8 @@ class Followup:
         return outcome
 
     def _tick(self):
+        if production_blocked(self.settings, conversation_key=self.conversation):
+            return {'status': 'blocked', 'reason': 'demo_contact_excluded_from_production'}
         if self.settings.get('inactivity_close_enabled') is True:
             return self._tick_inactivity()
         if not configured(self.settings):
@@ -334,6 +337,8 @@ class Followup:
                 'stage': 'closure'}
 
     def _tick_inactivity(self):
+        if production_blocked(self.settings, conversation_key=self.conversation):
+            return {'status': 'blocked', 'reason': 'demo_contact_excluded_from_production'}
         if not configured(self.settings) or not callable(self.close_for_inactivity):
             return {'status': 'disabled', 'stage': 'inactivity'}
         try:

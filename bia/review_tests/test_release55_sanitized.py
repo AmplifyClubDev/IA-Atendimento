@@ -70,6 +70,7 @@ class OfflineBoundary(unittest.TestCase):
         self.assertTrue(manifest['provenance']['sanitized'])
         self.assertEqual(manifest['source_count'], len(manifest['files']))
         self.assertIn('pilot_scope.py', {entry['path'] for entry in manifest['files']})
+        self.assertIn('demo_router.py', {entry['path'] for entry in manifest['files']})
         for entry in manifest['files']:
             with self.subTest(path=entry['path']):
                 data = (ROOT / entry['path']).read_bytes()

@@ -5,6 +5,10 @@ import sys
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+if len(sys.argv) == 3 and sys.argv[1] == '--test-deps':
+    sys.path.insert(0, str(Path(sys.argv[2]).resolve()))
+elif len(sys.argv) != 1:
+    raise SystemExit('Usage: run_offline.py [--test-deps TEMP_DEPENDENCY_DIRECTORY]')
 for name in list(os.environ):
     if name.upper() not in {'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'PATH'}:
         del os.environ[name]

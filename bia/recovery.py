@@ -24,6 +24,7 @@ import pilot_scope
 from uuid import UUID
 
 from contracts import allow_inbound, inbound_key, phone_matches, same_phone
+from demo_router import production_blocked, excluded_conversations
 
 
 READS = frozenset({"lookup", "precheck", "relationship"})
@@ -161,6 +162,8 @@ def recover_stalled(app):
     if not callable(callback):
         return _result("noop", "recovery_not_installed")
     settings = _dict(extensions.get("v5_settings"))
+    if production_blocked(settings, conversation_key=pilot_scope.conversation_key(settings.get('pilot_scope') or {})):
+        return _result('blocked', 'demo_contact_excluded_from_production')
     gate = _dict(settings.get("gate"))
     repository, transport = extensions.get("v5_repository"), extensions.get("v5_transport")
     lock_for = extensions.get("v5_conversation_lock_for")

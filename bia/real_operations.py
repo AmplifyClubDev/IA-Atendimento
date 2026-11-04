@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from contracts import allow_inbound, inbound_key, phone_matches, pilot_phone
+from demo_router import production_blocked, excluded_conversations
 
 
 def _stamp(now):
@@ -169,6 +170,10 @@ def chatwoot_control_guard(transport, gate, event):
 class RealExecutor:
     def __init__(self, repository, client, settings, lock_for, guard, apply_result, *, clock=None):
         self.repository, self.client, self.settings = repository, client, settings
+        if excluded_conversations(settings):
+            if not callable(getattr(repository, 'set_demo_scope', None)):
+                raise ValueError('demo_requires_filtered_repository')
+            repository.set_demo_scope(settings['_demo_scope'])
         self.lock_for, self.guard, self.apply_result = lock_for, guard, apply_result
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.stop_event, self.wake_event = threading.Event(), threading.Event()
@@ -282,6 +287,9 @@ class RealExecutor:
         return True
 
     def _authorized(self, job):
+        if production_blocked(self.settings, event=job.get('event'), conversation_key=job.get('conversation_key')):
+            self.last_guard = 'demo_contact_excluded_from_production'
+            return False
         with self.lock_for(job['conversation_key']):
             state = self.repository.load_session(job['conversation_key'])
             if not self._valid(job, state, self.clock()):
@@ -340,6 +348,8 @@ class RealExecutor:
                 pass
 
     def _apply(self, job):
+        if production_blocked(self.settings, event=job.get('event'), conversation_key=job.get('conversation_key')):
+            return {'status': 'blocked', 'reason': 'demo_contact_excluded_from_production'}
         result, now = job.get('result'), self.clock()
         if not isinstance(result, dict):
             self.repository.finish_real_job(job['job_key'], 'outcome_unknown', _stamp(now))

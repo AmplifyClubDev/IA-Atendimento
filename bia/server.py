@@ -23,6 +23,7 @@ from contracts import allow_inbound, inbound_key, same_phone, normalize_phone, p
 from repository import Repository
 from transport import ChatwootTransport, ChatwootProgress
 from real_operations import RealExecutor, build_jobs, business_key, chatwoot_control_guard, policy_for
+from demo_router import build_demo_router, production_blocked, excluded_conversations, ProductionTransportFence
 
 
 def _get(settings, name, default=None):
@@ -198,10 +199,12 @@ class _InboundReplyFence:
 
 
 def create_app(settings=None, repository=None, transport=None, answerer=None, planner=None,
-               real_client=None, real_guard=None):
+               real_client=None, real_guard=None, demo_gateway=None):
     if settings is None:
         from config import load_settings
         settings = load_settings()
+    settings = dict(settings) if isinstance(settings, dict) else settings
+    demo_router = build_demo_router(settings, gateway=demo_gateway, production_path=getattr(repository, 'path', None))
     app = Flask(__name__)
     app.config.update(MAX_CONTENT_LENGTH=128_000, JSON_SORT_KEYS=False)
     gate = _mapping(_get(settings, "gate", {}))
@@ -210,10 +213,16 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
     conversational = _get(settings, "conversation_enabled", False) is True
     contact_sync = _get(settings, "contact_sync_enabled", False) is True
     repository = repository or Repository(Path(_get(settings, "state_dir", Path(__file__).with_name("data"))) / "atendimento.sqlite3")
+    if demo_router:
+        if not callable(getattr(repository, 'set_demo_scope', None)):
+            raise ValueError('demo_requires_filtered_repository')
+        repository.set_demo_scope(demo_router.scope)
     transport = transport or ChatwootTransport(_get(settings, "chatwoot_base_url"), _get(settings, "chatwoot_api_token"), gate,
                                                interactive=True,
                                                cloud={"token": _get(settings, "whatsapp_cloud_token"),
                                                       "phone_number_id": _get(settings, "whatsapp_cloud_phone_number_id")})
+    if demo_router:
+        transport = ProductionTransportFence(transport, demo_router.scope)
     answerer = answerer or answer_question
     planner = planner or plan_turn
     locks, lock_guard = {}, threading.Lock()
@@ -226,6 +235,7 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
     app.extensions.update(v5_repository=repository, v5_settings=settings, v5_transport=transport,
                           v5_form_link_factory=None, v5_conversation_locks=locks,
                           v5_conversation_lock_for=lock_for, v5_reply_fence=reply_fence)
+    app.extensions['v5_demo_router'] = demo_router
     # With a pilot phone list every listed chat gets its stage labels; the
     # single-contact pilot keeps its exact conversation/contact pin.
     progress = (ChatwootProgress(repository, gate if gate.get("phones") else {**gate, "conversation_id": pilot_scope.conversation_id(), "contact_id": pilot_scope.contact_id()}, transport)
@@ -233,6 +243,8 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
     app.extensions["v5_chatwoot_progress"] = progress
 
     def send_current_reply(event, text, buttons, outbox_key, *, source=None, fenced=True):
+        if production_blocked(settings, event=event):
+            return {'status': 'failed', 'reason': 'demo_contact_excluded_from_production'}
         # Release 43: a TikTok result (fenced=False) is news the lead is waiting for; it is sent even when a
 
         authority = (lambda: reply_fence.current(event, source)) if fenced else (lambda: True)
@@ -271,6 +283,8 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
             return None
 
     def project_registration(row, state, receipt):
+        if production_blocked(settings, conversation_key=row.get('conversation_key')):
+            return {'status': 'disabled', 'reason': 'demo_contact_excluded_from_production'}
         if progress is None or row.get("conversation_key") != pilot_scope.conversation_key():
             return {"status": "disabled"}
         prior = state.get("processed_inbound") or []
@@ -509,6 +523,8 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
         real_client = PlaywrightClient(settings)
     base_operation_guard = real_guard or (lambda event: chatwoot_control_guard(transport, gate, event))
     def operation_guard(event):
+        if production_blocked(settings, event=event):
+            return {'allowed': False, 'reason': 'demo_contact_excluded_from_production'}
         # A reserved reset may be waiting while the current turn/worker holds the
         # lock. Other questions do not invalidate an already authorized job.
         live = repository.load_session(conversation_key(event))
@@ -537,6 +553,8 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
     def verify_form_relationship(state, event=None, *, creator, operation_key=None, now=None, start=True,
                                  form_conversation=None):
         """Queue a form-owned read or inspect it; never send chat or invite."""
+        if production_blocked(settings, event=event, conversation_key=form_conversation or pilot_scope.conversation_key()):
+            return {'status': 'failed', 'reason': 'demo_contact_excluded_from_production'}
         from real_journey import form_entry_allowed, form_relationship_proven, _result_creator
         if settings.get('relationship_check_in_form') is not True:
             return {'status': 'failed', 'reason': 'form_relationship_disabled'}
@@ -651,6 +669,8 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
 
     def close_for_inactivity(event, expected_cycle_id, expected_source_key, warning_key, closure_key, *, now):
         """Project an accepted pilot closure without another inbound or send."""
+        if production_blocked(settings, event=event):
+            return {'status': 'blocked', 'reason': 'demo_contact_excluded_from_production'}
         from followup import CONVERSATION, configured, sequence_keys
         from real_journey import close_inactive_cycle
         if (settings.get('inactivity_close_enabled') is not True or not configured(settings)
@@ -731,6 +751,8 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
     from retomada import PosPausa, Retomada, enabled as conduct_enabled
     def registration_status(event):
         """Situação do cadastro na ficha, lida na hora (modo consulta: sem recibo e sem mudar o atendimento)."""
+        if production_blocked(settings, event=event):
+            return 'conferencia'
         if not contact_sync:
             return 'pendente'
         try:
@@ -761,6 +783,8 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
 
     def resend_stored_reply(event, state, stored, outbox_key):
         """Release 45: a resposta que a Bia já calculou e não saiu é enviada agora, com o pedido de desculpas."""
+        if production_blocked(settings, event=event):
+            return {'status': 'blocked', 'reason': 'demo_contact_excluded_from_production'}
         import conversao
         import real_journey
         conv = conversation_key(event)
@@ -785,6 +809,8 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
         return {'status': 'completed' if status == 'accepted' else status}
 
     def resume_unanswered(event, resumed):
+        if production_blocked(settings, event=event):
+            return {'status': 'blocked', 'reason': 'demo_contact_excluded_from_production'}
         if isinstance(resumed, dict) and resumed.pop('reprocess', False):
             # Release 44/45: a mensagem do lead sem resposta da Bia no Chatwoot é respondida uma vez, com a trava da
             # conversa (o webhook da mesma mensagem não corre junto) e o registro em 'reprocessed' no atendimento.
@@ -843,6 +869,8 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
         Release 41: ``kind='invite'`` queues the check that re-sends a consented
         invite that never reached TikTok (the chain continues in the journey).
         """
+        if production_blocked(settings, conversation_key=conv):
+            return {'status': 'blocked', 'reason': 'demo_contact_excluded_from_production'}
         import real_journey
         with app.app_context(), lock_for(conv):
             try:
@@ -918,7 +946,8 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
 
     def inactivity_notice(state):
         """Project a question only when the last accepted outbox is its warning."""
-        from followup import CONVERSATION, configured, sequence_keys
+        from followup import configured, sequence_keys
+        CONVERSATION = pilot_scope.conversation_key(settings.get('pilot_scope') or {})
         if settings.get('inactivity_close_enabled') is not True or not configured(settings):
             return None
         try:
@@ -966,6 +995,8 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
     app.extensions['v5_inactivity_notice'] = inactivity_notice
 
     def reconcile_initial(*, event, state, recovery_key, provenance):
+        if production_blocked(settings, event=event):
+            return {'status': 'blocked', 'operations': []}
         """Resume evidenced read-only work; never replay or count an inbound."""
         from copy import deepcopy
         import real_journey
@@ -1138,6 +1169,8 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
 
     def process_inbound(event, resumed=None):
         """One admitted lead message; the webhook and the post-pause catch-up share it."""
+        if demo_router and demo_router.claims(event):
+            return handle_demo(event)
         key, conv = inbound_key(event), conversation_key(event)
         digest = hashlib.sha256(json.dumps(event, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         import conversation as conversation_commands
@@ -1344,6 +1377,39 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
 
     app.extensions['v5_process_inbound'] = process_inbound
 
+    def handle_demo(event, payload=None):
+        try:
+            if payload is not None:
+                event = demo_router.decorate(event, payload)
+            return demo_router.handle(event)
+        except Exception:
+            return {'accepted': False, 'status': 'demo_unavailable'}, 503
+
+    @app.post('/demo/<action>')
+    def demo_control(action):
+        if not authorized():
+            return jsonify(status='unauthorized'), 401
+        if demo_router is None:
+            return jsonify(status='demo_disabled'), 404
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify(status='json_required'), 415
+        allowed = {'start': {'request_id'}, 'reconcile': set(), 'stop': set(), 'simulate': {'operation', 'fixture'}}
+        if action not in allowed or set(payload) - allowed[action]:
+            return jsonify(status='demo_control_rejected'), 400
+        try:
+            if action == 'start':
+                result = demo_router.start(payload.get('request_id'))
+            elif action == 'reconcile':
+                result = demo_router.reconcile()
+            elif action == 'stop':
+                result = demo_router.stop()
+            else:
+                result = demo_router.simulate(payload.get('operation'), payload.get('fixture', 'unknown'))
+            return jsonify(**result), 200
+        except Exception:
+            return jsonify(status='demo_control_unconfirmed'), 409
+
     @app.post("/webhook/chatwoot")
     def webhook():
         if not authorized():
@@ -1352,9 +1418,13 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
             return jsonify(accepted=False, status="not_ready"), 503
         if not request.is_json:
             return jsonify(accepted=False, status="json_required"), 415
-        event = normalize_chatwoot(request.get_json(silent=True))
+        payload = request.get_json(silent=True)
+        event = normalize_chatwoot(payload)
         if not event or not allow_inbound(gate, event):
             return jsonify(accepted=False, status="ignored"), 202
+        if demo_router and demo_router.claims(event):
+            body, code = handle_demo(event, payload)
+            return jsonify(**body), code
         from contracts import gate_mode, is_test_phone
         if gate_mode(gate) == 'todos' and not is_test_phone(gate, event.get('sender_phone')):
             # Release 47: com a caixa inteira, quem está excluído (etiqueta "Renovacao de contrato", responsável ou

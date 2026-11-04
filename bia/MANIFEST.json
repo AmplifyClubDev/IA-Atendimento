@@ -1,11 +1,11 @@
 {
-  "release": "release-55-sanitized-review-20261104",
-  "source_count": 37,
+  "release": "release-55-isolated-demo-review-20261104",
+  "source_count": 38,
   "files": [
     {
       "path": "Dockerfile",
-      "bytes": 856,
-      "sha256": "438e154399e71fb6f19dd0387c75c379794ab1114b0bf858c1de247fbfd53875"
+      "bytes": 879,
+      "sha256": "e79ab5053204438628c75e24d40493d0d5af4b91d7203e2d78d544107ca18aa0"
     },
     {
       "path": "answers.py",
@@ -19,8 +19,8 @@
     },
     {
       "path": "config.py",
-      "bytes": 11523,
-      "sha256": "c1945a8d63d64161277df995ff4329c381e93e18e7029e26adf545dcd8da0ec0"
+      "bytes": 11994,
+      "sha256": "10e6ffba6df847cb31fbaa015e6a915f73f0db90536e52ad6ab93fa899d9304e"
     },
     {
       "path": "context_ia.py",
@@ -63,14 +63,19 @@
       "sha256": "f5619bf16d94abdac5f522485ae337584c1504e96af4e6ce12fa6ec88651019d"
     },
     {
+      "path": "demo_router.py",
+      "bytes": 25220,
+      "sha256": "fbdd0410ce3ddc0a72fa7d063f54abdc73452e83a9858df1bd39a8e0f2697ba2"
+    },
+    {
       "path": "engine.py",
       "bytes": 19719,
       "sha256": "ab1d6d5f124c2f380f8aa009436bea471ac57119dd94d2d2f14c3eb7972218aa"
     },
     {
       "path": "followup.py",
-      "bytes": 26344,
-      "sha256": "2b2c661d7a8e643ca8c5253ea2b784a87041f3a883dec6160d9dc820053ffc9c"
+      "bytes": 26759,
+      "sha256": "bd66bbf2e61af3efcf96c546c71c5d3f831c1ea75ca47bb2f805ee3005d3336d"
     },
     {
       "path": "forms.py",
@@ -129,8 +134,8 @@
     },
     {
       "path": "real_operations.py",
-      "bytes": 29654,
-      "sha256": "e2430493b1deeea6f1b070e00355d6eb7d24a2a5a665c2412a4b41f392e8b36c"
+      "bytes": 30402,
+      "sha256": "b1b5b413575fa8dabc8b9d50e7e893121bfad927de4f2db1bbd8994bc6c5f192"
     },
     {
       "path": "receipt_grounding.py",
@@ -139,18 +144,18 @@
     },
     {
       "path": "reconferencia.py",
-      "bytes": 7393,
-      "sha256": "3a9772c53c005f9c80b49009df4d1871f7126105d25a09f0dbe28e6ab3a3708f"
+      "bytes": 7584,
+      "sha256": "0e8664470bbbd81d14c321cb35075e9ec99702e09181df83115ada62f8066af3"
     },
     {
       "path": "recovery.py",
-      "bytes": 13703,
-      "sha256": "1e917af7c91c91eac5b0ce5eefa298b29e616791fcae1b2b9704b3fa08cf41b0"
+      "bytes": 13964,
+      "sha256": "cdb5ebcf69cd761c04c14b1a065c16bc76c7539a23a9a86cd399e01e482e217c"
     },
     {
       "path": "repository.py",
-      "bytes": 30553,
-      "sha256": "27b29326b9bcc057f6b7526ffa3072d4a70c844ddd2c3f61ae7d60d91a9d2941"
+      "bytes": 31974,
+      "sha256": "2fa9f089087381e87dc9a127270b59e009c83a84e8a3356bf04496e413f2ed06"
     },
     {
       "path": "requirements.txt",
@@ -164,13 +169,13 @@
     },
     {
       "path": "retomada.py",
-      "bytes": 34927,
-      "sha256": "47ffc9445ad875d4e8b235790e80a159847af70af9ca4fb44e3bdc86b6b80eec"
+      "bytes": 35969,
+      "sha256": "96aa00c6cdc758715cf8793ba013e8a95c7dff096ed3534c960f838788b7acfe"
     },
     {
       "path": "server.py",
-      "bytes": 90865,
-      "sha256": "b3b2fc5b8ea080ba12fc6bf0025e97a913692d93cac8b6c7c07de4b50a039728"
+      "bytes": 94903,
+      "sha256": "67799b773637f8eb672608949c8d4631a93c81aa0eda0405b9aa8cd475eef303"
     },
     {
       "path": "smtp.py",
@@ -195,6 +200,7 @@
     "comparison_branch": "fix/bia-51-followup",
     "comparison_commit": "b01dd6bbb99910a4a7bad54a802e56e1aca875ab",
     "sanitized": true,
-    "change": "Private pilot identifiers and historical case references removed. Explicit configuration required; no deploy or environment changes."
+    "change": "Sanitized baseline plus isolated owner test routing, independent demo state, simulated providers and production effect fences. Disabled by default; no deployment.",
+    "router_parent_commit": "2190b692cbdb11bd4a5e413dded904e15ff704ca"
   }
 }
