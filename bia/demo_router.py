@@ -21,6 +21,7 @@ from urllib.request import Request, build_opener, HTTPRedirectHandler
 import uuid
 
 from contracts import allow_inbound, inbound_key, normalize_phone, same_phone
+import demo_flow
 
 VERSION = 'v1'
 OPENING = ('🧪 *DEMONSTRAÇÃO — abertura da Bia*\n\n'
@@ -37,6 +38,14 @@ def opening_payload(key):
     return {'content': OPENING, 'message_type': 'outgoing', 'private': False, 'content_type': 'input_select',
             'content_attributes': {'items': [{'title': title, 'value': key + ':' + action}
                                             for action, title in CHOICES.items()]}}
+
+
+def message_payload(key, *, continuation_enabled=False):
+    if isinstance(key, str) and key.startswith('bia-demo:v2:'):
+        if continuation_enabled is not True:
+            raise ValueError('demo_continuation_disabled')
+        return demo_flow.payload(key, OPENING, CHOICES)
+    return opening_payload(key)
 
 
 def identifier(value):
@@ -175,6 +184,9 @@ class SimulatedEffects:
             return {'operation': operation, 'status': 'simulated', 'fixture': fixture, 'provider_called': False}
         if operation == 'invite' and fixture in {'unknown', 'accepted', 'declined', 'failure'}:
             return {'operation': operation, 'status': 'simulated', 'fixture': fixture, 'sent': False}
+        if operation == 'relationship' and fixture in {'linked', 'not_linked', 'unknown', 'failure'}:
+            return {'operation': operation, 'status': 'simulated', 'fixture': fixture,
+                    'provider_called': False, 'production_relationship': False}
         raise ValueError('demo_simulation_invalid')
 
 
@@ -201,13 +213,14 @@ class _NoRedirect(HTTPRedirectHandler):
 
 class DemoWhatsAppGateway:
     """Only future real egress: exact owner conversation, with no auto retry."""
-    def __init__(self, base_url, token, *, scope, live_enabled=False, opener=None, now=clock):
+    def __init__(self, base_url, token, *, scope, live_enabled=False, opener=None, now=clock, continuation_enabled=False):
         parts = urlsplit(base_url)
         if (parts.scheme != 'https' or not parts.hostname or parts.port not in (None, 443)
                 or parts.path not in ('', '/') or parts.query or parts.fragment or parts.username or parts.password):
             raise ValueError('demo_chatwoot_base_invalid')
         self.base_url, self.token = base_url.rstrip('/'), token
         self.scope = scope
+        self.continuation_enabled = continuation_enabled is True
         self.live_enabled, self.opener, self.now = live_enabled, opener, now
 
     def _api(self, scope, method, suffix='', payload=None):
@@ -249,7 +262,7 @@ class DemoWhatsAppGateway:
     def send(self, scope, payload, key):
         if scope != self.scope:
             raise ValueError('demo_egress_scope_mismatch')
-        if payload != opening_payload(key):
+        if payload != message_payload(key, continuation_enabled=self.continuation_enabled):
             raise ValueError('demo_payload_not_approved')
         self.preflight(scope)  # Identity/window rechecked directly before POST.
         result = self._api(scope, 'POST', '/messages', payload)
@@ -259,7 +272,7 @@ class DemoWhatsAppGateway:
         return {'status': 'accepted', 'message_id': str(result['id']), 'external_id': result.get('source_id')}
 
     def lookup(self, scope, key):
-        expected = opening_payload(key)
+        expected = message_payload(key, continuation_enabled=self.continuation_enabled)
         rows = self._api(scope, 'GET', '/messages').get('payload') or []
         matches = [m for m in rows if m.get('content') == expected['content']
                    and m.get('message_type') in (1, 'outgoing') and m.get('private') is False
@@ -304,9 +317,10 @@ class ProductionTransportFence:
 
 
 class DemoRouter:
-    def __init__(self, scope, store, gateway=None, *, now=clock):
+    def __init__(self, scope, store, gateway=None, *, now=clock, continuation_enabled=False):
         self.scope, self.store = scope, store
         self.gateway, self.now = gateway or RecordingGateway(), now
+        self.continuation_enabled = continuation_enabled is True
         self.effects = SimulatedEffects()
 
     def claims(self, event):
@@ -329,15 +343,17 @@ class DemoRouter:
             if not re.fullmatch(r'[0-9]{1,20}', watermark):
                 raise ValueError('demo_watermark_invalid')
             run = uuid.uuid4().hex
-            key = 'bia-demo:' + VERSION + ':' + run + ':opening'
-            payload = opening_payload(key)
+            key = (demo_flow.new_key(run, 'opening') if self.continuation_enabled else
+                   'bia-demo:' + VERSION + ':' + run + ':opening')
+            payload = message_payload(key, continuation_enabled=self.continuation_enabled)
             self.store.db.execute('BEGIN IMMEDIATE')
             try:
                 if self.store.db.execute("SELECT 1 FROM demo_outbox WHERE slot=? AND status='outcome_unknown' LIMIT 1", (self.scope.slot,)).fetchone():
                     self.store.db.execute('ROLLBACK')
                     return {'status': 'demo_delivery_unconfirmed', 'repeat_allowed': False}
                 self.store.db.execute('INSERT OR REPLACE INTO demo_runs VALUES(?,?,?,?,?,?,?,?,?)',
-                    (self.scope.slot, run, clock(self.now()).isoformat(), watermark, 'opening', None, None, None, key))
+                    (self.scope.slot, run, clock(self.now()).isoformat(), watermark,
+                     'delivery_pending' if self.continuation_enabled else 'opening', None, None, None, key))
                 self.store.db.execute('INSERT INTO demo_outbox VALUES(?,?,?,?,?,?)',
                     (key, self.scope.slot, run, json.dumps(payload), 'outcome_unknown', None))
                 result = {'status': 'demo_delivery_unconfirmed', 'run': run, 'repeat_allowed': False}
@@ -360,17 +376,76 @@ class DemoRouter:
     def _accept(self, key, receipt):
         if receipt.get('status') != 'accepted' or not identifier(receipt.get('message_id')):
             raise ValueError('demo_receipt_unconfirmed')
-        result = {'status': 'demo_opening_simulated' if receipt.get('simulated') is True else 'demo_opening_created',
-                  'message_id': str(receipt['message_id']), 'version': VERSION,
+        flow = key.startswith('bia-demo:v2:')
+        step = demo_flow.key_parts(key)[1] if flow else 'opening'
+        kind = 'opening' if step == 'opening' else 'message'
+        result = {'status': 'demo_' + kind + ('_simulated' if receipt.get('simulated') is True else '_created'),
+                  'message_id': str(receipt['message_id']), 'version': demo_flow.FLOW_VERSION if flow else VERSION,
                   'whatsapp_live': receipt.get('simulated') is not True}
+        if flow:result['step'] = step
         with self.store.transaction():
+            pending = self.store.db.execute('SELECT receipt FROM demo_outbox WHERE key=?', (key,)).fetchone()
+            metadata = json.loads(pending['receipt']) if pending and pending['receipt'] else {}
             self.store.db.execute('UPDATE demo_outbox SET status=?,receipt=? WHERE key=?',
                                   ('accepted', json.dumps(receipt), key))
-            self.store.db.execute('UPDATE demo_runs SET parent_id=?,parent_external=? WHERE slot=? AND outbox_key=?',
-                                  (str(receipt['message_id']), receipt.get('external_id'), self.scope.slot, key))
-            self.store.db.execute('UPDATE demo_starts SET result=? WHERE slot=? AND run=(SELECT run FROM demo_outbox WHERE key=?)',
-                                  (json.dumps(result), self.scope.slot, key))
+            if flow:
+                self.store.db.execute("UPDATE demo_runs SET parent_id=?,parent_external=?,"
+                                      "step=CASE WHEN step='delivery_pending' THEN ? ELSE step END WHERE slot=? AND outbox_key=?",
+                                      (str(receipt['message_id']), receipt.get('external_id'), step, self.scope.slot, key))
+            else:
+                self.store.db.execute('UPDATE demo_runs SET parent_id=?,parent_external=? WHERE slot=? AND outbox_key=?',
+                                      (str(receipt['message_id']), receipt.get('external_id'), self.scope.slot, key))
+            if step == 'opening' and not metadata.get('pending_event_key'):
+                self.store.db.execute('UPDATE demo_starts SET result=? WHERE slot=? AND run=(SELECT run FROM demo_outbox WHERE key=?)',
+                                      (json.dumps(result), self.scope.slot, key))
+            if metadata.get('pending_event_key'):
+                event_result = {'accepted': True, 'status': 'demo_step_presented', 'step': step,
+                                'choice': metadata['choice'], 'message_id': str(receipt['message_id']),
+                                'production_effects': False}
+                self.store.db.execute('UPDATE demo_events SET result=? WHERE slot=? AND event_key=?',
+                                      (json.dumps(event_result), self.scope.slot, metadata['pending_event_key']))
         return result
+
+    def _handle_flow_locked(self, event, state, event_key, fingerprint, *, correlated, conflict):
+        result = {'accepted': False, 'status': 'demo_choice_not_current', 'production_effects': False}
+        if state['step'] == 'delivery_pending':
+            result.update(status='demo_delivery_unconfirmed', repeat_allowed=False)
+        elif not state['outbox_key'].startswith('bia-demo:v2:'):
+            result['status'] = 'demo_flow_restart_required'
+        else:
+            run, step, _ = demo_flow.key_parts(state['outbox_key'])
+            referenced = event.get('demo_reply_to') is not None or event.get('demo_reply_external') is not None
+            if run == state['run'] and step == state['step'] and not conflict and (not referenced or correlated):
+                decision = demo_flow.decision(step, event.get('text'), correlated=correlated, opening_choices=CHOICES)
+                if decision:
+                    key = demo_flow.new_key(run, decision['step'])
+                    payload = message_payload(key, continuation_enabled=True)
+                    result = {'accepted': False, 'status': 'demo_delivery_unconfirmed', 'repeat_allowed': False,
+                              'production_effects': False}
+                    with self.store.transaction():
+                        self.store.db.execute('INSERT INTO demo_events VALUES(?,?,?,?)',
+                                              (self.scope.slot, event_key, fingerprint, json.dumps(result)))
+                        self.store.db.execute('INSERT INTO demo_outbox VALUES(?,?,?,?,?,?)',
+                                              (key, self.scope.slot, run, json.dumps(payload), 'outcome_unknown',
+                                               json.dumps({'pending_event_key': event_key, 'choice': decision['action']})))
+                        self.store.db.execute('UPDATE demo_runs SET step=?,choice=?,parent_id=NULL,parent_external=NULL,'
+                                              'outbox_key=?,started=?,watermark=? WHERE slot=?',
+                                              ('delivery_pending', decision['action'], key, clock(self.now()).isoformat(),
+                                               event['message_id'], self.scope.slot))
+                        for operation, fixture in decision['effects']:
+                            simulation = self.effects.run(operation, fixture)
+                            self.store.db.execute('INSERT INTO demo_simulations VALUES(?,?,?,?)',
+                                                  (self.scope.slot, run, operation, json.dumps(simulation)))
+                    try:
+                        self._accept(key, self.gateway.send(self.scope, payload, key))
+                    except Exception:
+                        pass
+                    cached = self.store.db.execute('SELECT result FROM demo_events WHERE slot=? AND event_key=?',
+                                                    (self.scope.slot, event_key)).fetchone()
+                    return json.loads(cached['result']), 202
+        self.store.db.execute('INSERT INTO demo_events VALUES(?,?,?,?)',
+                              (self.scope.slot, event_key, fingerprint, json.dumps(result)))
+        return result, 202
 
     def reconcile(self):
         with self.store.lock:
@@ -391,12 +466,49 @@ class DemoRouter:
         return {**event, 'demo_reply_to': attributes.get('in_reply_to'),
                 'demo_reply_external': attributes.get('in_reply_to_external_id')}
 
+    def _input_context(self, event, state):
+        try:
+            if not isinstance(event.get('created_at'), str):
+                raise ValueError('demo_timestamp_required')
+            stamp, now = clock(event.get('created_at')), clock(self.now())
+            recent = (clock(state['started']) <= stamp <= now + timedelta(seconds=30)
+                      and now - clock(state['started']) <= timedelta(hours=1)
+                      and int(event['message_id']) > int(state['watermark']))
+        except (ValueError, TypeError, KeyError, OverflowError):
+            recent = False
+        parent = bool(state['parent_id'] and identifier(event.get('demo_reply_to')) == state['parent_id'])
+        external = bool(state['parent_external'] and event.get('demo_reply_external') == state['parent_external'])
+        conflict = ((event.get('demo_reply_to') is not None and not parent)
+                    or (state['parent_external'] and event.get('demo_reply_external') is not None and not external))
+        return recent, parent or external, conflict
+
+    def _handle_continuation(self, event, event_key, fingerprint):
+        # Keep one contact serialized, but commit uncertainty before network IO.
+        with self.store.lock:
+            previous = self.store.db.execute('SELECT digest,result FROM demo_events WHERE slot=? AND event_key=?',
+                                             (self.scope.slot, event_key)).fetchone()
+            if previous:
+                return (json.loads(previous['result']) if previous['digest'] == fingerprint else
+                        {'accepted': False, 'status': 'demo_conflicting_duplicate'}), 202
+            state = self.store.current(self.scope.slot)
+            if state:
+                recent, correlated, conflict = self._input_context(event, state)
+                if recent:
+                    return self._handle_flow_locked(event, state, event_key, fingerprint,
+                                                    correlated=correlated, conflict=conflict)
+            result = {'accepted': False, 'status': 'demo_stale_event' if state else 'demo_not_started'}
+            self.store.db.execute('INSERT INTO demo_events VALUES(?,?,?,?)',
+                                  (self.scope.slot, event_key, fingerprint, json.dumps(result)))
+            return result, 202
+
     def handle(self, event):
         if not self.claims(event):
             raise ValueError('demo_event_outside_scope')
         if not self.scope.accepts(event):
             return {'accepted': False, 'status': 'demo_identity_rejected'}, 202
         event_key, fingerprint = inbound_key(event), digest(event)
+        if self.continuation_enabled:
+            return self._handle_continuation(event, event_key, fingerprint)
         with self.store.transaction():
             previous = self.store.db.execute('SELECT digest,result FROM demo_events WHERE slot=? AND event_key=?',
                                              (self.scope.slot, event_key)).fetchone()
@@ -406,24 +518,11 @@ class DemoRouter:
             state = self.store.current(self.scope.slot)
             result = {'accepted': False, 'status': 'demo_not_started'}
             if state:
-                try:
-                    if not isinstance(event.get('created_at'), str):
-                        raise ValueError('demo_timestamp_required')
-                    stamp, now = clock(event.get('created_at')), clock(self.now())
-                    recent = (clock(state['started']) <= stamp <= now + timedelta(seconds=30)
-                              and now - clock(state['started']) <= timedelta(hours=1)
-                              and int(event['message_id']) > int(state['watermark']))
-                except (ValueError, TypeError, KeyError, OverflowError):
-                    recent = False
-                parent = bool(state['parent_id'] and identifier(event.get('demo_reply_to')) == state['parent_id'])
-                external = bool(state['parent_external'] and event.get('demo_reply_external') == state['parent_external'])
-                # Require one current parent; conflicting references close the gate.
-                conflict = ((event.get('demo_reply_to') is not None and not parent)
-                            or (state['parent_external'] and event.get('demo_reply_external') is not None and not external))
+                recent, correlated, conflict = self._input_context(event, state)
                 action = next((key for key, title in CHOICES.items() if event.get('text') == title), None)
                 if not recent:
                     result['status'] = 'demo_stale_event'
-                elif state['step'] != 'opening' or not action or not (parent or external) or conflict:
+                elif state['step'] != 'opening' or not action or not correlated or conflict:
                     result['status'] = 'demo_choice_not_current'
                 else:
                     self.store.db.execute('UPDATE demo_runs SET step=?,choice=? WHERE slot=?',
@@ -465,7 +564,9 @@ def build_demo_router(settings, *, gateway=None, production_path=None):
     production_path = production_path or Path(settings.get('state_dir', '/data')) / 'atendimento.sqlite3'
     if gateway is None:
         gateway = (DemoWhatsAppGateway(settings.get('chatwoot_base_url', ''), settings.get('chatwoot_api_token', ''),
-                                      scope=scope, live_enabled=True) if settings.get('demo_whatsapp_live') is True else RecordingGateway())
+                                      scope=scope, live_enabled=True,
+                                      continuation_enabled=settings.get('demo_continuation_enabled') is True)
+                   if settings.get('demo_whatsapp_live') is True else RecordingGateway())
     store = DemoStore(path, production_path=production_path)
     settings['_demo_scope'] = scope
-    return DemoRouter(scope, store, gateway)
+    return DemoRouter(scope, store, gateway, continuation_enabled=settings.get('demo_continuation_enabled') is True)

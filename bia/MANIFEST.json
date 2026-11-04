@@ -1,11 +1,11 @@
 {
   "release": "release-55-isolated-demo-review-20261104",
-  "source_count": 38,
+  "source_count": 39,
   "files": [
     {
       "path": "Dockerfile",
-      "bytes": 879,
-      "sha256": "e79ab5053204438628c75e24d40493d0d5af4b91d7203e2d78d544107ca18aa0"
+      "bytes": 900,
+      "sha256": "c802e30921555baf408de8d17394661596cf8924287c9a468094bf6590f33737"
     },
     {
       "path": "answers.py",
@@ -19,8 +19,8 @@
     },
     {
       "path": "config.py",
-      "bytes": 11994,
-      "sha256": "10e6ffba6df847cb31fbaa015e6a915f73f0db90536e52ad6ab93fa899d9304e"
+      "bytes": 12087,
+      "sha256": "98927e3ae95555670102ded31829d16e93b5865fe1d67b92fbd35e363ed6625b"
     },
     {
       "path": "context_ia.py",
@@ -63,9 +63,14 @@
       "sha256": "f5619bf16d94abdac5f522485ae337584c1504e96af4e6ce12fa6ec88651019d"
     },
     {
+      "path": "demo_flow.py",
+      "bytes": 5546,
+      "sha256": "05213fa82360b381104b3f1903e19f7bf1a6d5d5a7a4c6e4602e0f30eeca6e29"
+    },
+    {
       "path": "demo_router.py",
-      "bytes": 24986,
-      "sha256": "803fbd679122c76352a6b38827e769602d387e8cb3740cecc7c02e0e69c58c12"
+      "bytes": 32335,
+      "sha256": "0ea1411d561731651eefea375792e5a4a7e00023b05cb3e83e24f1aee290559f"
     },
     {
       "path": "engine.py",
@@ -200,7 +205,7 @@
     "comparison_branch": "fix/bia-51-followup",
     "comparison_commit": "b01dd6bbb99910a4a7bad54a802e56e1aca875ab",
     "sanitized": true,
-    "change": "Sanitized baseline plus isolated owner test routing, independent demo state, simulated providers and production effect fences. Disabled by default; no deployment.",
+    "change": "Isolated demo continuation draft v2, disabled by default; no deployment of this revision.",
     "router_parent_commit": "2190b692cbdb11bd4a5e413dded904e15ff704ca"
   }
 }

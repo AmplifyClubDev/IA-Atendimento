@@ -37,6 +37,7 @@ def load_settings(environ=None):
         'pilot_scope': pilot_scope.load_scope(values), 'test_phone': phone, 'state_dir': get('V5_STATE_DIR', '/data'),
         'demo_enabled': get('V5_DEMO_ROUTER_ENABLED').lower() == 'true',
         'demo_whatsapp_live': get('V5_DEMO_WHATSAPP_LIVE').lower() == 'true',
+        'demo_continuation_enabled': get('V5_DEMO_CONTINUATION_ENABLED').lower() == 'true',
         'demo_state_path': get('V5_DEMO_STATE_PATH'),
         'demo_scope': {'account_id': get('CHATWOOT_ACCOUNT_ID'), 'inbox_id': get('CHATWOOT_INBOX_ID'),
                        'contact_id': get('V5_PILOT_CONTACT_ID'), 'conversation_id': get('V5_PILOT_CONVERSATION_ID'),
