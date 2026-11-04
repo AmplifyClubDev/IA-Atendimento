@@ -6,7 +6,7 @@ import pytest
 from flask import Flask
 import agency
 import pontes
-from bridge_config import bridge_settings, bridge_origin
+from bridge_config import bridge_settings, bridge_origin, nonproduction
 
 ROOT = Path(__file__).resolve().parents[2]
 PROD = 'https://tiktok-agenciamento-production.up.railway.app'
@@ -38,7 +38,13 @@ def test_clients_fail_closed_and_keep_production_allowlist(path):
         client = mod.PlaywrightClient({**bridge_settings(env), 'tiktok_agency_url': url,
                                        'tiktok_agency_token': 'x' * 40},
                                       transport=lambda **kwargs: calls.append(kwargs))
-        assert client.configuration('relationship')['configured'] is accepted
+        # Target validation remains testable offline; configuration never enables
+        # actual nonproduction traffic, even with both old bridge flags set.
+        if accepted:
+            assert client._connection('agency')[0] == url
+        else:
+            with pytest.raises(mod._CallError): client._connection('agency')
+        assert client.configuration('relationship')['configured'] is (accepted and not nonproduction(bridge_settings(env)))
         if not accepted:
             client.execute('relationship', 'example.test')
             assert calls == []
@@ -61,7 +67,7 @@ def test_railway_environment_is_honored_and_missing_urls_do_not_fall_back():
     assert len(pontes.pontes({})) == 3
 
 
-def test_nonproduction_activation_requires_second_opt_in(monkeypatch):
+def test_nonproduction_activation_stays_offline_even_with_opt_ins(monkeypatch):
     env = staging(V5_TIKTOK_AGENCY_TOKEN='x' * 40, PONTE_AGENCIAMENTO_CONSOLE_TOKEN='console-test',
                   PONTES_LINK_SEGREDO='x' * 40)
     entries = pontes.pontes(env)
@@ -74,16 +80,17 @@ def test_nonproduction_activation_requires_second_opt_in(monkeypatch):
     app = Flask(__name__)
     pontes.registrar(app, env=env)
     client = app.test_client()
-    assert client.get('/pontes/' + 'x' * 40).status_code == 200
-    assert client.get('/pontes/' + 'x' * 40 + '/agenciamento').status_code == 404
+    assert client.get('/pontes/' + 'x' * 40).status_code == 503
+    assert client.get('/pontes/' + 'x' * 40 + '/agenciamento').status_code == 503
     env['PONTES_NONPRODUCTION_ACTIVATION_ENABLED'] = 'true'
-    assert pontes.pontes(env)[0]['console'] == 'console-test'
+    assert pontes.pontes(env)[0]['console'] == ''
+    assert pontes.Ativador(pontes.pontes(env)).rodada()[0][0] == 'disabled'
 
 
 def test_agency_uses_same_explicit_endpoint():
     checker = agency.AgencyChecker('x' * 40, env=staging())
     try:
-        assert checker.configured()
+        assert not checker.configured()
         assert checker.client.settings['tiktok_agency_url'] == STAGE + '/bridge'
     finally:
         checker.pool.shutdown()
@@ -132,7 +139,7 @@ def test_empty_panel_is_unconfigured_not_healthy(env, monkeypatch):
     pontes.registrar(app, env=env)
     response = app.test_client().get('/pontes/' + 'x' * 40)
     assert response.status_code == 503
-    assert 'desabilitadas ou não configuradas' in response.get_data(as_text=True)
+    assert 'desabilitadas' in response.get_data(as_text=True)
     assert 'estão no ar' not in response.get_data(as_text=True)
 
 
@@ -147,5 +154,5 @@ def test_helper_is_packaged_and_importable_in_independent_context(directory):
 
 
 def test_docker_contexts_include_helper():
-    assert 'COPY bridge_config.py ./' in (ROOT / 'bia/Dockerfile').read_text()
+    assert 'COPY bridge_config.py offline_policy.py ./' in (ROOT / 'bia/Dockerfile').read_text()
     assert 'COPY . /app' in (ROOT / 'cadastro/app/Dockerfile').read_text()

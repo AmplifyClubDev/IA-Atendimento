@@ -6,6 +6,8 @@ Injected transport returns ``(http_status, decoded_json_object)``.
 """
 from __future__ import annotations
 
+from offline_policy import effects_allowed, require_effects, REASON
+
 from bridge_config import allowed_host, nonproduction
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -80,6 +82,7 @@ def _json_object(value):
 
 
 def _transport(*, method, url, headers, json_body=None, timeout=30):
+    require_effects()
     data = json.dumps(json_body, allow_nan=False).encode() if json_body is not None else None
     request = Request(url, data=data, headers=headers, method=method)
     try:
@@ -110,6 +113,8 @@ class PlaywrightClient:
         The default checks the three essential bridges. Optional lookup and GMV
         are checked explicitly by operation so their absence cannot imply zero.
         """
+        if not effects_allowed(settings=self.settings):
+            return {"configured": False, "issues": [REASON]}
         roles = {None: ("precheck", "agency", "invites"), "precheck": ("precheck",),
                  "relationship": ("agency",), "invite": ("precheck", "agency", "invites"),
                  "lookup": ("lookup",), "gmv": ("gmv",), "gmv_report": ("gmv",)}
@@ -251,6 +256,7 @@ class PlaywrightClient:
         return base.rstrip("/"), token
 
     def _call(self, role, method, path, *, body=None, params=None, status_probe=False, timeout_cap=None):
+        require_effects(settings=self.settings)
         base, token = self._connection(role)
         default = 5 if status_probe else 135
         setting = "tiktok_status_timeout_seconds" if status_probe else "tiktok_timeout_seconds"
@@ -534,6 +540,8 @@ class PlaywrightClient:
 
     def execute(self, operation, creator, *, confirmed=False, commission=None, start_date=None,
                 end_date_exclusive=None, before_write=None):
+        if not effects_allowed(settings=self.settings):
+            return self._result(str(operation)[:30], "", "disabled", REASON)
         if operation == "gmv":
             operation = "gmv_report"
         try:

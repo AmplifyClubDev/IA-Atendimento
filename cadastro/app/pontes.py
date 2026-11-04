@@ -12,6 +12,8 @@
 """
 from __future__ import annotations
 
+from offline_policy import effects_allowed, require_effects, REASON
+
 from bridge_config import bridge_origin, activation_allowed
 import hmac
 import html
@@ -48,6 +50,8 @@ class _NoRedirect(HTTPRedirectHandler):
 
 def ler_status(base, token, timeout=10):
     """status do /bridge/ready; a ponte que pede login responde erro HTTP com o status no corpo."""
+    if not effects_allowed():
+        return "disabled"
     request_ = Request(base + "/bridge/ready", headers={"Authorization": "Bearer " + token, "Accept": "application/json"})
     try:
         with build_opener(_NoRedirect(), ProxyHandler({})).open(request_, timeout=timeout) as response:
@@ -66,6 +70,7 @@ class Painel:
         self.base, self.chave, self.timeout = base, chave, timeout
 
     def _abrir(self, path, method="GET"):
+        require_effects()
         opener = build_opener(_NoRedirect(), ProxyHandler({}), HTTPCookieProcessor(http.cookiejar.CookieJar()))
         origem = {"Origin": self.base}
         opener.open(Request(self.base + "/console/session", method="POST",
@@ -95,7 +100,8 @@ def pontes(env=None):
         base = bridge_origin(env, roles[k], b)
         if base:
             result.append({"chave": k, "nome": n, "base": base, "token": env.get(t, ""),
-                           "console": env.get(c, "") if activation_allowed(env) else "", "ativa_sozinha": a})
+                           "console": env.get(c, "") if activation_allowed(env) and effects_allowed(env=env) else "",
+                           "external_effects_enabled": effects_allowed(env=env), "ativa_sozinha": a})
     return result
 
 
@@ -115,6 +121,7 @@ class Ativador:
 
     def __init__(self, lista, *, painel=Painel, ler=None, intervalo=30, confirmacoes=2, espera_reinicio=1800,
                  relogio=time.time, dormir=time.sleep):
+        self.effects_enabled = all(p.get("external_effects_enabled", True) for p in lista)
         self.pontes = [(p["nome"], p["base"], p["token"], painel(p["base"], p["console"]), p["ativa_sozinha"])
                        for p in lista if p["console"] and p["token"]]
         self.ler = ler or (lambda base, token: ler_status(base, token))
@@ -123,6 +130,8 @@ class Ativador:
 
     def _reiniciar(self, nome, painel):
         """Ponte antiga: reabrir + ativar seguidos, no máximo 1 vez a cada 30 min."""
+        if not self.effects_enabled or not effects_allowed():
+            return {"status": "disabled", "reason": REASON}
         agora = self.relogio()
         if agora - self.ultimo_reinicio.get(nome, -self.espera_reinicio) < self.espera_reinicio:
             return None
@@ -135,6 +144,8 @@ class Ativador:
         return ("reiniciada", nome) if ok else ("reinicio_sem_sucesso", nome)
 
     def rodada(self):
+        if not self.effects_enabled or not effects_allowed():
+            return [("disabled", REASON)]
         feitos = []
         for nome, base, token, painel, ativa_sozinha in self.pontes:
             modo = painel.modo()
@@ -165,6 +176,8 @@ class Ativador:
         return feitos
 
     def iniciar(self):
+        if not self.effects_enabled or not effects_allowed():
+            return {"status": "disabled", "reason": REASON}
         def loop():
             while True:
                 try:
@@ -212,6 +225,8 @@ def _destino(ponte):
 @bp.get("/pontes/<segredo>")
 def painel(segredo):
     _conferir(segredo)
+    if not effects_allowed(env=_cfg()["env"]):
+        return _pagina("<p>Integrações externas desabilitadas neste ambiente.</p>", status=503)
     lista = [p for p in pontes(_cfg()["env"]) if p["token"]]
     if not lista:
         return _pagina("<p>Pontes desabilitadas ou não configuradas neste ambiente.</p>", status=503)
@@ -243,6 +258,8 @@ def painel(segredo):
 @bp.get("/pontes/<segredo>/<chave>")
 def abrir(segredo, chave):
     _conferir(segredo)
+    if not effects_allowed(env=_cfg()["env"]):
+        abort(503)
     ponte = next((p for p in pontes(_cfg()["env"]) if p["chave"] == chave and p["console"]), None)
     if ponte is None:
         abort(404)

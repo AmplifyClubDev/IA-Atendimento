@@ -1,4 +1,6 @@
 """Explicit email effects with stable message IDs and no implicit resend."""
+
+from offline_policy import effects_allowed, require_effects
 from email.message import EmailMessage
 from email.errors import HeaderParseError
 from email.headerregistry import Address
@@ -25,6 +27,8 @@ class SmtpSender:
         self.factory = factory or smtplib.SMTP_SSL
 
     def _send(self, recipient, subject, text, operation_id):
+        if not effects_allowed(settings=self.settings):
+            return {'status': 'disabled', 'reason': 'nonproduction_external_effects_disabled'}
         sender = self.settings.get('smtp_user', '')
         password = self.settings.get('smtp_password', '')
         name = self.settings.get('smtp_from_name', 'Bia · Amplify')
@@ -53,6 +57,8 @@ class SmtpSender:
         return {'status': 'accepted', 'message_id': message_id, 'inbox_delivery_confirmed': False}
 
     def send_otp(self, email, code, operation_id):
+        if not effects_allowed(settings=self.settings):
+            return {'status': 'disabled', 'reason': 'nonproduction_external_effects_disabled'}
         if self.settings.get('tiktok_mode') == 'real':
             return self._send(email, 'Seu código de confirmação · Amplify',
                               'Olá! Aqui é a Bia, agente de IA da Amplify.\n\n'
@@ -64,6 +70,8 @@ class SmtpSender:
                           '\nEle expira em 10 minutos.\n\nEste é um teste do novo cadastro da Amplify.', operation_id)
 
     def send_receipt(self, email, receipt, operation_id):
+        if not effects_allowed(settings=self.settings):
+            return {'status': 'disabled', 'reason': 'nonproduction_external_effects_disabled'}
         if self.settings.get('tiktok_mode') == 'real':
             try:
                 valid = (isinstance(receipt, dict) and receipt.get('status') == 'cadastro_recebido_real'

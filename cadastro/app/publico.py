@@ -4,6 +4,8 @@ sessão assinada. Tudo o que é cadastro vai para o AmplifyOS-v5.
 """
 from __future__ import annotations
 
+from offline_policy import effects_allowed, require_effects, REASON
+
 import hashlib
 import io
 import json
@@ -178,6 +180,7 @@ def get_context():
 # ---------------------------------------------------------------- agenciamento (1ª etapa)
 
 def run_agency(handle):
+    require_effects()
     result = deps().agency.check(handle)
     if result is None:
         raise CadastroError("Ainda estamos consultando o TikTok. Toque em Verificar novamente em alguns segundos.", 503)
@@ -388,6 +391,7 @@ def sanitize_image(data):
 
 
 def read_gmv_later(key, data):
+    require_effects()
     d = deps()
     reader, store = d.gmv_reader, d.store
 
@@ -452,6 +456,7 @@ def save():
 
 
 def gmv_reading(key):
+    require_effects()
     d = deps()
     thread = d.gmv_threads.get(key)
     if thread is not None:
@@ -464,6 +469,7 @@ def gmv_reading(key):
 
 
 def submit(form_id, row, answers, received):
+    require_effects()
     d = deps()
     keys = {field: attachment_key(form_id, field, answers.get(field)) for field in FILES}
     attachments = {field: {"reference": keys[field], "source": "upload_validado",
@@ -536,3 +542,9 @@ def submit_error(code):
     # Só a mensagem principal do banco (sem DETAIL, que pode conter valores).
     print(f"[cadastro-publico-v5] falha ao gravar: {code[:120]}")
     return CadastroError("Não foi possível salvar agora. Tente novamente.", 503)
+
+
+@bp.before_request
+def offline_external_effects():
+    if not effects_allowed():
+        return jsonify({"status": "disabled", "reason": REASON}), 503

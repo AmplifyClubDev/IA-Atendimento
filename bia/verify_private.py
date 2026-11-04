@@ -1,4 +1,6 @@
 """Read-only checks inside the private deployment; never calls a provider."""
+
+from offline_policy import effects_allowed, require_effects
 import hashlib
 import json
 import os
@@ -11,6 +13,7 @@ from contracts import allow_inbound
 
 
 def local_request(path, payload=None):
+    require_effects()
     request = Request('http://127.0.0.1:' + os.environ.get('PORT', '8000') + path,
                       data=payload, method='POST' if payload is not None else 'GET',
                       headers={'Content-Type': 'application/json'})

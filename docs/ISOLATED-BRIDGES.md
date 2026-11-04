@@ -1,4 +1,31 @@
-# Isolated bridge configuration (local proposal, not deployed)
+# Offline nonproduction preparation (draft review, not deployed)
+
+## Current safety boundary: offline only
+
+This revision blocks live external integrations in any explicitly nonproduction
+process or supplied configuration. There is **no flag to enable them**. The bridge
+URL/allowlist and activation flags described below are configuration groundwork
+only; they do not override the offline policy.
+
+Cadastro returns a disabled liveness response at /health (HTTP 200, live=true),
+and HTTP 503 at other routes without constructing live dependencies or starting
+workers. The separate public blueprint, pilot proxy, direct delivery/retry methods,
+watchers, bridge/console clients, Supabase/storage, Circle, both email stacks
+(including OAuth token refresh), Chatwoot and image-reading adapters are guarded.
+Bia blocks bootstrap relinking/probes/recovery and worker entrypoints, Gateway,
+SMTP, Chatwoot and direct WhatsApp, AI and bridge adapters. Production behavior and
+Bia's Supabase project pin remain unchanged.
+
+Synthetic dependencies do not authorize real traffic. Guards run before injected
+transports too. Any explicit nonproduction marker in the process wins over a
+production-looking supplied configuration. No live provider test was performed.
+
+This is application-level defense, not a network sandbox or proof of complete
+isolation. No live staging deployment, build validation or production change is
+part of this PR. Future integration enablement needs separate target/account and
+recipient policies, independent review and explicit authorization.
+
+## Bridge target configuration groundwork
 
 Production behavior and role-specific bridge hostname allowlists remain unchanged when
 both APP_ENV and RAILWAY_ENVIRONMENT_NAME are absent or `production`. Any explicit
@@ -27,18 +54,35 @@ names. The URLs/hostnames must be configured consistently in both services.
 Nonproduction Cadastro console login, redirects containing console access tokens,
 and automatic activation/recovery are disabled unless a second exact flag is set:
 PONTES_NONPRODUCTION_ACTIVATION_ENABLED=true. Invalid/missing endpoints are excluded
-from the panel and watcher list. Both bridge HTTP clients reject redirects.
+from the panel and watcher list. Both bridge HTTP clients reject redirects. The offline guard still blocks all traffic regardless of these settings.
 
 ## Validation
 
-Offline focused suite: 38 passed, including the existing ten bridge-operation tests.
+Current local Cadastro focused suite: 56 passed, including ten existing bridge tests,
+28 bridge target tests and 18 offline safety cases. Bia: 13 new synthetic cases
+passed, including actual Flask startup and readiness in real/simulated modes.
+
+Broad Bia unittest discovery, with exact schema files and sockets blocked:
+- Prior PR head: 842 tests, 831 passes, 1 failure, 1 error, 9 skips.
+- This patch: 855 tests, 844 passes, the same 1 failure, 1 error and 9 skips.
+- No new failure/error IDs. This is not an all-green suite.
+
+Remaining baseline issues:
+- test_webhook_enqueues_without_provider_then_worker_chains_real_proof_and_form:
+  actual operation is cancelled instead of completed.
+- test_actual_launcher_passes_only_approved_host_and_readonly_stage_arguments:
+  connectionfix_launcher.py is absent from the prior commit.
+
+The prior PR commit passed the GitHub Cadastro suite (71 tests with PostgreSQL 17).
+That earlier CI result is not validation of this follow-up commit.
 Cadastro retains its historical production endpoint when an optional URL variable is
 empty. Nonproduction never falls back. Bia retains its existing empty-URL rejection.
 An empty panel reports disabled/unconfigured (503), never healthy.
 
 Run from the repository root with pytest/flask installed:
 
-    python -m pytest cadastro/tests/test_operacao_pontes.py cadastro/tests/test_bridge_isolation.py -q
+    python -m pytest cadastro/tests/test_operacao_pontes.py cadastro/tests/test_bridge_isolation.py cadastro/tests/test_offline_staging.py -q
+    python -m pytest bia/tests/test_offline_effects.py -q
 
 All changed Python files compile. Test transports are mocked; no bridge was called.
 The helpers are deliberately duplicated because Bia and Cadastro have independent
@@ -57,6 +101,6 @@ Separately isolate Supabase project/schema allowlists, Chatwoot account/inbox,
 Circle, SMTP/Gmail, public form URLs, AI services, workers and alert destinations.
 Cadastro's atendimento watcher still has its production readiness URL. Existing
 Bia startup restrictions intentionally remain; this patch does not relax business,
-recipient or database guards. Confirm all externally effective workers are off
-before an isolated environment starts, and provide new credentials only through
+recipient or database guards. Verify the offline guards against the complete build before any isolated environment
+starts, and provide new credentials only through
 authorized secure setup. Do not clone production credentials or browser profiles.

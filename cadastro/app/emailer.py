@@ -1,6 +1,8 @@
 """Envio do código de confirmação de e-mail (SMTP, mesma conta usada pela Bia)."""
 from __future__ import annotations
 
+from offline_policy import effects_allowed, require_effects, REASON
+
 import html
 import smtplib
 import ssl
@@ -14,10 +16,14 @@ class EmailSender:
         self.factory = factory or smtplib.SMTP_SSL
 
     def configured(self):
+        if not effects_allowed():
+            return False
         return bool(self.user and self.password)
 
     def send_code(self, email, code, message_id):
         """'enviado' quando o servidor SMTP aceitou; 'incerto' quando não dá para saber."""
+        if not effects_allowed():
+            return "disabled"
         message = EmailMessage()
         message["From"] = formataddr(("Amplify — notificações", self.user))
         message["To"] = email
@@ -60,6 +66,8 @@ class EmailSender:
         Mesmo visual dos e-mails da Amplify (cabeçalho azul, cartão branco), com selo de
         situação colorido, passos numerados e um botão de ação quando houver.
         """
+        if not effects_allowed():
+            return False
         message = EmailMessage()
         message["From"] = formataddr(("Amplify — notificações", self.user))
         message["To"] = to

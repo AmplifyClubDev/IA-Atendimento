@@ -8,6 +8,8 @@ a resposta é devolvida em até ~38 s e a consulta continua em segundo plano.
 """
 from __future__ import annotations
 
+from offline_policy import effects_allowed, require_effects, REASON
+
 import os
 from bridge_config import bridge_settings, bridge_origin
 import threading
@@ -36,9 +38,13 @@ class AgencyChecker:
         self._lock = threading.Lock()
 
     def configured(self):
+        if not effects_allowed(settings=self.client.settings):
+            return False
         return self.client.configuration("relationship")["configured"]
 
     def _run(self, handle):
+        if not effects_allowed(settings=self.client.settings):
+            return {"status": "disabled", "reason": REASON, "confirmed": False}
         result = self.client.execute("relationship", handle)
         # Prova no formato que a função do banco confere (7 campos).
         result["job_id"] = "formulario-publico:relationship:" + str(uuid.uuid4())
@@ -46,6 +52,8 @@ class AgencyChecker:
 
     def check(self, handle):
         """Devolve o resultado da ponte ou None se ainda não terminou dentro da espera."""
+        if not effects_allowed(settings=self.client.settings):
+            return {"status": "disabled", "reason": REASON, "confirmed": False}
         with self._lock:
             cached = self._linked.get(handle)
             if cached and time.monotonic() - cached[0] < self.cache_seconds:

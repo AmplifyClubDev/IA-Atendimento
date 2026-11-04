@@ -12,6 +12,11 @@ unpaginated {"payload": [...]} collections. Pagination or an unfamiliar shape
 closes the gate. Definitions below are a local candidate for root approval.
 """
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from offline_policy import effects_allowed, require_effects
+
 import argparse
 import hashlib
 import json
@@ -151,6 +156,7 @@ def _settings(environ, target, setup):
 
 def _request(client, method, url, token, body=None):
     """Return bounded provider data privately; never expose URL/error/body text."""
+    require_effects()
     headers = {"api_access_token": token, "Accept": "application/json"}
     data = None
     if body is not None:
@@ -319,6 +325,8 @@ def run_preflight(environ=None, *, expected_host=None, expected_account_id=None,
                   expected_conversation_id=None, expected_contact_id=None, setup=False,
                   approved_rules_sha256=None, require_labels=False, http_factory=None):
     """Use an injected urllib-compatible client in tests; return sanitized JSON."""
+    if not effects_allowed(env=environ):
+        return {'passed': False, 'status': 'disabled', 'reason': 'nonproduction_external_effects_disabled', 'post_attempts': 0}
     output = {"passed": False, "mode": "setup" if setup else "readonly", "source_commit": SOURCE_COMMIT,
               "checks": {}, "post_attempts": 0, "created": [], "reconciled": [], "outcome_unknown": False}
     checks = output["checks"]

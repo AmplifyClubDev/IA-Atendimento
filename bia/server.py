@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from offline_policy import effects_allowed, require_effects
+
 import hashlib
 import hmac
 import json
@@ -210,7 +212,7 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
     contact_sync = _get(settings, "contact_sync_enabled", False) is True
     repository = repository or Repository(Path(_get(settings, "state_dir", Path(__file__).with_name("data"))) / "atendimento.sqlite3")
     transport = transport or ChatwootTransport(_get(settings, "chatwoot_base_url"), _get(settings, "chatwoot_api_token"), gate,
-                                               interactive=True,
+                                               interactive=True, settings=settings,
                                                cloud={"token": _get(settings, "whatsapp_cloud_token"),
                                                       "phone_number_id": _get(settings, "whatsapp_cloud_phone_number_id")})
     answerer = answerer or answer_question
@@ -286,6 +288,8 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
 
     def issues():
         found = list(_get(settings, "readiness_issues", []) or [])
+        if not effects_allowed(settings=settings):
+            found.append("nonproduction_external_effects_disabled")
         if contact_sync and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}", str(_get(settings, "instance_id", ""))):
             found.append("contact_instance_invalid")
         if contact_sync and not callable(getattr(app.extensions.get("v5_data_gateway"), "register_contact", None)):
@@ -1102,6 +1106,9 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
     def ready():
         missing = issues()
         tiktok = executor.status()
+        if not effects_allowed(settings=settings):
+            return jsonify(ready=False, status="disabled", reason="nonproduction_external_effects_disabled",
+                           issues=sorted(set(missing)), context_ia={"status": "disabled"}, tiktok=tiktok), 503
         if _get(settings, 'tiktok_mode') == 'real' and not tiktok['worker_running']:
             missing.append('real_worker_not_running')
         if _get(settings, 'tiktok_mode') == 'real' and not tiktok['sessions']['ready']:

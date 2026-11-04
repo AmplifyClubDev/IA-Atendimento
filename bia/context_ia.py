@@ -1,6 +1,8 @@
 """Read the active, server-only V5 context. No writes or legacy-file fallback."""
 from __future__ import annotations
 
+from offline_policy import effects_allowed, require_effects
+
 import hashlib
 import json
 import re
@@ -31,6 +33,7 @@ PATTERNS = {
 
 
 def load_context(settings, transport=None):
+    require_effects(settings=settings)
     try:
         payload = Gateway(settings, transport=transport)._rpc('ler_contexto_ia_v5', {})
         if (not isinstance(payload, dict) or set(payload) != {'version', 'cards'}

@@ -12,6 +12,11 @@ regras da pós-pausa da 47 no modo 'todos' e imprime:
 Não lê o estado da Bia: quem já tem atendimento e foi respondido aparece como "já respondida" pelo próprio Chatwoot.
 Mostra só os 4 últimos dígitos do telefone. Não grava nem envia nada.
 """
+
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from offline_policy import effects_allowed, require_effects
 from datetime import datetime, timedelta, timezone
 import json
 import os
@@ -33,6 +38,7 @@ class ReadOnlyChatwoot:
         self.reads = 0
 
     def http(self, *, method, url, headers, timeout, json_body=None):
+        require_effects()
         if method != 'GET':
             raise RuntimeError('somente leitura')
         self.reads += 1

@@ -1,3 +1,4 @@
+from offline_policy import effects_allowed, require_effects, REASON
 """Envio Gmail por HTTPS. Nao repete POST de envio com resultado incerto."""
 import base64
 import time
@@ -20,6 +21,7 @@ class GmailAPI:
 
     def authorize_sender(self):
         """Renova e confere a conta antes de liberar qualquer envio."""
+        require_effects(settings=self.settings)
         if self._token and self._expires_at > time.monotonic() + 60:
             return self._token
         settings = self.settings
@@ -55,6 +57,7 @@ class GmailAPI:
             raise RuntimeError('gmail_resposta_autorizacao_invalida') from None
 
     def send(self, message):
+        require_effects(settings=self.settings)
         if parseaddr(str(message['From']))[1].lower() != self.settings.smtp_usuario.lower():
             raise RuntimeError('gmail_remetente_divergente')
         token = self.authorize_sender()
@@ -81,6 +84,7 @@ class GmailAPI:
 
     def read(self, path, params=None):
         """Read only within this verified sender's mailbox; never expands OAuth grants."""
+        require_effects(settings=self.settings)
         import re
         if not re.fullmatch(r'(?:messages|threads)(?:/[a-zA-Z0-9]+)?', path):
             raise ValueError('gmail_caminho_invalido')

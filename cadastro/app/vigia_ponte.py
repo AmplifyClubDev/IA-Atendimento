@@ -8,6 +8,8 @@ Um vigia por ponte (agenciamento, pré-validação, convites); o botão do e-mai
 """
 from __future__ import annotations
 
+from offline_policy import effects_allowed, require_effects, REASON
+
 import threading
 import time
 
@@ -38,6 +40,8 @@ class VigiaPonte:
         self.confirmacoes, self.falhas, self.caida_desde = confirmacoes, 0, None
 
     def checar(self, agora=None):
+        if not effects_allowed():
+            return "disabled"
         agora = agora or time.time()
         status = (self.ler(self.token) or {}).get("status")
         if status == "ready":
@@ -68,6 +72,8 @@ class VigiaPonte:
         return "caida"
 
     def iniciar(self, intervalo=300):
+        if not effects_allowed():
+            return {"status": "disabled", "reason": REASON}
         def loop():
             while True:
                 try:

@@ -6,6 +6,8 @@ The caller owns contact authorization, the current-cycle history and persistence
 
 from __future__ import annotations
 
+from offline_policy import effects_allowed, require_effects
+
 import hashlib
 import json
 import re
@@ -36,6 +38,7 @@ class _NoRedirect(HTTPRedirectHandler):
 
 def _http_transport(*, method, url, headers, json: dict, timeout: float) -> dict:
     """Exactly one HTTP request; no retries, redirects or logged payloads."""
+    require_effects()
     import json as json_module
 
     data = json_module.dumps(json, ensure_ascii=False).encode("utf-8")
@@ -188,6 +191,8 @@ def answer_question(question, history, settings, transport=None) -> dict:
     exposed to the lead or logged. The surrounding persisted operation must block
     blind retries after provider_status=unknown.
     """
+    if not effects_allowed(settings=settings):
+        return dict(_result('', 'disabled', {'knowledge_version': 'offline'}, status='disabled'), reason='nonproduction_external_effects_disabled')
     from context_ia import ContextUnavailable, style_instructions
     try:
         knowledge = load_knowledge(settings)
