@@ -154,5 +154,5 @@ def test_helper_is_packaged_and_importable_in_independent_context(directory):
 
 
 def test_docker_contexts_include_helper():
-    assert 'COPY bridge_config.py offline_policy.py ./' in (ROOT / 'bia/Dockerfile').read_text()
+    assert 'COPY bridge_config.py offline_policy.py startup_preflight.py ./' in (ROOT / 'bia/Dockerfile').read_text()
     assert 'COPY . /app' in (ROOT / 'cadastro/app/Dockerfile').read_text()
