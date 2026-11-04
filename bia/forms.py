@@ -25,7 +25,8 @@ from uuid import UUID, uuid4
 
 from flask import Blueprint, current_app, jsonify, redirect, render_template_string, request
 
-from contracts import allow_inbound, normalize_phone, pilot_phone, pilot_phones
+from contracts import allow_inbound, normalize_phone, pilot_phone, pilot_phones, _phone_variants
+from demo_router import DemoScope, production_blocked
 from data import MappingError, map_submission, submission_id
 
 
@@ -166,6 +167,22 @@ class FormStore:
 
 def register_forms(app, settings, repository):
     """Register the form and expose the transport's durable form-link factory."""
+    settings = app.extensions.get('v5_settings', settings)
+    demo_scope = _get(settings, '_demo_scope')
+    if _get(settings, 'demo_enabled', False) is True and not isinstance(demo_scope, DemoScope):
+        raise ValueError('demo_forms_require_verified_scope')
+    demo_phone_hashes = {_sha(phone) for phone in _phone_variants(demo_scope.phone)} if demo_scope else set()
+
+    def exclude_demo(*, event=None, row=None):
+        blocked = production_blocked(settings, event=event,
+                                     conversation_key=row['conversation_key'] if row is not None else None)
+        if row is not None and demo_scope:
+            blocked = blocked or ((str(row['account_id']), str(row['inbox_id'])) ==
+                                  (demo_scope.account_id, demo_scope.inbox_id)
+                                  and row['phone_hash'] in demo_phone_hashes)
+        if blocked:
+            raise FormError('demo_contact_excluded_from_production', 409)
+
     store = FormStore(repository.path)
     gate = _get(settings, "gate", {})
     gate = gate if isinstance(gate, dict) else {}
@@ -198,6 +215,7 @@ def register_forms(app, settings, repository):
 
     def creator_hint(state, event):
         """Preserve an already issued form's identity; never silently re-key it."""
+        exclude_demo(event=event)
         conv = f"chatwoot:{event['account_id']}:{event['conversation_id']}"
         cycle = state.get("cycle") or {}
         with store.db() as db:
@@ -216,6 +234,7 @@ def register_forms(app, settings, repository):
 
     def require_relationship(row, state=None):
         """Final authority stays server-side; a form answer never proves a link."""
+        exclude_demo(row=row)
         state = repository.load_session(row["conversation_key"]) if state is None else state
         cycle = state.get("cycle") or {}
         if not _real_enabled(settings, state):
@@ -244,6 +263,7 @@ def register_forms(app, settings, repository):
         return state
 
     def link_factory(state, effect, event):
+        exclude_demo(event=event)
         active()
         cycle = state.get("cycle") or {}
         if (not allow_inbound(gate, event) or effect.get("type") != "generate_form_link"
@@ -320,6 +340,7 @@ def register_forms(app, settings, repository):
         return token, row
 
     def validate_row(row, *, completed=False):
+        exclude_demo(row=row)
         if (row["account_id"] != str(gate.get("account_id")) or row["inbox_id"] != str(gate.get("inbox_id"))
                 or row["phone_hash"] not in _phone_hashes(gate)):
             raise FormError("form_scope_changed", 403)

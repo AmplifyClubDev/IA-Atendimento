@@ -14,8 +14,8 @@
     },
     {
       "path": "bootstrap.py",
-      "bytes": 1593,
-      "sha256": "337fb5d51b36d4c5a7e71d92b9c40a1687fb75359ea2d9a4537701686814b34a"
+      "bytes": 1638,
+      "sha256": "50923ce36704ad5545df2d54bd60aa80d079ccd0608ff465f30241a4df08e311"
     },
     {
       "path": "config.py",
@@ -64,8 +64,8 @@
     },
     {
       "path": "demo_router.py",
-      "bytes": 25220,
-      "sha256": "fbdd0410ce3ddc0a72fa7d063f54abdc73452e83a9858df1bd39a8e0f2697ba2"
+      "bytes": 24986,
+      "sha256": "803fbd679122c76352a6b38827e769602d387e8cb3740cecc7c02e0e69c58c12"
     },
     {
       "path": "engine.py",
@@ -79,8 +79,8 @@
     },
     {
       "path": "forms.py",
-      "bytes": 47946,
-      "sha256": "961cac6186110eec76c77ce72593cceb70f0c6dd6d9124b459e811c538bbbc75"
+      "bytes": 49135,
+      "sha256": "4cb8dc879d3732d58a0746b7d79bab6db7205eb8c0952af3cde056893e41c017"
     },
     {
       "path": "forms_compat.py",

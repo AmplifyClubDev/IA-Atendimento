@@ -163,15 +163,16 @@ class RouterCases(unittest.TestCase):
         alias = PHONE[:5] + PHONE[6:]
         self.assertFalse(SCOPE.accepts(event(sender_phone=alias)))
 
-    def test_simulated_providers_have_no_real_invite_or_form_url(self):
+    def test_simulated_providers_have_no_real_invite_and_form_is_removed(self):
         self.start(); self.router.handle(self.click())
-        for operation in ('tiktok', 'form', 'invite'):
+        for operation in ('tiktok', 'invite'):
             result = self.router.simulate(operation)
             self.assertEqual(result['status'], 'simulated')
             self.assertFalse(result.get('sent', False))
             self.assertFalse(result.get('production_submission', False))
             self.assertIsNone(result.get('url'))
         with self.assertRaises(ValueError): self.router.simulate('smtp')
+        with self.assertRaises(ValueError): self.router.simulate('form')
         self.assertEqual(len(self.gateway.sent), 1)
 
     def test_simulation_requires_a_current_choice(self):

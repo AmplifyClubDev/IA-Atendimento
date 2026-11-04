@@ -173,9 +173,6 @@ class SimulatedEffects:
     def run(self, operation, fixture='unknown'):
         if operation == 'tiktok' and fixture in {'eligible', 'ineligible', 'unknown', 'failure'}:
             return {'operation': operation, 'status': 'simulated', 'fixture': fixture, 'provider_called': False}
-        if operation == 'form' and fixture in {'unknown', 'complete', 'failure'}:
-            return {'operation': operation, 'status': 'simulated', 'fixture': fixture,
-                    'url': None, 'production_submission': False}
         if operation == 'invite' and fixture in {'unknown', 'accepted', 'declined', 'failure'}:
             return {'operation': operation, 'status': 'simulated', 'fixture': fixture, 'sent': False}
         raise ValueError('demo_simulation_invalid')

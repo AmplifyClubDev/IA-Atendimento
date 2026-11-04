@@ -9,6 +9,7 @@ from forms import register_forms
 def create_app(settings=None):
     settings = load_settings() if settings is None else settings
     app = create_server(settings=settings)
+    settings = app.extensions['v5_settings']
     app.extensions['v5_data_gateway'] = Gateway(settings)
     app.extensions['v5_real_executor'].retention_cleanup = app.extensions['v5_data_gateway'].cleanup_retention
     app.extensions['v5_email_sender'] = SmtpSender(settings)
