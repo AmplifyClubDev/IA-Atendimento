@@ -405,6 +405,12 @@ class ExecutorTests(unittest.TestCase):
     def test_webhook_enqueues_without_provider_then_worker_chains_real_proof_and_form(self):
         from server import create_app
         state, effect = self.state('precheck')
+        # This app-created executor uses wall time, unlike self.executor().
+        # Keep its cycle live rather than expiring the fixture after NOW + 24h.
+        live_now = datetime.now(timezone.utc)
+        state['cycle'].update(opened_at=live_now.isoformat(),
+                              last_inbound_at=live_now.isoformat(),
+                              expires_at=(live_now + timedelta(hours=24)).isoformat())
         class Transport:
             def __init__(self): self.sent = []
             def ready(self): return True
