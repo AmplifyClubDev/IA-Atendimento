@@ -40,6 +40,21 @@ class InteractiveQuestions(unittest.TestCase):
     setUp = test_demo_flow.FlowCases.setUp
     source = test_demo_flow.FlowCases.source
     choose = test_demo_flow.FlowCases.choose
+    def test_benefits_button_and_free_text_match_without_business_effects(self):
+        self.choose('know')
+        self.assertEqual(self.choose('faq_benefits'), 'faq_benefits')
+        button_payload = self.gateway.sent[-1]['payload']
+        self.router.question_answerer = Mock(side_effect=TimeoutError())
+        event = self.source(text='quero beneficios', correlated=False)
+        first = self.router.handle(event)
+        self.assertEqual(first[0]['step'], 'faq_benefits')
+        self.assertEqual(self.gateway.sent[-1]['payload']['content'], button_payload['content'])
+        self.assertEqual(self.router.handle(event), first)
+        self.router.question_answerer.assert_not_called()
+        self.assertEqual(self.store.db.execute('SELECT count(*) FROM demo_simulations').fetchone()[0], 0)
+        self.assertNotIn('individual', button_payload['content'])
+        self.assertIn('sujeitos à disponibilidade', button_payload['content'])
+
     def test_ai_question_is_deduplicated_and_stays_isolated(self):
         self.choose('know'); self.choose('question')
         self.router.question_answerer = Mock(return_value='faq_terms')

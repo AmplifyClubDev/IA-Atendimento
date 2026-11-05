@@ -6,7 +6,7 @@ import uuid
 FLOW_VERSION = 'v2'
 TEMPLATES = {
     'about': ('A *Amplify* é uma agência e comunidade para creators do TikTok Shop 💜\n\nQuer saber mais sobre a parceria ou começar seu agenciamento?',
-              {'join': 'Quero me agenciar', 'faq_terms': 'Conhecer benefícios', 'question': 'Tenho dúvidas'}),
+              {'join': 'Quero me agenciar', 'faq_benefits': 'Conhecer benefícios', 'question': 'Tenho dúvidas'}),
     'profile': ('Que legal! Vamos começar 🚀\n\nMe manda seu *@ de creator no TikTok* para seguirmos com seu agenciamento. 💜',
                 {'question': 'Tenho dúvidas', 'opening': 'Voltar ao início'}),
     'member': ('Que bom te ver por aqui de novo! 💜\n\nComo posso te ajudar? Neste teste, não vou consultar seu cadastro.',
@@ -23,7 +23,11 @@ TEMPLATES = {
             {'opening': 'Voltar ao início'}),
     'faq_agency': ('A Amplify é uma agência e comunidade para creators do TikTok Shop 💜 Você pode tirar suas dúvidas antes de decidir se quer se agenciar.\n\nFicou mais claro? 😊',
                    {'join': 'Quero me agenciar', 'question': 'Tenho outra dúvida'}),
-    'faq_terms': ('Os benefícios e as condições reais ainda precisam ser confirmados 💜 Não tenho detalhes confirmados sobre comissão, prazo ou exclusividade para te passar neste teste.\n\nFicou mais claro? 😊',
+    # Verified active V5 card beneficios, contextos-ia-v1:a2e71fb5d6108de76489c25456fda6bc,
+    # read on 2026-11-05. Availability is conditional, not a general entitlement.
+    'faq_benefits': ('A parceria pode incluir treinamentos, suporte, comunidade no Circle e oportunidades de campanhas 💜\n\nOs benefícios variam conforme sua categoria e cada ação, sujeitos à disponibilidade e às condições da parceria.\n\nFicou mais claro? 😊',
+                     {'join': 'Quero me agenciar', 'question': 'Tenho outra dúvida'}),
+    'faq_terms': ('As condições reais ainda precisam ser confirmadas 💜 Não tenho detalhes confirmados sobre comissão, prazo ou exclusividade para te passar neste teste.\n\nFicou mais claro? 😊',
                   {'join': 'Quero me agenciar', 'question': 'Tenho outra dúvida'}),
     'faq_invite': ('Aqui, nenhum convite real é enviado 😊 O aceite e o vínculo são simulados, sem agenciar seu perfil.\n\nFicou mais claro? 😊',
                    {'join': 'Quero me agenciar', 'question': 'Tenho outra dúvida'}),
@@ -36,7 +40,7 @@ TRANSITIONS = {'join': 'profile', 'know': 'about', 'member': 'member', 'question
                'opening': 'opening', 'use_profile': 'conditions', 'continue_test': 'invite',
                'accept_demo': 'confirmed', 'decline': 'paused', 'resume': 'invite',
                'close': 'closed', 'faq_agency': 'faq_agency', 'faq_terms': 'faq_terms',
-               'faq_invite': 'faq_invite'}
+               'faq_invite': 'faq_invite', 'faq_benefits': 'faq_benefits'}
 
 
 def key_parts(key):
@@ -64,8 +68,10 @@ def question_step(text):
     if not isinstance(text, str) or not 1 <= len(text) <= 500:
         return None
     value = ''.join(c for c in unicodedata.normalize('NFKD', text.lower()) if not unicodedata.combining(c))
-    if re.search(r'comiss|condic|prazo|exclusiv|benefici|quanto|custa|paga|ganh', value):
+    if re.search(r'comiss|condic|prazo|exclusiv|quanto|custa|paga|ganh', value):
         return 'faq_terms'
+    if re.search(r'benefici|vantagen', value):
+        return 'faq_benefits'
     if re.search(r'convite|aceite|vinculo', value) and ('?' in value or re.search(r'como|duvida|pergunta', value)):
         return 'faq_invite'
     if '?' in value or re.search(r'\b(como|duvida|pergunta)\b', value):
@@ -87,10 +93,10 @@ def decision(step, text, *, correlated, opening_choices, question_answerer=None)
     if step == 'closed' and not action:
         return None
     if not action and isinstance(text, str) and text not in known_labels and step != 'closed' and (target or step in {'faq', 'member'}):
-        if question_answerer:
+        if question_answerer and target != 'faq_benefits':
             try:
                 answer = question_answerer(text)
-                target = answer if answer in {'faq_agency', 'faq_terms', 'faq_invite', 'faq_unknown'} else 'faq_unknown'
+                target = answer if answer in {'faq_agency', 'faq_terms', 'faq_invite', 'faq_unknown', 'faq_benefits'} else 'faq_unknown'
             except Exception:
                 target = 'faq_unknown'
         elif step in {'faq', 'member'} and not target:

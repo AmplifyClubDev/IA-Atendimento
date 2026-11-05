@@ -65,7 +65,7 @@ class FlowCases(unittest.TestCase):
         text = 'Meu perfil é @synthetic_profile. Quanto custa e tem exclusividade?'
         result = self.router.handle(self.source(text=text, correlated=False))[0]
         self.assertEqual(result['step'], 'faq_terms')
-        self.assertIn('ainda precisam ser confirmados', self.gateway.sent[-1]['payload']['content'])
+        self.assertIn('ainda precisam ser confirmadas', self.gateway.sent[-1]['payload']['content'])
         dump = '\n'.join(self.store.db.iterdump())
         self.assertNotIn('synthetic_profile', dump)
         self.assertEqual(self.store.db.execute('SELECT count(*) FROM demo_simulations').fetchone()[0], 0)
@@ -182,6 +182,24 @@ class FlowCases(unittest.TestCase):
 
 
 class FlowIntegration(unittest.TestCase):
+    def test_benefits_button_and_text_leave_production_empty(self):
+        app, repo, transport, gateway = fixtures.FlaskRouting.make_app(self)
+        router = app.extensions['v5_demo_router']; router.continuation_enabled = True
+        client = app.test_client(); headers = {'X-Amplify-Webhook-Token': fixtures.TOKEN}
+        client.post('/demo/start', json={'request_id': 'synthetic-benefits-test'}, headers=headers)
+        for number, (text, step) in enumerate((('Conhecer a Amplify', 'about'),
+                ('Conhecer benefícios', 'faq_benefits'), ('quero beneficios', 'faq_benefits')), 201):
+            state = router.store.current(fixtures.SCOPE.slot)
+            event = fixtures.FlaskRouting.raw(self, text, parent=state['parent_id'], identifier=str(number))
+            if text == 'quero beneficios': event['content_attributes'] = {}
+            response = client.post('/webhook/chatwoot', headers=headers, json=event)
+            self.assertEqual(response.json['step'], step)
+            self.assertFalse(response.json['production_effects'])
+        transport.send_reply.assert_not_called()
+        with repo._connection() as db:
+            for table in ('sessions', 'inbound_events', 'operations', 'outbox', 'real_jobs'):
+                self.assertEqual(db.execute('SELECT count(*) FROM ' + table).fetchone()[0], 0, table)
+
     def test_complete_path_never_populates_production_or_calls_its_transport(self):
         app, repo, transport, gateway = fixtures.FlaskRouting.make_app(self)
         router = app.extensions['v5_demo_router']; router.continuation_enabled = True
