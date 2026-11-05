@@ -24,7 +24,7 @@ from contracts import allow_inbound, inbound_key, normalize_phone, same_phone
 import demo_flow
 
 VERSION = 'v1'
-OPENING = ('Oi! Que bom ter você por aqui 💜\n\n'
+OPENING = ('Oi! Que bom ter você por aqui 💙\n\n'
            'Eu sou a Bia, da *Amplify*, uma agência de creators do TikTok Shop.\n\n'
            'Como posso te ajudar hoje? 😊')
 CHOICES = {'join': 'Quero fazer parte', 'know': 'Conhecer a Amplify', 'member': 'Já sou Amplify'}
@@ -38,11 +38,11 @@ def opening_payload(key):
                                             for action, title in CHOICES.items()]}}
 
 
-def message_payload(key, *, continuation_enabled=False):
+def message_payload(key, *, continuation_enabled=False, answer=None):
     if isinstance(key, str) and key.startswith('bia-demo:v2:'):
         if continuation_enabled is not True:
             raise ValueError('demo_continuation_disabled')
-        return demo_flow.payload(key, OPENING, CHOICES)
+        return demo_flow.payload(key, OPENING, CHOICES, answer=answer)
     return opening_payload(key)
 
 
@@ -218,6 +218,7 @@ class DemoWhatsAppGateway:
             raise ValueError('demo_chatwoot_base_invalid')
         self.base_url, self.token = base_url.rstrip('/'), token
         self.scope = scope
+        self.context_payload = None
         self.continuation_enabled = continuation_enabled is True
         self.live_enabled, self.opener, self.now = live_enabled, opener, now
 
@@ -260,7 +261,7 @@ class DemoWhatsAppGateway:
     def send(self, scope, payload, key):
         if scope != self.scope:
             raise ValueError('demo_egress_scope_mismatch')
-        if payload != message_payload(key, continuation_enabled=self.continuation_enabled):
+        if payload != self.expected_payload(key):
             raise ValueError('demo_payload_not_approved')
         self.preflight(scope)  # Identity/window rechecked directly before POST.
         result = self._api(scope, 'POST', '/messages', payload)
@@ -269,8 +270,15 @@ class DemoWhatsAppGateway:
             raise ValueError('demo_delivery_unconfirmed')
         return {'status': 'accepted', 'message_id': str(result['id']), 'external_id': result.get('source_id')}
 
+    def expected_payload(self, key):
+        if key.startswith('bia-demo:v2:') and demo_flow.key_parts(key)[1] == 'faq_context':
+            if self.continuation_enabled is not True or not callable(self.context_payload):
+                raise ValueError('demo_context_payload_unavailable')
+            return self.context_payload(key)
+        return message_payload(key, continuation_enabled=self.continuation_enabled)
+
     def lookup(self, scope, key):
-        expected = message_payload(key, continuation_enabled=self.continuation_enabled)
+        expected = self.expected_payload(key)
         rows = self._api(scope, 'GET', '/messages').get('payload') or []
         matches = [m for m in rows if m.get('content') == expected['content']
                    and m.get('message_type') in (1, 'outgoing') and m.get('private') is False
@@ -386,7 +394,7 @@ class DemoRouter:
             pending = self.store.db.execute('SELECT receipt FROM demo_outbox WHERE key=?', (key,)).fetchone()
             metadata = json.loads(pending['receipt']) if pending and pending['receipt'] else {}
             self.store.db.execute('UPDATE demo_outbox SET status=?,receipt=? WHERE key=?',
-                                  ('accepted', json.dumps(receipt), key))
+                                  ('accepted', json.dumps({**receipt, 'grounded': metadata.get('grounded')}), key))
             if flow:
                 self.store.db.execute("UPDATE demo_runs SET parent_id=?,parent_external=?,"
                                       "step=CASE WHEN step='delivery_pending' THEN ? ELSE step END WHERE slot=? AND outbox_key=?",
@@ -419,7 +427,9 @@ class DemoRouter:
                                               question_answerer=self.question_answerer)
                 if decision:
                     key = demo_flow.new_key(run, decision['step'])
-                    payload = message_payload(key, continuation_enabled=True)
+                    grounded = decision.get('grounded')
+                    payload = message_payload(key, continuation_enabled=True,
+                                              answer=grounded['answer'] if grounded else None)
                     result = {'accepted': False, 'status': 'demo_delivery_unconfirmed', 'repeat_allowed': False,
                               'production_effects': False}
                     with self.store.transaction():
@@ -427,7 +437,8 @@ class DemoRouter:
                                               (self.scope.slot, event_key, fingerprint, json.dumps(result)))
                         self.store.db.execute('INSERT INTO demo_outbox VALUES(?,?,?,?,?,?)',
                                               (key, self.scope.slot, run, json.dumps(payload), 'outcome_unknown',
-                                               json.dumps({'pending_event_key': event_key, 'choice': decision['action']})))
+                                               json.dumps({'pending_event_key': event_key, 'choice': decision['action'],
+                                                           'grounded': grounded})))
                         self.store.db.execute('UPDATE demo_runs SET step=?,choice=?,parent_id=NULL,parent_external=NULL,'
                                               'outbox_key=?,started=?,watermark=? WHERE slot=?',
                                               ('delivery_pending', decision['action'], key, clock(self.now()).isoformat(),
@@ -568,6 +579,14 @@ def build_demo_router(settings, *, gateway=None, production_path=None):
                                       continuation_enabled=settings.get('demo_continuation_enabled') is True)
                    if settings.get('demo_whatsapp_live') is True else RecordingGateway())
     store = DemoStore(path, production_path=production_path)
+    if isinstance(gateway, DemoWhatsAppGateway):
+        def persisted_context_payload(key):
+            row = store.db.execute('SELECT payload FROM demo_outbox WHERE key=? AND slot=?',
+                                   (key, scope.slot)).fetchone()
+            if row is None:
+                raise ValueError('demo_context_payload_not_persisted')
+            return json.loads(row['payload'])
+        gateway.context_payload = persisted_context_payload
     settings['_demo_scope'] = scope
     from demo_answers import build_answerer
     return DemoRouter(scope, store, gateway, continuation_enabled=settings.get('demo_continuation_enabled') is True,

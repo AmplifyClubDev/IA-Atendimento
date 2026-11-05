@@ -5,35 +5,36 @@ import uuid
 
 FLOW_VERSION = 'v2'
 TEMPLATES = {
-    'about': ('A *Amplify* é uma agência e comunidade para creators do TikTok Shop 💜\n\nQuer saber mais sobre a parceria ou começar seu agenciamento?',
+    'faq_context': ('', {'join': 'Quero me agenciar', 'question': 'Tenho outra dúvida'}),
+    'about': ('A *Amplify* é uma agência e comunidade para creators do TikTok Shop\n\nQuer saber mais sobre a parceria ou começar seu agenciamento?',
               {'join': 'Quero me agenciar', 'faq_benefits': 'Conhecer benefícios', 'question': 'Tenho dúvidas'}),
-    'profile': ('Que legal! Vamos começar 🚀\n\nMe manda seu *@ de creator no TikTok* para seguirmos com seu agenciamento. 💜',
+    'profile': ('Que legal! Vamos começar 🚀\n\nMe manda seu *@ de creator no TikTok* para seguirmos com seu agenciamento.',
                 {'question': 'Tenho dúvidas', 'opening': 'Voltar ao início'}),
-    'member': ('Que bom te ver por aqui de novo! 💜\n\nComo posso te ajudar? Neste teste, não vou consultar seu cadastro.',
+    'member': ('Que bom te ver por aqui de novo!\n\nComo posso te ajudar? Neste teste, não vou consultar seu cadastro.',
                {'question': 'Tenho uma dúvida', 'join': 'Ver o agenciamento', 'opening': 'Voltar ao início'}),
     'conditions': ('Recebi seu perfil! ✅\n\nVamos simular as próximas etapas. As condições reais ainda precisam ser confirmadas; este teste não representa aceite comercial.',
                    {'continue_test': 'Seguir no teste', 'question': 'Tenho uma dúvida', 'opening': 'Voltar ao início'}),
-    'invite': ('Convite de demonstração preparado 💜\n\nQuer simular o aceite para ver como a confirmação aparece?',
+    'invite': ('Convite de demonstração preparado\n\nQuer simular o aceite para ver como a confirmação aparece?',
                {'accept_demo': 'Simular aceite', 'decline': 'Agora não', 'question': 'Tenho uma dúvida'}),
-    'confirmed': ('Teste concluído! 💜\n\nO aceite e o vínculo foram simulados. Seu perfil real não foi consultado nem agenciado.',
+    'confirmed': ('Teste concluído!\n\nO aceite e o vínculo foram simulados. Seu perfil real não foi consultado nem agenciado.',
                   {'opening': 'Recomeçar teste', 'question': 'Tenho uma dúvida', 'close': 'Encerrar teste'}),
     'paused': ('Tudo bem 😊\n\nO convite de teste ficou pausado. Quer retomar ou voltar ao início?',
                {'resume': 'Retomar teste', 'opening': 'Voltar ao início', 'close': 'Encerrar teste'}),
     'faq': ('Claro! Me conta sua dúvida por aqui 💬',
             {'opening': 'Voltar ao início'}),
-    'faq_agency': ('A Amplify é uma agência e comunidade para creators do TikTok Shop 💜 Você pode tirar suas dúvidas antes de decidir se quer se agenciar.\n\nFicou mais claro? 😊',
+    'faq_agency': ('A Amplify é uma agência e comunidade para creators do TikTok Shop Você pode tirar suas dúvidas antes de decidir se quer se agenciar.\n\nFicou mais claro? 😊',
                    {'join': 'Quero me agenciar', 'question': 'Tenho outra dúvida'}),
     # Verified active V5 card beneficios, contextos-ia-v1:a2e71fb5d6108de76489c25456fda6bc,
     # read on 2026-11-05. Availability is conditional, not a general entitlement.
-    'faq_benefits': ('A parceria pode incluir treinamentos, suporte, comunidade no Circle e oportunidades de campanhas 💜\n\nOs benefícios variam conforme sua categoria e cada ação, sujeitos à disponibilidade e às condições da parceria.\n\nFicou mais claro? 😊',
+    'faq_benefits': ('A parceria pode incluir treinamentos, suporte, comunidade no Circle e oportunidades de campanhas\n\nOs benefícios variam conforme sua categoria e cada ação, sujeitos à disponibilidade e às condições da parceria.\n\nFicou mais claro? 😊',
                      {'join': 'Quero me agenciar', 'question': 'Tenho outra dúvida'}),
-    'faq_terms': ('As condições reais ainda precisam ser confirmadas 💜 Não tenho detalhes confirmados sobre comissão, prazo ou exclusividade para te passar neste teste.\n\nFicou mais claro? 😊',
+    'faq_terms': ('As condições reais ainda precisam ser confirmadas Não tenho detalhes confirmados sobre comissão, prazo ou exclusividade para te passar neste teste.\n\nFicou mais claro? 😊',
                   {'join': 'Quero me agenciar', 'question': 'Tenho outra dúvida'}),
     'faq_invite': ('Aqui, nenhum convite real é enviado 😊 O aceite e o vínculo são simulados, sem agenciar seu perfil.\n\nFicou mais claro? 😊',
                    {'join': 'Quero me agenciar', 'question': 'Tenho outra dúvida'}),
-    'faq_unknown': ('Ainda não tenho essa informação confirmada para te responder 💜 Pode explicar sua dúvida de outra forma?',
+    'faq_unknown': ('Ainda não tenho essa informação confirmada para te responder Pode explicar sua dúvida de outra forma?',
                     {'question': 'Tenho outra dúvida', 'join': 'Quero me agenciar'}),
-    'closed': ('Teste encerrado 💜\n\nSe quiser começar de novo, é só tocar abaixo.',
+    'closed': ('Teste encerrado\n\nSe quiser começar de novo, é só tocar abaixo.',
                {'opening': 'Recomeçar teste'}),
 }
 TRANSITIONS = {'join': 'profile', 'know': 'about', 'member': 'member', 'question': 'faq',
@@ -56,9 +57,13 @@ def new_key(run, step):
     return key
 
 
-def payload(key, opening, opening_choices):
+def payload(key, opening, opening_choices, answer=None):
     _, step, _ = key_parts(key)
     text, choices = (opening, opening_choices) if step == 'opening' else TEMPLATES[step]
+    if step == 'faq_context':
+        if not isinstance(answer, str) or not 1 <= len(answer) <= 600:
+            raise ValueError('demo_context_answer_required')
+        text = answer + '\n\nFicou mais claro? 😊'
     return {'content': text, 'message_type': 'outgoing', 'private': False, 'content_type': 'input_select',
             'content_attributes': {'items': [{'title': title, 'value': key + ':' + action}
                                             for action, title in choices.items()]}}
@@ -92,11 +97,17 @@ def decision(step, text, *, correlated, opening_choices, question_answerer=None)
         return None
     if step == 'closed' and not action:
         return None
-    if not action and isinstance(text, str) and text not in known_labels and step != 'closed' and (target or step in {'faq', 'member'}):
-        if question_answerer and target != 'faq_benefits':
+    grounded = None
+    if (action == 'faq_benefits' or (not action and isinstance(text, str) and text not in known_labels and step != 'closed')):
+        if question_answerer:
             try:
                 answer = question_answerer(text)
-                target = answer if answer in {'faq_agency', 'faq_terms', 'faq_invite', 'faq_unknown', 'faq_benefits'} else 'faq_unknown'
+                if (isinstance(answer, dict) and isinstance(answer.get('answer'), str)
+                        and 1 <= len(answer['answer']) <= 600 and answer.get('evidence')
+                        and answer.get('knowledge_version')):
+                    grounded, target = answer, 'faq_context'
+                else:
+                    target = answer if isinstance(answer, str) and answer in {'faq_agency', 'faq_terms', 'faq_invite', 'faq_unknown', 'faq_benefits'} else 'faq_unknown'
             except Exception:
                 target = 'faq_unknown'
         elif step in {'faq', 'member'} and not target:
@@ -107,4 +118,4 @@ def decision(step, text, *, correlated, opening_choices, question_answerer=None)
     if action == 'use_profile':effects = [('tiktok', 'eligible')]
     elif action == 'continue_test':effects = [('invite', 'unknown')]
     elif action == 'accept_demo':effects = [('invite', 'accepted'), ('relationship', 'linked')]
-    return {'action': action or 'question', 'step': target, 'effects': effects}
+    return {'action': action or 'question', 'step': target, 'effects': effects, 'grounded': grounded}
