@@ -26,7 +26,7 @@ TEMPLATES = {
                    {'join': 'Quero me agenciar', 'question': 'Tenho outra dúvida'}),
     # Verified active V5 card beneficios, contextos-ia-v1:a2e71fb5d6108de76489c25456fda6bc,
     # read on 2026-11-05. Availability is conditional, not a general entitlement.
-    'faq_benefits': ('A parceria pode incluir treinamentos, suporte, comunidade no Circle e oportunidades de campanhas 🌟\n\nOs benefícios variam conforme sua categoria e cada ação, sujeitos à disponibilidade e às condições da parceria.\n\nFicou mais claro?',
+    'faq_benefits': ('A parceria pode incluir 🌟\n\n- *Treinamentos*\n- *Suporte*\n- *Comunidade no Circle*\n- *Oportunidades de campanhas*\n\nOs benefícios variam conforme sua categoria e cada ação, sujeitos à disponibilidade e às condições da parceria.\n\nFicou mais claro?',
                      {'join': 'Quero me agenciar', 'question': 'Tenho outra dúvida'}),
     'faq_terms': ('As condições reais ainda precisam ser confirmadas 📋 Não tenho detalhes confirmados sobre comissão, prazo ou exclusividade para te passar neste teste.\n\nFicou mais claro?',
                   {'join': 'Quero me agenciar', 'question': 'Tenho outra dúvida'}),
@@ -57,13 +57,52 @@ def new_key(run, step):
     return key
 
 
+def format_answer(text):
+    """Presentation only: retain every sentence and qualifier, never truncate."""
+    text = re.sub(r'\*\*([^*]+)\*\*', r'*\1*', text.strip()).replace('\r\n', '\n')
+    text = re.sub(r'[ \t]+', ' ', text)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    # A common unformatted benefits enumeration: retain the exact item words.
+    match = re.match(r'(A parceria pode (?:oferecer|incluir)) ([^\n.!?]+)\.', text)
+    if match and ',' in match[2] and '*' not in match[2]:
+        items = re.split(r',\s*|\s+e\s+(?=[^,]+$)', match[2])
+        if 2 <= len(items) <= 6:
+            listing = '\n'.join('- *' + item.strip() + '*' for item in items)
+            text = match[1] + ':\n\n' + listing + '\n\n' + text[match.end():].strip()
+    # Break prose at sentence boundaries; do not split decimal values or lists.
+    blocks = []
+    for block in text.split('\n\n'):
+        if '\n' not in block and len(block) > 150:
+            blocks.extend(re.split(r'(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÂÊÔÃÕÇ])', block))
+        else:
+            blocks.append(block)
+    text = '\n\n'.join(block.strip() for block in blocks if block.strip())
+    if '*' not in text:
+        # Highlight a short existing sentence, without introducing a heading/fact.
+        first = text.split('\n\n', 1)[0]
+        if len(first) <= 160 and '\n' not in first:
+            text = '*' + first + '*' + text[len(first):]
+    if not re.search('[\U0001F300-\U0001FAFF\u2600-\u27BF]', text):
+        topic = text.casefold()
+        emoji = ('🎥' if 'live' in topic else '📚' if 'treinamento' in topic else
+                 '🤝' if 'comunidade' in topic or 'circle' in topic else '📋')
+        text = emoji + ' ' + text
+    if len(text.encode('utf-16-le')) // 2 > 900:
+        raise ValueError('demo_answer_too_long')
+    return text
+
+
 def payload(key, opening, opening_choices, answer=None):
     _, step, _ = key_parts(key)
     text, choices = (opening, opening_choices) if step == 'opening' else TEMPLATES[step]
     if step == 'faq_context':
-        if not isinstance(answer, str) or not 1 <= len(answer) <= 600:
+        if not isinstance(answer, str) or not 1 <= len(answer) <= 900:
             raise ValueError('demo_context_answer_required')
-        text = answer + '\n\nFicou mais claro?'
+        text = format_answer(answer) + '\n\nFicou mais claro?'
+    # One presentation rule for scripted copy and generated/context answers.
+    text = format_answer(text)
+    if len(text.encode('utf-16-le')) // 2 > 1024:
+        raise ValueError('demo_interactive_body_too_long')
     return {'content': text, 'message_type': 'outgoing', 'private': False, 'content_type': 'input_select',
             'content_attributes': {'items': [{'title': title, 'value': key + ':' + action}
                                             for action, title in choices.items()]}}
@@ -103,7 +142,7 @@ def decision(step, text, *, correlated, opening_choices, question_answerer=None)
             try:
                 answer = question_answerer(text)
                 if (isinstance(answer, dict) and isinstance(answer.get('answer'), str)
-                        and 1 <= len(answer['answer']) <= 600 and answer.get('evidence')
+                        and 1 <= len(answer['answer']) <= 900 and answer.get('evidence')
                         and answer.get('knowledge_version')):
                     grounded, target = answer, 'faq_context'
                 else:
