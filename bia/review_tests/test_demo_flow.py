@@ -20,6 +20,8 @@ class FlowCases(unittest.TestCase):
 
     def source(self, action=None, *, text=None, correlated=True):
         state = self.store.current(fixtures.SCOPE.slot)
+        if action == 'use_profile':
+            action, text = None, '@synthetic_profile'
         if action:
             payload = message_payload(state['outbox_key'], continuation_enabled=True)
             text = next(item['title'] for item in payload['content_attributes']['items'] if item['value'].endswith(':' + action))
@@ -56,14 +58,14 @@ class FlowCases(unittest.TestCase):
         self.assertIn('não vou consultar seu cadastro', self.gateway.sent[-1]['payload']['content'])
         self.assertEqual(self.store.db.execute('SELECT count(*) FROM demo_simulations').fetchone()[0], 0)
         self.assertEqual(self.choose('question'), 'faq')
-        self.assertEqual(self.choose('faq_invite'), 'faq_invite')
+        self.assertEqual(self.router.handle(self.source(text='Como funciona o convite?'))[0]['step'], 'faq_invite')
 
     def test_free_questions_use_static_answers_and_do_not_store_profile_text(self):
         self.choose('join')
         text = 'Meu perfil é @synthetic_profile. Quanto custa e tem exclusividade?'
         result = self.router.handle(self.source(text=text, correlated=False))[0]
         self.assertEqual(result['step'], 'faq_terms')
-        self.assertIn('ainda precisam ser confirmadas', self.gateway.sent[-1]['payload']['content'])
+        self.assertIn('ainda precisam ser confirmados', self.gateway.sent[-1]['payload']['content'])
         dump = '\n'.join(self.store.db.iterdump())
         self.assertNotIn('synthetic_profile', dump)
         self.assertEqual(self.store.db.execute('SELECT count(*) FROM demo_simulations').fetchone()[0], 0)
@@ -188,7 +190,8 @@ class FlowIntegration(unittest.TestCase):
         for number, action in enumerate(('join', 'use_profile', 'continue_test', 'accept_demo'), 101):
             state = router.store.current(fixtures.SCOPE.slot)
             payload = message_payload(state['outbox_key'], continuation_enabled=True)
-            title = next(item['title'] for item in payload['content_attributes']['items'] if item['value'].endswith(':' + action))
+            title = ('@synthetic_profile' if action == 'use_profile' else
+                     next(item['title'] for item in payload['content_attributes']['items'] if item['value'].endswith(':' + action)))
             response = client.post('/webhook/chatwoot', headers=headers,
                                    json=fixtures.FlaskRouting.raw(self, title, parent=state['parent_id'], identifier=str(number)))
             self.assertEqual(response.json['status'], 'demo_step_presented')

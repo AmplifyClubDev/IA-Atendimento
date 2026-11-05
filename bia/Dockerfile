@@ -8,6 +8,7 @@ COPY verify_private.py ./
 COPY pilot_scope.py conversao.py retomada.py reconferencia.py ./
 COPY demo_router.py ./
 COPY demo_flow.py ./
+COPY demo_answers.py ./
 COPY recovery.py ./
 COPY forms_compat.py ./
 COPY retention.py ./

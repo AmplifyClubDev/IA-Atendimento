@@ -24,11 +24,9 @@ from contracts import allow_inbound, inbound_key, normalize_phone, same_phone
 import demo_flow
 
 VERSION = 'v1'
-OPENING = ('🧪 *DEMONSTRAÇÃO — abertura da Bia*\n\n'
-           'Oi! Que bom ter você por aqui 💜\n\n'
+OPENING = ('Oi! Que bom ter você por aqui 💜\n\n'
            'Eu sou a Bia, da *Amplify*, uma agência de creators do TikTok Shop.\n\n'
-           'Quero entender como podemos te ajudar: você já quer fazer parte da Amplify '
-           'ou prefere conhecer a agência primeiro? 😊')
+           'Como posso te ajudar hoje? 😊')
 CHOICES = {'join': 'Quero fazer parte', 'know': 'Conhecer a Amplify', 'member': 'Já sou Amplify'}
 
 
@@ -317,11 +315,12 @@ class ProductionTransportFence:
 
 
 class DemoRouter:
-    def __init__(self, scope, store, gateway=None, *, now=clock, continuation_enabled=False):
+    def __init__(self, scope, store, gateway=None, *, now=clock, continuation_enabled=False, question_answerer=None):
         self.scope, self.store = scope, store
         self.gateway, self.now = gateway or RecordingGateway(), now
         self.continuation_enabled = continuation_enabled is True
         self.effects = SimulatedEffects()
+        self.question_answerer = question_answerer
 
     def claims(self, event):
         return self.scope.claims(event)
@@ -416,7 +415,8 @@ class DemoRouter:
             run, step, _ = demo_flow.key_parts(state['outbox_key'])
             referenced = event.get('demo_reply_to') is not None or event.get('demo_reply_external') is not None
             if run == state['run'] and step == state['step'] and not conflict and (not referenced or correlated):
-                decision = demo_flow.decision(step, event.get('text'), correlated=correlated, opening_choices=CHOICES)
+                decision = demo_flow.decision(step, event.get('text'), correlated=correlated, opening_choices=CHOICES,
+                                              question_answerer=self.question_answerer)
                 if decision:
                     key = demo_flow.new_key(run, decision['step'])
                     payload = message_payload(key, continuation_enabled=True)
@@ -569,4 +569,6 @@ def build_demo_router(settings, *, gateway=None, production_path=None):
                    if settings.get('demo_whatsapp_live') is True else RecordingGateway())
     store = DemoStore(path, production_path=production_path)
     settings['_demo_scope'] = scope
-    return DemoRouter(scope, store, gateway, continuation_enabled=settings.get('demo_continuation_enabled') is True)
+    from demo_answers import build_answerer
+    return DemoRouter(scope, store, gateway, continuation_enabled=settings.get('demo_continuation_enabled') is True,
+                      question_answerer=build_answerer(settings))

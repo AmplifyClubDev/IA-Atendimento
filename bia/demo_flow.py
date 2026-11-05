@@ -5,13 +5,13 @@ import uuid
 
 FLOW_VERSION = 'v2'
 TEMPLATES = {
-    'about': ('Somos a *Amplify*, uma agência de creators do TikTok Shop 💜\n\nQuer seguir com o seu agenciamento?',
-              {'join': 'Quero me agenciar', 'question': 'Tenho uma dúvida', 'opening': 'Voltar ao início'}),
-    'profile': ('Vamos nessa! 💜\n\nNeste teste, vamos usar um perfil de exemplo para conhecer as próximas etapas.',
-                {'use_profile': 'Usar perfil de teste', 'question': 'Tenho uma dúvida', 'opening': 'Voltar ao início'}),
+    'about': ('A *Amplify* é uma agência e comunidade para creators do TikTok Shop 💜\n\nQuer saber mais sobre a parceria ou começar seu agenciamento?',
+              {'join': 'Quero me agenciar', 'faq_terms': 'Conhecer benefícios', 'question': 'Tenho dúvidas'}),
+    'profile': ('Que legal! Vamos começar 🚀\n\nMe manda seu *@ de creator no TikTok* para seguirmos com seu agenciamento. 💜',
+                {'question': 'Tenho dúvidas', 'opening': 'Voltar ao início'}),
     'member': ('Que bom te ver por aqui de novo! 💜\n\nComo posso te ajudar? Neste teste, não vou consultar seu cadastro.',
                {'question': 'Tenho uma dúvida', 'join': 'Ver o agenciamento', 'opening': 'Voltar ao início'}),
-    'conditions': ('Antes de um convite real, você precisa conhecer e confirmar as condições 💜\n\nAqui vamos simular essa etapa, sem aceitar condições comerciais.',
+    'conditions': ('Recebi seu perfil! ✅\n\nVamos simular as próximas etapas. As condições reais ainda precisam ser confirmadas; este teste não representa aceite comercial.',
                    {'continue_test': 'Seguir no teste', 'question': 'Tenho uma dúvida', 'opening': 'Voltar ao início'}),
     'invite': ('Convite de demonstração preparado 💜\n\nQuer simular o aceite para ver como a confirmação aparece?',
                {'accept_demo': 'Simular aceite', 'decline': 'Agora não', 'question': 'Tenho uma dúvida'}),
@@ -19,14 +19,16 @@ TEMPLATES = {
                   {'opening': 'Recomeçar teste', 'question': 'Tenho uma dúvida', 'close': 'Encerrar teste'}),
     'paused': ('Tudo bem 😊\n\nO convite de teste ficou pausado. Quer retomar ou voltar ao início?',
                {'resume': 'Retomar teste', 'opening': 'Voltar ao início', 'close': 'Encerrar teste'}),
-    'faq': ('Claro! 💜 Sobre o que você quer saber?',
-            {'faq_agency': 'Como funciona?', 'faq_terms': 'Quais condições?', 'faq_invite': 'Sobre o convite'}),
-    'faq_agency': ('Você pode conhecer a Amplify e tirar suas dúvidas antes de decidir se quer seguir 💜\n\nAqui mostramos as etapas com perfil e vínculo de exemplo.',
-                   {'join': 'Quero me agenciar', 'faq_terms': 'Quais condições?', 'opening': 'Voltar ao início'}),
-    'faq_terms': ('As condições reais ainda precisam ser confirmadas 💜\n\nNesta demonstração, nenhuma comissão, prazo ou exclusividade é aceita.',
-                  {'join': 'Seguir no teste', 'faq_invite': 'Sobre o convite', 'opening': 'Voltar ao início'}),
-    'faq_invite': ('Aqui, nenhum convite real é enviado 😊\n\nO botão serve para você experimentar como seria o aceite e a confirmação.',
-                   {'join': 'Seguir no teste', 'faq_terms': 'Quais condições?', 'opening': 'Voltar ao início'}),
+    'faq': ('Claro! Me conta sua dúvida por aqui 💬',
+            {'opening': 'Voltar ao início'}),
+    'faq_agency': ('A Amplify é uma agência e comunidade para creators do TikTok Shop 💜 Você pode tirar suas dúvidas antes de decidir se quer se agenciar.\n\nFicou mais claro? 😊',
+                   {'join': 'Quero me agenciar', 'question': 'Tenho outra dúvida'}),
+    'faq_terms': ('Os benefícios e as condições reais ainda precisam ser confirmados 💜 Não tenho detalhes confirmados sobre comissão, prazo ou exclusividade para te passar neste teste.\n\nFicou mais claro? 😊',
+                  {'join': 'Quero me agenciar', 'question': 'Tenho outra dúvida'}),
+    'faq_invite': ('Aqui, nenhum convite real é enviado 😊 O aceite e o vínculo são simulados, sem agenciar seu perfil.\n\nFicou mais claro? 😊',
+                   {'join': 'Quero me agenciar', 'question': 'Tenho outra dúvida'}),
+    'faq_unknown': ('Ainda não tenho essa informação confirmada para te responder 💜 Pode explicar sua dúvida de outra forma?',
+                    {'question': 'Tenho outra dúvida', 'join': 'Quero me agenciar'}),
     'closed': ('Teste encerrado 💜\n\nSe quiser começar de novo, é só tocar abaixo.',
                {'opening': 'Recomeçar teste'}),
 }
@@ -71,10 +73,28 @@ def question_step(text):
     return None
 
 
-def decision(step, text, *, correlated, opening_choices):
+def decision(step, text, *, correlated, opening_choices, question_answerer=None):
     choices = opening_choices if step == 'opening' else TEMPLATES[step][1]
     action = next((action for action, title in choices.items() if text == title), None) if correlated else None
+    if not action and step == 'profile' and isinstance(text, str) and re.fullmatch(r'@[A-Za-z0-9_.]{2,24}', text.strip()):
+        return {'action': 'profile_received', 'step': 'conditions', 'effects': [('tiktok', 'eligible')]}
     target = TRANSITIONS[action] if action else question_step(text)
+    # A bare menu label must not bypass reply correlation. Free questions never
+    # execute transitions or authorize simulated acceptance, even if AI errs.
+    known_labels = set(opening_choices.values()) | {label for _, menu in TEMPLATES.values() for label in menu.values()}
+    if not action and (text in known_labels if isinstance(text, str) else False):
+        return None
+    if step == 'closed' and not action:
+        return None
+    if not action and isinstance(text, str) and text not in known_labels and step != 'closed' and (target or step in {'faq', 'member'}):
+        if question_answerer:
+            try:
+                answer = question_answerer(text)
+                target = answer if answer in {'faq_agency', 'faq_terms', 'faq_invite', 'faq_unknown'} else 'faq_unknown'
+            except Exception:
+                target = 'faq_unknown'
+        elif step in {'faq', 'member'} and not target:
+            target = 'faq_unknown'
     if not target:
         return None
     effects = []
