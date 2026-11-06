@@ -447,14 +447,20 @@ class DemoRouter:
                 resume_step = metadata.get('resume_step') if step in demo_flow.FAQ_STEPS else step
                 if resume_step not in demo_flow.RETURN_STEPS:
                     resume_step = 'opening'
+                last_question = demo_flow.safe_context_text(metadata.get('last_question'), 500)
+                if not last_question and step == 'faq_unavailable' and state['choice'] == 'faq_benefits':
+                    # Compatibility with an already presented failure from the old
+                    # benefits button, whose exact menu question was not persisted.
+                    last_question = demo_flow.TEMPLATES['about'][1]['faq_benefits']
                 question_answerer = self.question_answerer
                 if getattr(question_answerer, 'accepts_dialogue_context', False) is True:
                     dialogue = {'current_step': step, 'return_step': resume_step,
-                                'last_question': metadata.get('last_question', ''),
+                                'last_question': last_question,
                                 'last_answer': json.loads(previous['payload']).get('content', '') if previous else ''}
                     question_answerer = lambda question: self.question_answerer(question, conversation=dialogue)
                 decision = demo_flow.decision(step, event.get('text'), correlated=correlated, opening_choices=CHOICES,
-                                              question_answerer=question_answerer, resume_step=resume_step)
+                                              question_answerer=question_answerer, resume_step=resume_step,
+                                              last_question=last_question)
                 if decision:
                     key = demo_flow.new_key(run, decision['step'])
                     grounded = decision.get('grounded')
@@ -470,7 +476,7 @@ class DemoRouter:
                                                json.dumps({'pending_event_key': event_key, 'choice': decision['action'],
                                                            'grounded': grounded,
                                                            'resume_step': resume_step if decision['step'] in demo_flow.FAQ_STEPS else decision['step'],
-                                                           'last_question': demo_flow.safe_context_text(event.get('text'), 500) if decision['action'] == 'question' else ''})))
+                                                           'last_question': demo_flow.safe_context_text(decision.get('question'), 500)})))
                         self.store.db.execute('UPDATE demo_runs SET step=?,choice=?,parent_id=NULL,parent_external=NULL,'
                                               'outbox_key=?,started=?,watermark=? WHERE slot=?',
                                               ('delivery_pending', decision['action'], key, clock(self.now()).isoformat(),
