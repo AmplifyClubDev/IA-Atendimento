@@ -22,21 +22,36 @@ TEMPLATES = {
                {'resume': 'Retomar teste', 'opening': 'Voltar ao início', 'close': 'Encerrar teste'}),
     'faq': ('Claro! Me conta sua dúvida por aqui 💬',
             {'opening': 'Voltar ao início'}),
-    'faq_agency': ('A Amplify é uma agência e comunidade para creators do TikTok Shop ✨ Você pode tirar suas dúvidas antes de decidir se quer se agenciar.\n\nFicou mais claro?',
+    'faq_agency': ('A Amplify é uma agência e comunidade para creators do TikTok Shop ✨ Você pode tirar suas dúvidas antes de decidir se quer se agenciar.',
                    {'join': 'Quero me agenciar', 'question': 'Tenho outra dúvida'}),
     # Verified active V5 card beneficios, contextos-ia-v1:a2e71fb5d6108de76489c25456fda6bc,
     # read on 2026-11-05. Availability is conditional, not a general entitlement.
-    'faq_benefits': ('A parceria pode incluir 🌟\n\n- *Treinamentos*\n- *Suporte*\n- *Comunidade no Circle*\n- *Oportunidades de campanhas*\n\nOs benefícios variam conforme sua categoria e cada ação, sujeitos à disponibilidade e às condições da parceria.\n\nFicou mais claro?',
+    'faq_benefits': ('A parceria pode incluir 🌟\n\n- *Treinamentos*\n- *Suporte*\n- *Comunidade no Circle*\n- *Oportunidades de campanhas*\n\nOs benefícios variam conforme sua categoria e cada ação, sujeitos à disponibilidade e às condições da parceria.',
                      {'join': 'Quero me agenciar', 'question': 'Tenho outra dúvida'}),
-    'faq_terms': ('As condições reais ainda precisam ser confirmadas 📋 Não tenho detalhes confirmados sobre comissão, prazo ou exclusividade para te passar neste teste.\n\nFicou mais claro?',
+    'faq_terms': ('As condições reais ainda precisam ser confirmadas 📋 Não tenho detalhes confirmados sobre comissão, prazo ou exclusividade para te passar neste teste.',
                   {'join': 'Quero me agenciar', 'question': 'Tenho outra dúvida'}),
-    'faq_invite': ('Aqui, nenhum convite real é enviado 📨 O aceite e o vínculo são simulados, sem agenciar seu perfil.\n\nFicou mais claro?',
+    'faq_invite': ('Aqui, nenhum convite real é enviado 📨 O aceite e o vínculo são simulados, sem agenciar seu perfil.',
                    {'join': 'Quero me agenciar', 'question': 'Tenho outra dúvida'}),
-    'faq_unknown': ('Ainda não tenho essa informação confirmada para te responder 🔎 Pode explicar sua dúvida de outra forma?',
+    'faq_unknown': ('Essa informação não está confirmada na base disponível 🔎\n\nNão vou inventar uma resposta. Você pode perguntar sobre outro assunto ou retomar a etapa.',
                     {'question': 'Tenho outra dúvida', 'join': 'Quero me agenciar'}),
+    'faq_unavailable': ('Não consegui consultar as informações agora ⚙️\n\nSua etapa está preservada. Você pode tentar a pergunta novamente.',
+                        {'question': 'Tentar novamente', 'back': 'Retomar etapa'}),
     'closed': ('Teste encerrado 👋\n\nSe quiser começar de novo, é só tocar abaixo.',
                {'opening': 'Recomeçar teste'}),
 }
+FAQ_STEPS = frozenset(step for step in TEMPLATES if step == 'faq' or step.startswith('faq_'))
+RETURN_STEPS = frozenset({'opening', 'about', 'profile', 'member', 'conditions', 'invite', 'confirmed', 'paused'})
+for _step in FAQ_STEPS:
+    _text, _choices = TEMPLATES[_step]
+    TEMPLATES[_step] = (_text, {**_choices, 'back': 'Retomar etapa'})
+
+
+def safe_context_text(value, limit=900):
+    if not isinstance(value, str):
+        return ''
+    value = re.sub(r'[A-Za-z0-9_.+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|@[A-Za-z0-9_.]+|https?://\S+|\+?\d[\d ()-]{9,}\d', '[dado removido]', value)
+    return value[:limit]
+
 TRANSITIONS = {'join': 'profile', 'know': 'about', 'member': 'member', 'question': 'faq',
                'opening': 'opening', 'use_profile': 'conditions', 'continue_test': 'invite',
                'accept_demo': 'confirmed', 'decline': 'paused', 'resume': 'invite',
@@ -98,7 +113,7 @@ def payload(key, opening, opening_choices, answer=None):
     if step == 'faq_context':
         if not isinstance(answer, str) or not 1 <= len(answer) <= 900:
             raise ValueError('demo_context_answer_required')
-        text = format_answer(answer) + '\n\nFicou mais claro?'
+        text = format_answer(answer)
     # One presentation rule for scripted copy and generated/context answers.
     text = format_answer(text)
     if len(text.encode('utf-16-le')) // 2 > 1024:
@@ -123,11 +138,19 @@ def question_step(text):
     return None
 
 
-def decision(step, text, *, correlated, opening_choices, question_answerer=None):
+def decision(step, text, *, correlated, opening_choices, question_answerer=None, resume_step=None):
     choices = opening_choices if step == 'opening' else TEMPLATES[step][1]
     action = next((action for action, title in choices.items() if text == title), None) if correlated else None
     if not action and step == 'profile' and isinstance(text, str) and re.fullmatch(r'@[A-Za-z0-9_.]{2,24}', text.strip()):
         return {'action': 'profile_received', 'step': 'conditions', 'effects': [('tiktok', 'eligible')]}
+    if step in FAQ_STEPS and action in {'back', 'join'}:
+        target = resume_step if resume_step in RETURN_STEPS else ('profile' if action == 'join' else 'opening')
+        if action == 'join' and target in {'opening', 'about', 'member'}:
+            target = 'profile'
+        return {'action': action, 'step': target, 'effects': []}
+    # Short acknowledgments only redisplay a preserved stage; never accept terms/invites.
+    if step in FAQ_STEPS and resume_step in RETURN_STEPS and isinstance(text, str) and text.strip().casefold() in {'sim', 'ok', 'entendi', 'continuar', 'continue'}:
+        return {'action': 'back', 'step': resume_step, 'effects': []}
     target = TRANSITIONS[action] if action else question_step(text)
     # A bare menu label must not bypass reply correlation. Free questions never
     # execute transitions or authorize simulated acceptance, even if AI errs.
@@ -146,9 +169,9 @@ def decision(step, text, *, correlated, opening_choices, question_answerer=None)
                         and answer.get('knowledge_version')):
                     grounded, target = answer, 'faq_context'
                 else:
-                    target = answer if isinstance(answer, str) and answer in {'faq_agency', 'faq_terms', 'faq_invite', 'faq_unknown', 'faq_benefits'} else 'faq_unknown'
+                    target = answer if isinstance(answer, str) and answer in {'faq_agency', 'faq_terms', 'faq_invite', 'faq_unknown', 'faq_benefits', 'faq_unavailable'} else 'faq_unknown'
             except Exception:
-                target = 'faq_unknown'
+                target = 'faq_unavailable'
         elif step in {'faq', 'member'} and not target:
             target = 'faq_unknown'
     if not target:
