@@ -458,7 +458,7 @@ class FlaskRouting(unittest.TestCase):
 
     def test_owner_remains_excluded_when_demo_storage_fails(self):
         app, repo, transport, gateway = self.make_app()
-        app.extensions['v5_demo_router'].handle = Mock(side_effect=RuntimeError('synthetic failure'))
+        app.extensions['v5_demo_router'].handle_verified_webhook = Mock(side_effect=RuntimeError('synthetic failure'))
         response = app.test_client().post('/webhook/chatwoot?token=' + TOKEN, json=self.raw())
         self.assertEqual(response.status_code, 503)
         transport.send_reply.assert_not_called()
