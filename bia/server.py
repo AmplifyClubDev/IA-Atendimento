@@ -1381,7 +1381,9 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
         try:
             if payload is not None:
                 event = demo_router.decorate(event, payload)
-            result, code = demo_router.handle(event)
+                result, code = demo_router.handle_verified_webhook(event)
+            else:
+                result, code = demo_router.handle(event)
         except Exception:
             result, code = {'accepted': False, 'status': 'demo_unavailable'}, 503
         # Only bounded routing metadata; never message text, phone or exception details.
@@ -1404,17 +1406,18 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
         if not isinstance(payload, dict):
             return jsonify(status='json_required'), 415
         allowed = {'start': {'request_id'}, 'reconcile': set(), 'stop': set(), 'simulate': {'operation', 'fixture'}}
-        if action not in allowed or set(payload) - allowed[action]:
+        if action not in allowed or set(payload) - (allowed[action] | {'scope'}):
             return jsonify(status='demo_control_rejected'), 400
         try:
+            target = demo_router.select(payload.get('scope'))
             if action == 'start':
-                result = demo_router.start(payload.get('request_id'))
+                result = target.start(payload.get('request_id'))
             elif action == 'reconcile':
-                result = demo_router.reconcile()
+                result = target.reconcile()
             elif action == 'stop':
-                result = demo_router.stop()
+                result = target.stop()
             else:
-                result = demo_router.simulate(payload.get('operation'), payload.get('fixture', 'unknown'))
+                result = target.simulate(payload.get('operation'), payload.get('fixture', 'unknown'))
             return jsonify(**result), 200
         except Exception:
             return jsonify(status='demo_control_unconfirmed'), 409
@@ -1429,11 +1432,13 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
             return jsonify(accepted=False, status="json_required"), 415
         payload = request.get_json(silent=True)
         event = normalize_chatwoot(payload)
-        if not event or not allow_inbound(gate, event):
-            return jsonify(accepted=False, status="ignored"), 202
-        if demo_router and demo_router.claims(event):
+        # The demo has its own exact recipient gate. Never add its second phone
+        # to the production allowlist, and never bypass the global enabled flag.
+        if event and gate.get('enabled') is True and demo_router and demo_router.claims(event):
             body, code = handle_demo(event, payload)
             return jsonify(**body), code
+        if not event or not allow_inbound(gate, event):
+            return jsonify(accepted=False, status="ignored"), 202
         from contracts import gate_mode, is_test_phone
         if gate_mode(gate) == 'todos' and not is_test_phone(gate, event.get('sender_phone')):
             # Release 47: com a caixa inteira, quem está excluído (etiqueta "Renovacao de contrato", responsável ou
