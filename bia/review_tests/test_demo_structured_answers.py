@@ -153,6 +153,23 @@ class StructuredAnswerCases(unittest.TestCase):
                 self.assertNotIn('300 a 450', instructions)
                 self.assertEqual(body['text']['format']['schema']['properties']['answer']['maxLength'], 600)
 
+    def test_general_benefits_use_amplify_framing_without_renaming_specific_club_answers(self):
+        self.knowledge['topics'].append({'id': 'club', 'answer': 'O Amplify Club é uma comunidade específica.'})
+        catalog = _evidence_catalog(self.knowledge)
+        for question, text, identifier in (
+                ('Conhecer benefícios', 'Na Amplify, os benefícios dependem da categoria e da disponibilidade.', 'benefits'),
+                ('Como funciona o Amplify Club?', 'O Amplify Club é uma comunidade específica.', 'club')):
+            with self.subTest(question=question):
+                ref = next(ref for ref, item in catalog.items() if item['id'] == identifier)
+                outcome, body, _ = self.run_answer(question=question, value={'answer': text, 'evidence': [ref]})
+                for phrase in ('apresente a resposta como Na Amplify', 'sem trocar o assunto para No Club da Amplify',
+                               'Use Amplify Club como comunidade/plataforma específica',
+                               'não torna um benefício exclusivo do Club ou de uma categoria disponível para todos'):
+                    self.assertIn(phrase, body['instructions'])
+                self.assertEqual(json.loads(body['input'])['question'], question)
+                self.assertEqual(outcome['answer'], format_answer(text))
+                self.assertEqual(outcome['evidence'], [catalog[ref]])
+
     def test_short_visual_answers_keep_spacing_emoji_and_complete_source_evidence(self):
         examples = (
             '📚 *As opções variam.*\n\n- Por categoria.\n- Conforme a disponibilidade.',
