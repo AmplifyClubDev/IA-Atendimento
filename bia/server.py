@@ -1381,9 +1381,18 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
         try:
             if payload is not None:
                 event = demo_router.decorate(event, payload)
-            return demo_router.handle(event)
+            result, code = demo_router.handle(event)
         except Exception:
-            return {'accepted': False, 'status': 'demo_unavailable'}, 503
+            result, code = {'accepted': False, 'status': 'demo_unavailable'}, 503
+        # Only bounded routing metadata; never message text, phone or exception details.
+        status = result.get('status')
+        if not isinstance(status, str) or not re.fullmatch(r'demo_[a-z_]{1,60}', status):
+            status = 'demo_unavailable'
+        print(json.dumps({
+            'message_id': _positive_id(event.get('message_id')),
+            'conversation_id': _positive_id(event.get('conversation_id')),
+            'status': status}, sort_keys=True), flush=True)
+        return result, code
 
     @app.post('/demo/<action>')
     def demo_control(action):
