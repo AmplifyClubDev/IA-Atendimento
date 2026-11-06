@@ -334,6 +334,9 @@ class DemoRouter:
         return self.scope.claims(event)
 
     def start(self, request_id):
+        return self._start(request_id)
+
+    def _start(self, request_id, *, reset_event=None):
         if not isinstance(request_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,80}', request_id):
             raise ValueError('demo_start_request_id_required')
         with self.store.lock:
@@ -349,6 +352,8 @@ class DemoRouter:
             watermark = str(preflight.get('after_message_id', '0'))
             if not re.fullmatch(r'[0-9]{1,20}', watermark):
                 raise ValueError('demo_watermark_invalid')
+            if reset_event:
+                watermark = str(max(int(watermark), int(reset_event[2])))
             run = uuid.uuid4().hex
             key = (demo_flow.new_key(run, 'opening') if self.continuation_enabled else
                    'bia-demo:' + VERSION + ':' + run + ':opening')
@@ -361,11 +366,18 @@ class DemoRouter:
                 self.store.db.execute('INSERT OR REPLACE INTO demo_runs VALUES(?,?,?,?,?,?,?,?,?)',
                     (self.scope.slot, run, clock(self.now()).isoformat(), watermark,
                      'delivery_pending' if self.continuation_enabled else 'opening', None, None, None, key))
+                metadata = {'reset_event_key': reset_event[0]} if reset_event else None
                 self.store.db.execute('INSERT INTO demo_outbox VALUES(?,?,?,?,?,?)',
-                    (key, self.scope.slot, run, json.dumps(payload), 'outcome_unknown', None))
+                    (key, self.scope.slot, run, json.dumps(payload), 'outcome_unknown',
+                     json.dumps(metadata) if metadata else None))
                 result = {'status': 'demo_delivery_unconfirmed', 'run': run, 'repeat_allowed': False}
                 self.store.db.execute('INSERT INTO demo_starts VALUES(?,?,?,?)',
                     (self.scope.slot, request_id, run, json.dumps(result)))
+                if reset_event:
+                    event_result = {'accepted': False, 'status': 'demo_delivery_unconfirmed',
+                                    'repeat_allowed': False, 'production_effects': False}
+                    self.store.db.execute('INSERT INTO demo_events VALUES(?,?,?,?)',
+                        (self.scope.slot, reset_event[0], reset_event[1], json.dumps(event_result)))
                 self.store.db.execute('COMMIT')
             except Exception:
                 self.store.db.execute('ROLLBACK')
@@ -413,6 +425,11 @@ class DemoRouter:
                                 'production_effects': False}
                 self.store.db.execute('UPDATE demo_events SET result=? WHERE slot=? AND event_key=?',
                                       (json.dumps(event_result), self.scope.slot, metadata['pending_event_key']))
+            if metadata.get('reset_event_key'):
+                event_result = {'accepted': True, 'status': 'demo_reset_presented', 'step': 'opening',
+                                'message_id': str(receipt['message_id']), 'production_effects': False}
+                self.store.db.execute('UPDATE demo_events SET result=? WHERE slot=? AND event_key=?',
+                                      (json.dumps(event_result), self.scope.slot, metadata['reset_event_key']))
         return result
 
     def _handle_flow_locked(self, event, state, event_key, fingerprint, *, correlated, conflict):
@@ -508,6 +525,43 @@ class DemoRouter:
                     or (state['parent_external'] and event.get('demo_reply_external') is not None and not external))
         return recent, parent or external, conflict
 
+    def _handle_reset(self, event, event_key, fingerprint):
+        # Reset is a fresh inbound command, not an old button or an expiry bypass.
+        # Keep the same identity checks, durable deduplication and unknown-send fence.
+        with self.store.lock:
+            previous = self.store.db.execute('SELECT digest,result FROM demo_events WHERE slot=? AND event_key=?',
+                                             (self.scope.slot, event_key)).fetchone()
+            if previous:
+                return (json.loads(previous['result']) if previous['digest'] == fingerprint else
+                        {'accepted': False, 'status': 'demo_conflicting_duplicate'}), 202
+            state = self.store.current(self.scope.slot)
+            try:
+                if not isinstance(event.get('created_at'), str) or not identifier(event.get('message_id')):
+                    raise ValueError('demo_timestamp_or_id_required')
+                stamp, now = clock(event['created_at']), clock(self.now())
+                recent = (now - timedelta(minutes=5) <= stamp <= now + timedelta(seconds=30)
+                          and (not state or (stamp >= clock(state['started'])
+                               and int(event['message_id']) > int(state['watermark']))))
+            except (ValueError, TypeError, KeyError, OverflowError):
+                recent = False
+            result = {'accepted': False, 'status': 'demo_stale_event', 'production_effects': False}
+            if recent:
+                try:
+                    result = self._start('inbound-reset-' + digest(event_key),
+                                         reset_event=(event_key, fingerprint, event['message_id']))
+                except Exception:
+                    result = {'status': 'demo_reset_unavailable'}
+                # The start transaction persisted this event before any send. If
+                # receipt persistence failed, return its uncertainty, never retry.
+                cached = self.store.db.execute('SELECT result FROM demo_events WHERE slot=? AND event_key=?',
+                                               (self.scope.slot, event_key)).fetchone()
+                if cached:
+                    return json.loads(cached['result']), 202
+                result = {'accepted': False, 'production_effects': False, **result}
+            self.store.db.execute('INSERT INTO demo_events VALUES(?,?,?,?)',
+                                  (self.scope.slot, event_key, fingerprint, json.dumps(result)))
+            return result, 202
+
     def _handle_continuation(self, event, event_key, fingerprint):
         # Keep one contact serialized, but commit uncertainty before network IO.
         with self.store.lock:
@@ -533,6 +587,8 @@ class DemoRouter:
         if not self.scope.accepts(event):
             return {'accepted': False, 'status': 'demo_identity_rejected'}, 202
         event_key, fingerprint = inbound_key(event), digest(event)
+        if event['text'].strip().casefold() == 'resetar':
+            return self._handle_reset(event, event_key, fingerprint)
         if self.continuation_enabled:
             return self._handle_continuation(event, event_key, fingerprint)
         with self.store.transaction():
