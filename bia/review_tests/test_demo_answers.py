@@ -3,7 +3,7 @@ import json
 import unittest
 from unittest.mock import Mock
 import demo_flow
-from demo_answers import build_answerer
+from demo_answers import build_answerer, _evidence_catalog
 from demo_router import OPENING, CHOICES
 import test_demo_flow
 
@@ -17,9 +17,10 @@ class AnswerCases(unittest.TestCase):
         context = {'source': 'database', 'knowledge_version': 'synthetic-v1',
                    'personality': 'Seja breve', 'limits': 'Não garantir resultados.',
                    'topics': [{'id': 'lives', 'answer': 'Fazer live não é obrigatório para participar da parceria.'}]}
-        for quote, expected in [('Fazer live não é obrigatório', True), ('Live é obrigatória', False)]:
+        reference = next(ref for ref, item in _evidence_catalog(context).items() if item['id'] == 'lives')
+        for quote, expected in [(reference, True), ('unknown-reference', False)]:
             fake = Mock()
-            response = json.dumps({'answer': 'Não, live não é obrigatória.', 'evidence': [{'id': 'lives', 'quote': quote}]})
+            response = json.dumps({'answer': 'Não, live não é obrigatória.', 'evidence': [quote]})
             fake.open.return_value = io.BytesIO(json.dumps({'status': 'completed', 'output': [
                 {'type': 'message', 'role': 'assistant', 'content': [{'type': 'output_text', 'text': response}]}]}).encode())
             loader = Mock(return_value=context)
