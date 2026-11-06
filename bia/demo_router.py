@@ -665,6 +665,10 @@ def build_demo_router(settings, *, gateway=None, production_path=None):
             return json.loads(row['payload'])
         gateway.context_payload = persisted_context_payload
     settings['_demo_scope'] = scope
-    from demo_answers import build_answerer
-    return DemoRouter(scope, store, gateway, continuation_enabled=settings.get('demo_continuation_enabled') is True,
-                      question_answerer=build_answerer(settings))
+    from demo_answers import build_answerer, schedule_smoke_check
+    router = DemoRouter(scope, store, gateway, continuation_enabled=settings.get('demo_continuation_enabled') is True,
+                        question_answerer=build_answerer(settings))
+    # The diagnostic receives no router, message gateway, production store or
+    # effects adapter. It can only ask two synthetic questions of the answerer.
+    schedule_smoke_check(settings, store, scope.slot, router.question_answerer)
+    return router
