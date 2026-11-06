@@ -137,6 +137,44 @@ class StructuredAnswerCases(unittest.TestCase):
                 self.assertEqual(rows[-1]['category'], 'answer_accepted')
                 self.assertNotIn(text, json.dumps(rows))
 
+    def test_visual_brevity_applies_to_every_topic_without_removing_qualifiers(self):
+        for question in ('Quais benefícios?', 'O que eu ganho na parceria?', 'Preciso fazer lives?',
+                         'Posso sair da parceria?', 'Como funciona a comunidade?'):
+            with self.subTest(question=question):
+                _, body, _ = self.run_answer(question=question)
+                instructions = body['instructions']
+                for phrase in ('entre 180 e 280 caracteres', 'não há mínimo', 'até 3 pontos essenciais',
+                               'uma ideia por frase', 'palavras próprias', 'duas quebras de linha',
+                               'um item curto por linha', '1 a 3 emojis pertinentes', 'a última resposta',
+                               'Não despeje todos os cards', 'não as condições dos fatos que mantiver',
+                               'Nunca corte frase, palavra, ressalva', 'o teto é 600, não uma meta'):
+                    self.assertIn(phrase, instructions)
+                self.assertNotIn('300 e 450', instructions)
+                self.assertNotIn('300 a 450', instructions)
+                self.assertEqual(body['text']['format']['schema']['properties']['answer']['maxLength'], 600)
+
+    def test_short_visual_answers_keep_spacing_emoji_and_complete_source_evidence(self):
+        examples = (
+            '📚 *As opções variam.*\n\n- Por categoria.\n- Conforme a disponibilidade.',
+            '🤝 *Depende da sua categoria.*\n\nE também da disponibilidade de cada benefício.',
+            '📋 *A categoria e a disponibilidade definem as opções.*',
+        )
+        for text in examples:
+            with self.subTest(text=text):
+                outcome, _, rows = self.run_answer(value={**self.value, 'answer': text})
+                self.assertEqual(outcome['answer'], format_answer(text))
+                self.assertIn(text, outcome['answer'])
+                self.assertEqual(outcome['evidence'], self.expected_evidence)
+                self.assertEqual(rows[-1]['category'], 'answer_accepted')
+
+    def test_soft_brevity_target_does_not_cut_or_retry_a_complete_longer_answer(self):
+        text = ('Cada benefício depende da categoria e da disponibilidade. ' * 6).strip()
+        self.assertGreater(len(text), 280)
+        self.assertLess(len(text), 600)
+        outcome, _, rows = self.run_answer(value={**self.value, 'answer': text})
+        self.assertEqual(outcome['answer'], format_answer(text))
+        self.assertEqual([row['category'] for row in rows], ['context_loaded', 'answer_accepted'])
+
     def test_jargon_inside_literal_evidence_is_not_treated_as_answer_jargon(self):
         quote = 'O processo operacional preserva as condições.'
         self.knowledge['topics'][0]['answer'] = quote
