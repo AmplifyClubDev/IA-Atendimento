@@ -2,7 +2,7 @@
 
 Disabled by default. This module never imports the production bootstrap,
 repository, provider clients, AI or mail sender. Live delivery is a separate
-explicit capability, limited to at most two verified Chatwoot conversations.
+explicit capability, limited to at most four verified Chatwoot conversations.
 """
 from __future__ import annotations
 
@@ -24,6 +24,7 @@ from contracts import allow_inbound, inbound_key, normalize_phone, same_phone
 import demo_flow
 
 VERSION = 'v1'
+MAX_DEMO_SCOPES = 4
 OPENING = ('Oi! Que bom ter você por aqui 💙\n\n'
            'Eu sou a Bia, da *Amplify*, uma agência de creators do TikTok Shop.\n\n'
            'Como posso te ajudar hoje? 😊')
@@ -142,7 +143,7 @@ class DemoScopes:
     scopes: tuple
 
     def __post_init__(self):
-        if (type(self.scopes) is not tuple or not 1 <= len(self.scopes) <= 2
+        if (type(self.scopes) is not tuple or not 1 <= len(self.scopes) <= MAX_DEMO_SCOPES
                 or any(not isinstance(scope, (DemoScope, DemoPhoneReservation)) for scope in self.scopes)):
             raise ValueError('demo_scopes_invalid')
         primary = self.scopes[0]
@@ -181,7 +182,7 @@ def configured_scopes(settings):
     if 'demo_scopes' not in settings:
         return (primary,)
     values = settings['demo_scopes']
-    if type(values) is not list or not 1 <= len(values) <= 2:
+    if type(values) is not list or not 1 <= len(values) <= MAX_DEMO_SCOPES:
         raise ValueError('demo_scopes_invalid')
     scopes = DemoScopes(tuple(parse(value) for value in values)).scopes
     if (any(getattr(scopes[0], name) != getattr(primary, name)
@@ -202,11 +203,11 @@ def configured_pending_scope(settings, scopes):
     if 'demo_pending_scope' not in settings:
         return None
     value = settings['demo_pending_scope']
-    if (len(scopes) != 1 or not isinstance(value, dict)
+    if (not 1 <= len(scopes) < MAX_DEMO_SCOPES or not isinstance(value, dict)
             or set(value) != {'account_id', 'inbox_id', 'phone'}):
         raise ValueError('demo_pending_scope_invalid')
     pending = DemoPhoneReservation(**value)
-    DemoScopes((scopes[0], pending))
+    DemoScopes(tuple(scopes) + (pending,))
     gate = settings.get('gate') or {}
     if (gate.get('provider'), gate.get('account_id'), gate.get('inbox_id')) != (
             'chatwoot', pending.account_id, pending.inbox_id):
