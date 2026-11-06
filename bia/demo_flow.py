@@ -6,8 +6,12 @@ import uuid
 FLOW_VERSION = 'v2'
 TEMPLATES = {
     'faq_context': ('', {'join': 'Quero me agenciar', 'question': 'Tenho outra dúvida'}),
-    'about': ('A *Amplify* é uma agência e comunidade para creators do TikTok Shop ✨\n\nQuer saber mais sobre a parceria ou começar seu agenciamento?',
-              {'join': 'Quero me agenciar', 'faq_benefits': 'Conhecer benefícios', 'question': 'Tenho dúvidas'}),
+    'about': ('O que você quer conhecer? ✨\n\nEscolha um tema ou escreva sua dúvida.',
+              {'faq_benefits': 'Conhecer benefícios', 'topic_partnership': 'Parceria e regras', 'topic_more': 'Mais assuntos'}),
+    'faq_partnership': ('Vamos falar da parceria 🤝\n\nEscolha um tema ou escreva sua dúvida.',
+                        {'faq_terms': 'Regras e saída', 'faq_invite': 'Convite e aceite', 'back': 'Ver tópicos'}),
+    'faq_more': ('Qual assunto te interessa? 💬\n\nVocê também pode escrever sua dúvida.',
+                 {'topic_lives': 'Lives e conteúdo', 'topic_club': 'Amplify Club', 'back': 'Ver tópicos'}),
     'profile': ('Que legal! Vamos começar 🚀\n\nMe manda seu *@ de creator no TikTok* para seguirmos com seu agenciamento.',
                 {'question': 'Tenho dúvidas', 'opening': 'Voltar ao início'}),
     'member': ('Que bom te ver por aqui de novo! 👋\n\nComo posso te ajudar? Neste teste, não vou consultar seu cadastro.',
@@ -21,7 +25,7 @@ TEMPLATES = {
     'paused': ('Tudo bem 😊\n\nO convite de teste ficou pausado. Quer retomar ou voltar ao início?',
                {'resume': 'Retomar teste', 'opening': 'Voltar ao início', 'close': 'Encerrar teste'}),
     'faq': ('Claro! Me conta sua dúvida por aqui 💬',
-            {'opening': 'Voltar ao início'}),
+            {'back': 'Ver tópicos'}),
     'faq_agency': ('A Amplify é uma agência e comunidade para creators do TikTok Shop ✨ Você pode tirar suas dúvidas antes de decidir se quer se agenciar.',
                    {'join': 'Quero me agenciar', 'question': 'Tenho outra dúvida'}),
     # Verified active V5 card beneficios, contextos-ia-v1:a2e71fb5d6108de76489c25456fda6bc,
@@ -32,7 +36,7 @@ TEMPLATES = {
                   {'join': 'Quero me agenciar', 'question': 'Tenho outra dúvida'}),
     'faq_invite': ('Aqui, nenhum convite real é enviado 📨 O aceite e o vínculo são simulados, sem agenciar seu perfil.',
                    {'join': 'Quero me agenciar', 'question': 'Tenho outra dúvida'}),
-    'faq_unknown': ('Essa informação não está confirmada na base disponível 🔎\n\nNão vou inventar uma resposta. Você pode perguntar sobre outro assunto ou retomar a etapa.',
+    'faq_unknown': ('Não tenho essa informação confirmada 🔎\n\nVocê pode escolher outro tema ou perguntar de outro jeito.',
                     {'question': 'Tenho outra dúvida', 'join': 'Quero me agenciar'}),
     'faq_unavailable': ('Não consegui consultar as informações agora ⚙️\n\nSua etapa está preservada. Você pode tentar a pergunta novamente.',
                         {'retry': 'Tentar novamente', 'back': 'Retomar etapa'}),
@@ -40,10 +44,8 @@ TEMPLATES = {
                {'opening': 'Recomeçar teste'}),
 }
 FAQ_STEPS = frozenset(step for step in TEMPLATES if step == 'faq' or step.startswith('faq_'))
+KNOWLEDGE_STEPS = FAQ_STEPS | {'about'}
 RETURN_STEPS = frozenset({'opening', 'about', 'profile', 'member', 'conditions', 'invite', 'confirmed', 'paused'})
-for _step in FAQ_STEPS:
-    _text, _choices = TEMPLATES[_step]
-    TEMPLATES[_step] = (_text, {**_choices, 'back': 'Retomar etapa'})
 
 
 def safe_context_text(value, limit=900):
@@ -52,11 +54,43 @@ def safe_context_text(value, limit=900):
     value = re.sub(r'[A-Za-z0-9_.+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|@[A-Za-z0-9_.]+|https?://\S+|\+?\d[\d ()-]{9,}\d', '[dado removido]', value)
     return value[:limit]
 
-TRANSITIONS = {'join': 'profile', 'know': 'about', 'member': 'member', 'question': 'faq',
+TRANSITIONS = {'join': 'profile', 'know': 'about', 'member': 'member', 'question': 'about',
                'opening': 'opening', 'use_profile': 'conditions', 'continue_test': 'invite',
                'accept_demo': 'confirmed', 'decline': 'paused', 'resume': 'invite',
                'close': 'closed', 'faq_agency': 'faq_agency', 'faq_terms': 'faq_terms',
-               'faq_invite': 'faq_invite', 'faq_benefits': 'faq_benefits', 'retry': 'faq_unavailable'}
+               'faq_invite': 'faq_invite', 'faq_benefits': 'faq_benefits', 'retry': 'faq_unavailable',
+               'topic_partnership': 'faq_partnership', 'topic_more': 'faq_more',
+               'topic_lives': 'faq_unavailable', 'topic_club': 'faq_unavailable'}
+TOPIC_QUESTIONS = {
+    'faq_benefits': 'Conhecer benefícios',
+    'faq_terms': 'Quais são as regras da parceria e como funciona a saída?',
+    'faq_invite': 'Como funciona o convite e o aceite da parceria?',
+    'topic_lives': 'Preciso fazer lives para participar da parceria?',
+    'topic_club': 'O que é o Amplify Club e como funciona o acesso?',
+}
+
+
+def presented_choices(key, message):
+    """Use the exact persisted buttons, including those shown before a deploy."""
+    if not isinstance(message, dict) or message.get('content_type') != 'input_select':
+        return {}
+    attributes = message.get('content_attributes')
+    items = attributes.get('items') if isinstance(attributes, dict) else None
+    if not isinstance(items, list) or not 1 <= len(items) <= 3:
+        return {}
+    choices = {}
+    for item in items:
+        if not isinstance(item, dict):
+            return {}
+        title, value = item.get('title'), item.get('value')
+        if (not isinstance(title, str) or not 1 <= len(title) <= 20
+                or not isinstance(value, str) or not value.startswith(key + ':')):
+            return {}
+        action = value[len(key) + 1:]
+        if action not in {*TRANSITIONS, 'back'} or action in choices or title in choices.values():
+            return {}
+        choices[action] = title
+    return choices
 
 
 def key_parts(key):
@@ -139,30 +173,32 @@ def question_step(text):
 
 
 def decision(step, text, *, correlated, opening_choices, question_answerer=None, resume_step=None,
-             last_question=None):
-    choices = opening_choices if step == 'opening' else TEMPLATES[step][1]
+             last_question=None, current_choices=None):
+    choices = current_choices if current_choices is not None else (opening_choices if step == 'opening' else TEMPLATES[step][1])
     action = next((action for action, title in choices.items() if text == title), None) if correlated else None
     if not action and step == 'profile' and isinstance(text, str) and re.fullmatch(r'@[A-Za-z0-9_.]{2,24}', text.strip()):
         return {'action': 'profile_received', 'step': 'conditions', 'effects': [('tiktok', 'eligible')]}
-    if step in FAQ_STEPS and action in {'back', 'join'}:
-        target = resume_step if resume_step in RETURN_STEPS else ('profile' if action == 'join' else 'opening')
-        if action == 'join' and target in {'opening', 'about', 'member'}:
+    if step in KNOWLEDGE_STEPS and action == 'back':
+        return {'action': action, 'step': 'about', 'effects': []}
+    if step in KNOWLEDGE_STEPS and action == 'join':
+        target = resume_step if resume_step in RETURN_STEPS else 'profile'
+        if target in {'opening', 'about', 'member'}:
             target = 'profile'
         return {'action': action, 'step': target, 'effects': []}
-    # Short acknowledgments only redisplay a preserved stage; never accept terms/invites.
-    if step in FAQ_STEPS and resume_step in RETURN_STEPS and isinstance(text, str) and text.strip().casefold() in {'sim', 'ok', 'entendi', 'continuar', 'continue'}:
-        return {'action': 'back', 'step': resume_step, 'effects': []}
+    # An acknowledgment is not a request to start or resume collecting data.
+    if step in KNOWLEDGE_STEPS and isinstance(text, str) and text.strip().casefold() in {'sim', 'ok', 'entendi', 'continuar', 'continue'}:
+        return {'action': 'back', 'step': 'about', 'effects': []}
     target = TRANSITIONS[action] if action else question_step(text)
     # A bare menu label must not bypass reply correlation. Free questions never
     # execute transitions or authorize simulated acceptance, even if AI errs.
-    known_labels = set(opening_choices.values()) | {label for _, menu in TEMPLATES.values() for label in menu.values()}
+    known_labels = set(opening_choices.values()) | set(choices.values()) | {label for _, menu in TEMPLATES.values() for label in menu.values()}
     if not action and (text in known_labels if isinstance(text, str) else False):
         return None
     if step == 'closed' and not action:
         return None
     grounded, asked_question = None, None
-    if (action in {'faq_benefits', 'retry'} or (not action and isinstance(text, str) and text not in known_labels and step != 'closed')):
-        asked_question = safe_context_text(last_question, 500) if action == 'retry' else text
+    if (action in {*TOPIC_QUESTIONS, 'retry'} or (not action and isinstance(text, str) and text not in known_labels and step != 'closed')):
+        asked_question = safe_context_text(last_question, 500) if action == 'retry' else TOPIC_QUESTIONS.get(action, text)
         if action == 'retry' and not asked_question.strip():
             # No saved question means there is nothing safe to replay.
             return {'action': action, 'step': 'faq', 'effects': []}
