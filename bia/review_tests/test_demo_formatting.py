@@ -35,9 +35,9 @@ class FormattingCases(unittest.TestCase):
         key = new_key('a' * 32, 'faq_context')
         message = payload(key, OPENING, CHOICES, answer)
         self.assertIn('*Referência de comissão:* 10%', message['content'])
-        self.assertTrue(message['content'].endswith('\n\nFicou mais claro?'))
+        self.assertNotIn('Ficou mais claro?', message['content'])
         self.assertEqual([i['title'] for i in message['content_attributes']['items']],
-                         ['Quero me agenciar', 'Tenho outra dúvida'])
+                         ['Quero me agenciar', 'Tenho outra dúvida', 'Retomar etapa'])
         self.assertLessEqual(len(message['content'].encode('utf-16-le')) // 2, 1024)
         self.assertEqual(message['content'].count('*') % 2, 0)
 
