@@ -50,7 +50,7 @@ class InteractiveQuestions(unittest.TestCase):
     source = test_demo_flow.FlowCases.source
     choose = test_demo_flow.FlowCases.choose
     def test_live_question_uses_grounded_response_and_stays_in_demo(self):
-        self.choose('know'); self.choose('question')
+        self.choose('know')
         self.router.question_answerer = Mock(return_value={
             'answer': 'Não, fazer live não é obrigatório para participar da parceria.',
             'evidence': [{'id': 'lives', 'quote': 'Fazer live não é obrigatório'}],
@@ -95,7 +95,7 @@ class InteractiveQuestions(unittest.TestCase):
         self.assertIn('test-v1', self.store.db.execute('SELECT receipt FROM demo_outbox ORDER BY rowid DESC').fetchone()[0])
 
     def test_ai_question_is_deduplicated_and_stays_isolated(self):
-        self.choose('know'); self.choose('question')
+        self.choose('know')
         self.router.question_answerer = Mock(return_value='faq_terms')
         event = self.source(text='Queria entender a exclusividade', correlated=False)
         first = self.router.handle(event)
