@@ -75,7 +75,7 @@ class IntegrityCases(unittest.TestCase):
         self.assertEqual(bodies[0]['input'], bodies[1]['input'])
         self.assertEqual(bodies[0]['text'], bodies[1]['text'])
         self.assertEqual(bodies[0]['max_output_tokens'], bodies[1]['max_output_tokens'])
-        self.assertIn('300 a 450 caracteres', bodies[1]['instructions'])
+        self.assertIn('180 a 280 caracteres', bodies[1]['instructions'])
         self.assertNotIn(broken, bodies[1]['input'])
         rows = [json.loads(call.args[0]) for call in log.call_args_list]
         self.assertEqual([row['category'] for row in rows], ['context_loaded', 'answer_rewrite_requested', 'answer_accepted'])
