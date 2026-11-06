@@ -1,4 +1,4 @@
-"""Three explicit test contacts share no session, send authority or production path."""
+"""Explicit test contacts share no session, send authority or production path."""
 from contextlib import redirect_stdout
 from copy import deepcopy
 from dataclasses import asdict
@@ -24,6 +24,7 @@ import test_demo_forms as form_fixtures
 THIRD = DemoScope('1', '3', '28', '27', THIRD_PHONE)
 FOURTH = DemoScope('1', '3', '38', '37', '+5541981234567')
 FIFTH = DemoScope('1', '3', '48', '47', '+5561981234567')
+SIXTH = DemoScope('1', '3', '58', '57', '+5571981234567')
 ALL = (SCOPE, SECOND, THIRD)
 
 
@@ -34,15 +35,18 @@ def three_settings(directory):
 
 
 class ThreeConfiguration(unittest.TestCase):
-    def test_three_and_four_scopes_accepted_but_five_distinct_scopes_rejected(self):
-        self.assertEqual(MAX_DEMO_SCOPES, 4)
+    def test_three_four_and_five_scopes_accepted_but_six_distinct_scopes_rejected(self):
+        self.assertEqual(MAX_DEMO_SCOPES, 5)
         config = three_settings('/tmp/three-demo')
         self.assertEqual(configured_scopes(config), ALL)
         config['demo_scopes'].append(asdict(FOURTH))
         self.assertEqual(configured_scopes(config), ALL + (FOURTH,))
         config['demo_scopes'].append(asdict(FIFTH))
+        self.assertEqual(configured_scopes(config), ALL + (FOURTH, FIFTH))
+        self.assertEqual(DemoScopes(ALL + (FOURTH, FIFTH)).scopes, ALL + (FOURTH, FIFTH))
+        config['demo_scopes'].append(asdict(SIXTH))
         with self.assertRaisesRegex(ValueError, 'scopes_invalid'): configured_scopes(config)
-        with self.assertRaisesRegex(ValueError, 'scopes_invalid'): DemoScopes(ALL + (FOURTH, FIFTH))
+        with self.assertRaisesRegex(ValueError, 'scopes_invalid'): DemoScopes(ALL + (FOURTH, FIFTH, SIXTH))
 
     def test_third_identity_complete_and_collisions_against_either_existing_scope_rejected(self):
         config = three_settings('/tmp/three-demo')
@@ -79,8 +83,10 @@ class ThreeConfiguration(unittest.TestCase):
         config['demo_pending_scope']['phone'] = FOURTH.phone
         self.assertEqual(configured_pending_scope(config, ALL).phone, FOURTH.phone)
         config['demo_pending_scope']['phone'] = FIFTH.phone
+        self.assertEqual(configured_pending_scope(config, ALL + (FOURTH,)).phone, FIFTH.phone)
+        config['demo_pending_scope']['phone'] = SIXTH.phone
         with self.assertRaisesRegex(ValueError, 'pending_scope_invalid'):
-            configured_pending_scope(config, ALL + (FOURTH,))
+            configured_pending_scope(config, ALL + (FOURTH, FIFTH))
 
 
 class ThreeIsolation(unittest.TestCase):
@@ -333,3 +339,134 @@ class FourStaticScopes(unittest.TestCase):
         self.assertEqual(configured_scopes(config), self.scopes)
         self.assertEqual(config['gate'], baseline['gate'])
         self.assertEqual(config['demo_scope'], baseline['demo_scope'])
+
+
+class FiveStaticScopes(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory(); self.addCleanup(self.directory.cleanup)
+        self.scopes = ALL + (FOURTH, FIFTH)
+        self.config = three_settings(self.directory.name)
+        self.config['demo_scopes'].extend([asdict(FOURTH), asdict(FIFTH)])
+        self.mux = build_demo_router(self.config); self.addCleanup(self.mux.store.close)
+        for router in self.mux.routers: router.now = lambda: NOW
+
+    def message(self, scope, **changes):
+        return source(scope, **{'text': 'Oi', 'created_at': NOW.isoformat(), **changes})
+
+    def test_fifth_first_entry_and_reset_preserve_all_existing_sessions(self):
+        for router in self.mux.routers[:4]: router.start('existing-session')
+        before = [self.mux.store.current(scope.slot) for scope in self.scopes[:-1]]
+        message = self.message(FIFTH)
+        result = self.mux.handle_verified_webhook(message)
+        self.assertEqual(result[0]['status'], 'demo_reset_presented')
+        self.assertEqual(self.mux.handle_verified_webhook(message), result)
+        self.assertEqual([self.mux.store.current(scope.slot) for scope in self.scopes[:-1]], before)
+        self.assertEqual([len(router.gateway.sent) for router in self.mux.routers], [1, 1, 1, 1, 1])
+        self.assertEqual(self.mux.handle_verified_webhook(self.message(FIFTH, text='Resetar', message_id='102'))[0]['status'], 'demo_reset_presented')
+        self.mux.select(asdict(FIFTH)).stop()
+        self.assertEqual([self.mux.store.current(scope.slot) for scope in self.scopes[:-1]], before)
+        self.assertEqual([len(router.gateway.sent) for router in self.mux.routers], [1, 1, 1, 1, 2])
+
+    def test_all_five_use_independent_same_request_and_event_ids(self):
+        for router in self.mux.routers: router.start('shared-start-id')
+        self.assertEqual(len({self.mux.store.current(scope.slot)['run'] for scope in self.scopes}), 5)
+        for scope in self.scopes:
+            state = self.mux.store.current(scope.slot)
+            message = self.message(scope, text='Conhecer a Amplify', demo_reply_to=state['parent_id'])
+            result = self.mux.handle_verified_webhook(message)
+            self.assertEqual(result[0]['step'], 'about')
+            self.assertEqual(self.mux.handle_verified_webhook(message), result)
+        self.assertEqual([len(router.gateway.sent) for router in self.mux.routers], [2, 2, 2, 2, 2])
+        self.assertEqual(self.mux.store.db.execute('SELECT count(*) FROM demo_events').fetchone()[0], 5)
+
+    def test_fifth_collision_with_any_existing_scope_is_rejected(self):
+        for scope in self.scopes[:-1]:
+            for field in ('contact_id', 'conversation_id', 'phone'):
+                values = [asdict(item) for item in self.scopes]
+                values[4][field] = getattr(scope, field)
+                with self.subTest(scope=scope.contact_id, field=field), self.assertRaisesRegex(ValueError, 'overlap'):
+                    configured_scopes({**self.config, 'demo_scopes': values})
+
+    def test_all_five_reserved_in_scans_jobs_and_transport_without_starving_other(self):
+        repo = Repository(Path(self.directory.name) / 'production.sqlite3')
+        repo.set_demo_scope(self.mux.scope)
+        self.assertEqual(excluded_conversations(self.config), tuple(scope.conversation_key for scope in self.scopes))
+        delegate = Mock(); fence = ProductionTransportFence(delegate, self.mux.scope)
+        for scope in self.scopes + (SIXTH,):
+            key = 'synthetic-' + scope.contact_id
+            message = self.message(scope)
+            with repo._connection() as db:
+                db.execute('INSERT INTO inbound_events VALUES(?,?,?,?,?,?)',
+                    (key + ':source', scope.conversation_key, 'synthetic', 'completed', NOW.isoformat(), NOW.isoformat()))
+                db.execute('INSERT INTO real_jobs VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                    (key, scope.conversation_key, key + ':source', 'effect-' + key, 'cycle-' + key, '@synthetic',
+                     'precheck', json.dumps(message), '{}', 'queued', 0, NOW.isoformat(), None, None, NOW.isoformat()))
+            if scope != SIXTH:
+                self.assertTrue(production_blocked(self.config, event=message))
+                self.assertEqual(fence.send_reply(message)['status'], 'failed')
+                with self.assertRaisesRegex(ValueError, 'excluded'):
+                    fence.http(method='POST', url='https://chat.example.invalid/api/v1/accounts/1/conversations/' + scope.conversation_id + '/messages')
+        self.assertEqual(delegate.mock_calls, [])
+        self.assertEqual(repo.precheck_conversations(), [SIXTH.conversation_key])
+        self.assertEqual(repo.claim_real_job(NOW.isoformat())['job_key'], 'synthetic-' + SIXTH.contact_id)
+        self.assertIsNone(repo.claim_real_job(NOW.isoformat()))
+        for scope in self.scopes:
+            self.assertEqual(repo.real_job('synthetic-' + scope.contact_id)['status'], 'queued')
+            self.assertEqual(repo.real_job('synthetic-' + scope.contact_id)['attempts'], 0)
+
+    def test_five_static_env_load_does_not_change_gate_or_primary(self):
+        values = {'CHATWOOT_ACCOUNT_ID': '1', 'CHATWOOT_INBOX_ID': '3',
+                  'V5_PILOT_CONTACT_ID': SCOPE.contact_id, 'V5_PILOT_CONVERSATION_ID': SCOPE.conversation_id,
+                  'V5_TEST_PHONE': SCOPE.phone, 'V5_DEMO_ROUTER_ENABLED': 'true'}
+        baseline = load_settings(values)
+        config = load_settings({**values, 'V5_DEMO_SCOPES_JSON': json.dumps([asdict(scope) for scope in self.scopes])})
+        self.assertEqual(configured_scopes(config), self.scopes)
+        self.assertEqual(config['gate'], baseline['gate'])
+        self.assertEqual(config['demo_scope'], baseline['demo_scope'])
+
+    def test_fifth_restart_dedup_preserves_four_existing_histories(self):
+        config = {**self.config, 'demo_state_path': str(Path(self.directory.name) / 'restart.sqlite3')}
+        first = build_demo_router(config)
+        try:
+            for router in first.routers: router.now = lambda: NOW
+            for router in first.routers[:4]: router.start('existing-session')
+            before = [first.store.current(scope.slot) for scope in self.scopes[:-1]]
+            result = first.handle_verified_webhook(self.message(FIFTH))
+            self.assertEqual(result[0]['status'], 'demo_reset_presented')
+        finally:
+            first.store.close()
+        again = build_demo_router(config)
+        try:
+            for router in again.routers: router.now = lambda: NOW
+            self.assertEqual(again.handle_verified_webhook(self.message(FIFTH)), result)
+            self.assertEqual([again.store.current(scope.slot) for scope in self.scopes[:-1]], before)
+            self.assertEqual([len(router.gateway.sent) for router in again.routers], [0] * 5)
+        finally:
+            again.store.close()
+
+    def test_pending_fifth_binds_without_changing_four_existing_sessions(self):
+        config = {**self.config, 'demo_scopes': [asdict(scope) for scope in self.scopes[:-1]]}
+        config['demo_pending_scope'] = {key: getattr(FIFTH, key) for key in ('account_id', 'inbox_id', 'phone')}
+        provider = pending_fixtures.Provider(FIFTH, self.message(FIFTH))
+        mux = build_demo_router(config, pending_gateway_factory=provider.factory)
+        self.addCleanup(mux.store.close)
+        for router in mux.routers: router.now = lambda: NOW
+        for router in mux.routers[:4]: router.start('existing-session')
+        before = [mux.store.current(scope.slot) for scope in self.scopes[:-1]]
+        result = mux.handle_verified_webhook(self.message(FIFTH))
+        self.assertEqual(result[0]['status'], 'demo_reset_presented')
+        self.assertEqual(mux.handle_verified_webhook(self.message(FIFTH)), result)
+        self.assertEqual(mux.routers[4].scope.bound_scope, FIFTH)
+        self.assertEqual([mux.store.current(scope.slot) for scope in self.scopes[:-1]], before)
+        self.assertEqual(provider.posts, 1)
+        self.assertEqual(excluded_conversations(config), tuple(scope.conversation_key for scope in self.scopes))
+
+    def test_fifth_uncertain_delivery_never_resends_or_blocks_existing_four(self):
+        self.mux.routers[4].gateway.send = Mock(side_effect=TimeoutError())
+        result = self.mux.handle_verified_webhook(self.message(FIFTH))
+        self.assertEqual(result[0]['status'], 'demo_delivery_unconfirmed')
+        self.assertEqual(self.mux.handle_verified_webhook(self.message(FIFTH)), result)
+        self.mux.routers[4].gateway.send.assert_called_once()
+        for scope in self.scopes[:-1]:
+            self.assertEqual(self.mux.handle_verified_webhook(self.message(scope))[0]['status'], 'demo_reset_presented')
+        self.assertEqual([len(router.gateway.sent) for router in self.mux.routers[:4]], [1] * 4)

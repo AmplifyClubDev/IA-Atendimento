@@ -2,7 +2,7 @@
 
 Disabled by default. This module never imports the production bootstrap,
 repository, provider clients, AI or mail sender. Live delivery is a separate
-explicit capability, limited to at most four verified Chatwoot conversations.
+explicit capability, limited to at most five verified Chatwoot conversations.
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from contracts import allow_inbound, inbound_key, normalize_phone, same_phone
 import demo_flow
 
 VERSION = 'v1'
-MAX_DEMO_SCOPES = 4
+MAX_DEMO_SCOPES = 5
 OPENING = ('Oi! Que bom ter você por aqui 💙\n\n'
            'Eu sou a Bia, da *Amplify*, uma agência de creators do TikTok Shop.\n\n'
            'Como posso te ajudar hoje? 😊')
