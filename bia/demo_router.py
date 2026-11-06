@@ -669,6 +669,6 @@ def build_demo_router(settings, *, gateway=None, production_path=None):
     router = DemoRouter(scope, store, gateway, continuation_enabled=settings.get('demo_continuation_enabled') is True,
                         question_answerer=build_answerer(settings))
     # The diagnostic receives no router, message gateway, production store or
-    # effects adapter. It can only ask two synthetic questions of the answerer.
+    # effects adapter. It can only ask the fixed synthetic questions of the answerer.
     schedule_smoke_check(settings, store, scope.slot, router.question_answerer)
     return router
