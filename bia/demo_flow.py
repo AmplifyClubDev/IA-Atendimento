@@ -35,7 +35,7 @@ TEMPLATES = {
     'faq_unknown': ('Essa informação não está confirmada na base disponível 🔎\n\nNão vou inventar uma resposta. Você pode perguntar sobre outro assunto ou retomar a etapa.',
                     {'question': 'Tenho outra dúvida', 'join': 'Quero me agenciar'}),
     'faq_unavailable': ('Não consegui consultar as informações agora ⚙️\n\nSua etapa está preservada. Você pode tentar a pergunta novamente.',
-                        {'question': 'Tentar novamente', 'back': 'Retomar etapa'}),
+                        {'retry': 'Tentar novamente', 'back': 'Retomar etapa'}),
     'closed': ('Teste encerrado 👋\n\nSe quiser começar de novo, é só tocar abaixo.',
                {'opening': 'Recomeçar teste'}),
 }
@@ -56,7 +56,7 @@ TRANSITIONS = {'join': 'profile', 'know': 'about', 'member': 'member', 'question
                'opening': 'opening', 'use_profile': 'conditions', 'continue_test': 'invite',
                'accept_demo': 'confirmed', 'decline': 'paused', 'resume': 'invite',
                'close': 'closed', 'faq_agency': 'faq_agency', 'faq_terms': 'faq_terms',
-               'faq_invite': 'faq_invite', 'faq_benefits': 'faq_benefits'}
+               'faq_invite': 'faq_invite', 'faq_benefits': 'faq_benefits', 'retry': 'faq_unavailable'}
 
 
 def key_parts(key):
@@ -138,7 +138,8 @@ def question_step(text):
     return None
 
 
-def decision(step, text, *, correlated, opening_choices, question_answerer=None, resume_step=None):
+def decision(step, text, *, correlated, opening_choices, question_answerer=None, resume_step=None,
+             last_question=None):
     choices = opening_choices if step == 'opening' else TEMPLATES[step][1]
     action = next((action for action, title in choices.items() if text == title), None) if correlated else None
     if not action and step == 'profile' and isinstance(text, str) and re.fullmatch(r'@[A-Za-z0-9_.]{2,24}', text.strip()):
@@ -159,11 +160,15 @@ def decision(step, text, *, correlated, opening_choices, question_answerer=None,
         return None
     if step == 'closed' and not action:
         return None
-    grounded = None
-    if (action == 'faq_benefits' or (not action and isinstance(text, str) and text not in known_labels and step != 'closed')):
+    grounded, asked_question = None, None
+    if (action in {'faq_benefits', 'retry'} or (not action and isinstance(text, str) and text not in known_labels and step != 'closed')):
+        asked_question = safe_context_text(last_question, 500) if action == 'retry' else text
+        if action == 'retry' and not asked_question.strip():
+            # No saved question means there is nothing safe to replay.
+            return {'action': action, 'step': 'faq', 'effects': []}
         if question_answerer:
             try:
-                answer = question_answerer(text)
+                answer = question_answerer(asked_question)
                 if (isinstance(answer, dict) and isinstance(answer.get('answer'), str)
                         and 1 <= len(answer['answer']) <= 900 and answer.get('evidence')
                         and answer.get('knowledge_version')):
@@ -180,4 +185,5 @@ def decision(step, text, *, correlated, opening_choices, question_answerer=None,
     if action == 'use_profile':effects = [('tiktok', 'eligible')]
     elif action == 'continue_test':effects = [('invite', 'unknown')]
     elif action == 'accept_demo':effects = [('invite', 'accepted'), ('relationship', 'linked')]
-    return {'action': action or 'question', 'step': target, 'effects': effects, 'grounded': grounded}
+    return {'action': action or 'question', 'step': target, 'effects': effects,
+            'grounded': grounded, 'question': asked_question}
