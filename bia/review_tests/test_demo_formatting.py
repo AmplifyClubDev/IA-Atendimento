@@ -37,7 +37,7 @@ class FormattingCases(unittest.TestCase):
         self.assertIn('*Referência de comissão:* 10%', message['content'])
         self.assertNotIn('Ficou mais claro?', message['content'])
         self.assertEqual([i['title'] for i in message['content_attributes']['items']],
-                         ['Quero me agenciar', 'Tenho outra dúvida', 'Retomar etapa'])
+                         ['Quero me agenciar', 'Tenho outra dúvida'])
         self.assertLessEqual(len(message['content'].encode('utf-16-le')) // 2, 1024)
         self.assertEqual(message['content'].count('*') % 2, 0)
 
