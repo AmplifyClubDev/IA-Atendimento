@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 import answers
 import config
 from context_ia import ContextUnavailable, load_context, load_demo_context
-from demo_answers import build_answerer
+from demo_answers import build_answerer, _evidence_catalog
 
 VERSION = 'amplify_doc_20261106_v1'
 BASE_URL = 'https://' + config.PROJECT_REF + '.supabase.co'
@@ -31,8 +31,9 @@ def payload():
 
 
 def model_opener():
-    value = {'answer': 'Não, fazer live não é obrigatório.',
-             'evidence': [{'id': 'lives', 'quote': 'Fazer live não é obrigatório'}]}
+    from context_ia import _validated_context
+    reference = next(ref for ref, item in _evidence_catalog(_validated_context(payload())).items() if item['id'] == 'lives')
+    value = {'answer': 'Não, fazer live não é obrigatório.', 'evidence': [reference]}
     opener = Mock()
     opener.open.side_effect = lambda *args, **kwargs: io.BytesIO(json.dumps({
         'status': 'completed', 'output': [{'type': 'message', 'role': 'assistant',
