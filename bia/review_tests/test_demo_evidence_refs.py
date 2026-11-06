@@ -193,22 +193,22 @@ class SemanticVerifierCases(unittest.TestCase):
             store = DemoStore(str(Path(directory) / 'demo.sqlite'))
             try:
                 answerer = Mock(return_value=self.answer)
-                verify = Mock(side_effect=['supported', 'unsupported', 'uncertain', TimeoutError('private failure')])
+                verify = Mock(side_effect=['supported', 'unsupported', 'uncertain', TimeoutError('private failure'), 'supported', 'supported'])
                 with patch('builtins.print') as log:
                     result = schedule_smoke_check(settings(), store, SCOPE.slot, answerer,
                                                   verifier=verify, thread_factory=ImmediateThread)
                 self.assertEqual(result['status'], 'scheduled')
-                self.assertEqual(answerer.call_count, 4); self.assertEqual(verify.call_count, 4)
+                self.assertEqual(answerer.call_count, len(SMOKE_QUESTIONS)); self.assertEqual(verify.call_count, len(SMOKE_QUESTIONS))
                 rows = [json.loads(call.args[0]) for call in log.call_args_list]
                 cases = [row for row in rows if row['category'] != 'run']
-                self.assertEqual([row['semantic_verdict'] for row in cases], ['supported', 'unsupported', 'uncertain', 'uncertain'])
+                self.assertEqual([row['semantic_verdict'] for row in cases], ['supported', 'unsupported', 'uncertain', 'uncertain', 'supported', 'supported'])
                 self.assertEqual(rows[-1]['status'], 'failed')
                 text = json.dumps(rows)
                 for private in (self.answer['answer'], self.answer['evidence'][0]['quote'], 'private failure', *[q for _, q in SMOKE_QUESTIONS]):
                     self.assertNotIn(private, text)
                 self.assertEqual(schedule_smoke_check(settings(), store, SCOPE.slot, answerer,
                     verifier=verify, thread_factory=ImmediateThread)['status'], 'already_claimed')
-                self.assertEqual(answerer.call_count, 4); self.assertEqual(verify.call_count, 4)
+                self.assertEqual(answerer.call_count, len(SMOKE_QUESTIONS)); self.assertEqual(verify.call_count, len(SMOKE_QUESTIONS))
                 for table in ('demo_runs', 'demo_events', 'demo_outbox', 'demo_simulations'):
                     self.assertEqual(store.db.execute('SELECT count(*) FROM ' + table).fetchone()[0], 0)
             finally:
