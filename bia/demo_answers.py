@@ -19,7 +19,7 @@ ANSWER_FORMAT = {
     'schema': {
         'type': 'object', 'additionalProperties': False, 'required': ['answer', 'evidence'],
         'properties': {
-            'answer': {'type': 'string'},
+            'answer': {'type': 'string', 'minLength': 0, 'maxLength': 600},
             'evidence': {'type': 'array', 'items': {'type': 'string'}},
         },
     },
