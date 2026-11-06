@@ -29,7 +29,11 @@ Read no repositório autorizado
     → publicação pelo caminho Railway validado separadamente
 ```
 
-**Bloqueio verificado:** a opção da organização `Allow forking of private repositories` está desativada e `Allow forking` do V5 aparece desabilitado. A habilitação ainda exige aprovação explícita; nenhuma alteração foi aplicada. Portanto, o fluxo Read + fork + PR ainda não está operacional.
+**Forks privados habilitados após aprovação:** a interface confirmou `Repository forking setting updated`; a opção da organização `Allow forking of private repositories` está marcada. No AmplifyOS-v5, `Allow forking` está marcado e habilitado, e o repositório permanece privado. A opção individual já estava marcada sob a política organizacional, portanto não foi necessário alterá-la.
+
+A mudança de política tem alcance organizacional. Nenhuma configuração individual de outros repositórios foi alterada nesta etapa, mas aqueles com a opção de fork previamente marcada também podem ser afetados pela liberação; não presumir que continuam bloqueados. Habilitar forks não adiciona leitores nem torna o código público.
+
+**Ainda pendente:** definir os futuros colaboradores e integradores, conceder Read somente no escopo aprovado e validar com uma conta comum o fluxo completo de fork privado, PR e testes. A habilitação das opções não comprova sozinha esse funcionamento de ponta a ponta.
 
 O fluxo de fork depende das políticas da organização, da configuração do repositório e das permissões efetivas. **Não conceder Write ao colaborador como solução automática se o fork falhar.** Pausar o onboarding e decidir com o responsável uma alternativa autorizada.
 
