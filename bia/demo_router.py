@@ -410,7 +410,11 @@ class DemoWhatsAppGateway:
         return message_payload(key, continuation_enabled=self.continuation_enabled)
 
     def lookup(self, scope, key):
-        expected = self.expected_payload(key)
+        # Reconcile exactly what was already attempted, even if menu copy changed
+        # in a later deploy. This is read-only and never authorizes a new send.
+        expected = (self.context_payload(key) if key.startswith('bia-demo:v2:')
+                    and self.continuation_enabled is True and callable(self.context_payload)
+                    else self.expected_payload(key))
         rows = self._api(scope, 'GET', '/messages').get('payload') or []
         matches = [m for m in rows if m.get('content') == expected['content']
                    and m.get('message_type') in (1, 'outgoing') and m.get('private') is False
@@ -593,7 +597,7 @@ class DemoRouter:
                 if previous is None:
                     raise ValueError('demo_outbox_scope_mismatch')
                 metadata = json.loads(previous['receipt']) if previous and previous['receipt'] else {}
-                resume_step = metadata.get('resume_step') if step in demo_flow.FAQ_STEPS else step
+                resume_step = metadata.get('resume_step') if step in demo_flow.KNOWLEDGE_STEPS else step
                 if resume_step not in demo_flow.RETURN_STEPS:
                     resume_step = 'opening'
                 last_question = demo_flow.safe_context_text(metadata.get('last_question'), 500)
@@ -607,9 +611,11 @@ class DemoRouter:
                                 'last_question': last_question,
                                 'last_answer': json.loads(previous['payload']).get('content', '') if previous else ''}
                     question_answerer = lambda question: self.question_answerer(question, conversation=dialogue)
+                previous_payload = json.loads(previous['payload'])
                 decision = demo_flow.decision(step, event.get('text'), correlated=correlated, opening_choices=CHOICES,
                                               question_answerer=question_answerer, resume_step=resume_step,
-                                              last_question=last_question)
+                                              last_question=last_question,
+                                              current_choices=demo_flow.presented_choices(state['outbox_key'], previous_payload))
                 if decision:
                     key = demo_flow.new_key(run, decision['step'])
                     grounded = decision.get('grounded')
@@ -624,7 +630,7 @@ class DemoRouter:
                                               (key, self.scope.slot, run, json.dumps(payload), 'outcome_unknown',
                                                json.dumps({'pending_event_key': event_key, 'choice': decision['action'],
                                                            'grounded': grounded,
-                                                           'resume_step': resume_step if decision['step'] in demo_flow.FAQ_STEPS else decision['step'],
+                                                           'resume_step': resume_step if decision['step'] in demo_flow.KNOWLEDGE_STEPS else decision['step'],
                                                            'last_question': demo_flow.safe_context_text(decision.get('question'), 500)})))
                         self.store.db.execute('UPDATE demo_runs SET step=?,choice=?,parent_id=NULL,parent_external=NULL,'
                                               'outbox_key=?,started=?,watermark=? WHERE slot=?',
