@@ -35,7 +35,7 @@ class StructuredAnswerCases(unittest.TestCase):
         return outcome, body, [json.loads(call.args[0]) for call in log.call_args_list]
 
     def test_all_paraphrases_send_the_same_strict_general_schema(self):
-        self.assertEqual(len(SMOKE_QUESTIONS), 4)
+        self.assertEqual(len(SMOKE_QUESTIONS), 6)
         self.assertIn(('lives', 'Sou obrigado a fazer live para ser agenciado?'), SMOKE_QUESTIONS)
         formats = []
         for _, question in (*SMOKE_QUESTIONS, ('other', 'Como funciona a comunidade?')):
@@ -75,9 +75,9 @@ class StructuredAnswerCases(unittest.TestCase):
                 self.assertEqual(rows[-1]['category'], category)
 
     def test_answer_length_schema_and_client_bounds_agree_without_truncation(self):
-        outcome, body, _ = self.run_answer(value={**self.value, 'answer': 'x' * 600})
+        outcome, body, _ = self.run_answer(value={**self.value, 'answer': 'x' * 599 + '.'})
         self.assertIsInstance(outcome, dict)
-        self.assertIn('x' * 600, outcome['answer'])
+        self.assertIn('x' * 599 + '.', outcome['answer'])
         self.assertEqual(body['text']['format']['schema']['properties']['answer']['maxLength'], 600)
         outcome, _, rows = self.run_answer(value={**self.value, 'answer': 'x' * 601})
         self.assertEqual(outcome, 'faq_unavailable')
