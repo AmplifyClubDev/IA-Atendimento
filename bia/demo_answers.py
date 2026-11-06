@@ -3,13 +3,28 @@ import json
 import hashlib
 import re
 import threading
+import unicodedata
 from demo_flow import format_answer, safe_context_text, RETURN_STEPS, FAQ_STEPS
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 from urllib.error import HTTPError, URLError
 
 TOPICS = ('faq_agency', 'faq_terms', 'faq_invite', 'faq_unknown', 'faq_benefits')
 SMOKE_QUESTIONS = (('benefits', 'Quais benefícios da Amplify?'),
-                   ('lives', 'Sou obrigado a fazer live?'))
+                   ('benefits_paraphrase', 'Quais vantagens tenho ao entrar na Amplify?'),
+                   ('lives', 'Sou obrigado a fazer live para ser agenciado?'),
+                   ('lives_paraphrase', 'Preciso fazer lives para entrar na Amplify?'))
+ANSWER_FORMAT = {
+    'type': 'json_schema', 'name': 'bia_demo_answer', 'strict': True,
+    'schema': {
+        'type': 'object', 'additionalProperties': False, 'required': ['answer', 'evidence'],
+        'properties': {
+            'answer': {'type': 'string'},
+            'evidence': {'type': 'array', 'items': {
+                'type': 'object', 'additionalProperties': False, 'required': ['id', 'quote'],
+                'properties': {'id': {'type': 'string'}, 'quote': {'type': 'string'}}}},
+        },
+    },
+}
 
 
 def schedule_smoke_check(settings, store, slot, answerer, *, thread_factory=None):
@@ -95,7 +110,7 @@ class NoRedirect(HTTPRedirectHandler):
 
 
 def _diagnostic(category, *, knowledge=None, completed=None, http_status=None,
-                incomplete_reason=None, answer_length=None, usage=None):
+                incomplete_reason=None, answer_length=None, usage=None, jargon_present=None):
     """Fixed categories and bounded metadata only; never provider or lead text."""
     row = {'event': 'demo_ai', 'category': category}
     if isinstance(knowledge, dict):
@@ -113,6 +128,8 @@ def _diagnostic(category, *, knowledge=None, completed=None, http_status=None,
                                    ('max_output_tokens', 'content_filter') else 'other')
     if type(answer_length) is int and 0 <= answer_length <= 65536:
         row['answer_length'] = answer_length
+    if type(jargon_present) is bool:
+        row['jargon_present'] = jargon_present
     if isinstance(usage, dict):
         details = usage.get('output_tokens_details')
         for key, value in (('output_tokens', usage.get('output_tokens')),
@@ -172,6 +189,14 @@ def build_answerer(settings, *, opener=None, context_loader=None):
                     'Se houver conflito entre cards, não escolha uma condição por conta própria. '
                     'Não repita apresentação nem peça novamente dados já coletados. O sistema controla a retomada da etapa. '
                     'Responda diretamente antes de qualquer próximo passo. Não diga que falta informação quando os cards respondem. '
+                    'Escreva em português simples, natural e acolhedor, como uma conversa de WhatsApp. '
+                    'Na resposta ao lead, não use linguagem de bastidores como processo operacional, base, contexto, '
+                    'validação interna ou roteamento. Explique apenas o que isso significa para a pessoa, com palavras comuns. '
+                    'Preserve todos os fatos, condições e limites; simplificar a linguagem não pode remover ressalvas '
+                    'nem transformar uma possibilidade em garantia. As citações em evidence devem continuar literais, sem reescrita. '
+                    'Se combinar com a resposta, encerre de forma curta e acolhedora. Oferecer continuar ou tirar outra dúvida '
+                    'é opcional, sem pressão; omita esse convite se já apareceu na última resposta. '
+                    'Não repita chamada para agenciamento, não acrescente rodapé fixo nem pergunta final. '
                     'Não invente fatos, taxas, prazos ou garantias. Benefícios individuais não são gerais. '
                     'Ao falar de benefícios em geral, não mencione acompanhamento individual; use pode incluir e preserve a disponibilidade. '
                     'Ao explicar taxas históricas, distinga a referência geral das condições de cada convite, ainda a confirmar. '
@@ -184,12 +209,12 @@ def build_answerer(settings, *, opener=None, context_loader=None):
                     'Em respostas simples, destaque a resposta direta e separe a explicação. Não entregue um parágrafo longo. '
                     'Inclua um emoji adequado ao assunto, variando conforme o tema: por exemplo 🎥 para live, 📚 para treinamento, '
                     '🤝 para comunidade e 📋 para condições. Não termine sempre com o mesmo emoji ou sorriso genérico. '
-                    'O sistema acrescenta os botões e a pergunta final. '
+                    'O sistema acrescenta os botões. Não anuncie etapas internas nem prometa ações. '
                     'Retorne somente JSON com answer (texto) e evidence (lista de {id, quote}). '
                     'Cada quote deve ser um trecho literal de um card de conhecimento ou limites que sustente a resposta. '
                     'Se não houver evidência suficiente, retorne answer vazio e evidence vazia.'),
                 'input': json.dumps({'question': question, 'context': knowledge, 'conversation': dialogue}, ensure_ascii=False),
-                'max_output_tokens': 1500}
+                'max_output_tokens': 1500, 'text': {'format': ANSWER_FORMAT}}
         request = Request('https://api.openai.com/v1/responses', data=json.dumps(body).encode(), method='POST',
                           headers={'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'})
         http_status = None
@@ -248,10 +273,16 @@ def build_answerer(settings, *, opener=None, context_loader=None):
             value = json.loads(''.join(pieces).strip())
         except (ValueError, TypeError):
             return unavailable('model_json', **diagnostic)
-        if not isinstance(value, dict):
+        if not isinstance(value, dict) or set(value) != {'answer', 'evidence'}:
             return unavailable('answer_schema', **diagnostic)
         text, evidence = value.get('answer'), value.get('evidence')
         diagnostic['answer_length'] = len(text) if isinstance(text, str) else None
+        if isinstance(text, str):
+            plain = ''.join(c for c in unicodedata.normalize('NFKD', text.casefold())
+                            if not unicodedata.combining(c))
+            # Advisory only: no edits, fallback, model retry or weakening of evidence.
+            diagnostic['jargon_present'] = bool(re.search(
+                r'\b(?:processos?\s+operacion(?:al|ais)|base|contextos?|validac(?:ao|oes)\s+internas?|roteamento)\b', plain))
         if text == '' and evidence == []:
             _diagnostic('knowledge_not_supported', knowledge=knowledge, **diagnostic)
             return 'faq_unknown'
@@ -269,7 +300,8 @@ def build_answerer(settings, *, opener=None, context_loader=None):
         except (KeyError, TypeError):
             return unavailable('context_invalid', **diagnostic)
         for item in evidence:
-            if not isinstance(item, dict) or not isinstance(item.get('id'), str):
+            if (not isinstance(item, dict) or set(item) != {'id', 'quote'}
+                    or not isinstance(item.get('id'), str)):
                 return unavailable('evidence_schema', **diagnostic)
             if item['id'] not in sources:
                 return unavailable('evidence_source', **diagnostic)
