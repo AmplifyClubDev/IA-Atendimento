@@ -41,7 +41,7 @@ class AnswerCases(unittest.TestCase):
     def test_provider_failure_gives_honest_fallback(self):
         result = demo_flow.decision('faq', 'Me explique a parceria', correlated=False,
             opening_choices=CHOICES, question_answerer=Mock(side_effect=TimeoutError()))
-        self.assertEqual(result['step'], 'faq_unknown')
+        self.assertEqual(result['step'], 'faq_unavailable')
 
 
 class InteractiveQuestions(unittest.TestCase):
