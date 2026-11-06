@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import Mock, patch
 from urllib.error import HTTPError, URLError
 
-from demo_answers import build_answerer
+from demo_answers import build_answerer, _evidence_catalog
 from demo_router import DemoRouter
 import test_demo_flow as fixtures
 
@@ -112,8 +112,8 @@ class DiagnosticCases(unittest.TestCase):
         self.knowledge = {'source': 'database', 'knowledge_version': 'contextos-ia-v1:' + '0' * 32 + '+' + 'a' * 12,
                           'card_count': 29, 'personality': 'Brief', 'limits': 'No guarantees.',
                           'topics': [{'id': 'lives', 'answer': 'Fazer live não é obrigatório.'}]}
-        self.value = {'answer': 'Não é obrigatório fazer live.',
-                      'evidence': [{'id': 'lives', 'quote': 'Fazer live não é obrigatório.'}]}
+        self.reference = next(ref for ref, item in _evidence_catalog(self.knowledge).items() if item['id'] == 'lives')
+        self.value = {'answer': 'Não é obrigatório fazer live.', 'evidence': [self.reference]}
 
     def envelope(self, value=None, **changes):
         return {'status': 'completed', 'output': [{'type': 'message', 'role': 'assistant',
@@ -138,7 +138,7 @@ class DiagnosticCases(unittest.TestCase):
         rows = [json.loads(call.args[0]) for call in log.call_args_list]
         encoded = json.dumps(rows)
         for forbidden in ('private-synthetic-key', 'private-synthetic-question', 'private-body', 'private-error',
-                          self.value['answer'], self.value['evidence'][0]['quote']):
+                          self.value['answer'], self.knowledge['topics'][0]['answer']):
             self.assertNotIn(forbidden, encoded)
         self.assertLessEqual(opener.open.call_count, 1)
         return outcome, rows, opener
@@ -185,9 +185,9 @@ class DiagnosticCases(unittest.TestCase):
                  (self.envelope(value={**self.value, 'answer': 'x' * 601}), 'answer_length'),
                  (self.envelope(value={**self.value, 'answer': 'https://invalid.test'}), 'answer_forbidden_content'),
                  (self.envelope(value={**self.value, 'evidence': []}), 'evidence_schema'),
-                 (self.envelope(value={**self.value, 'evidence': [{'id': 'unknown', 'quote': 'literal unknown quote'}]}), 'evidence_source'),
-                 (self.envelope(value={**self.value, 'evidence': [{'id': 'lives', 'quote': 'short'}]}), 'evidence_quote_invalid'),
-                 (self.envelope(value={**self.value, 'evidence': [{'id': 'lives', 'quote': 'Nonexistent literal quote'}]}), 'evidence_quote_mismatch')]
+                 (self.envelope(value={**self.value, 'evidence': ['unknown-reference']}), 'evidence_source'),
+                 (self.envelope(value={**self.value, 'evidence': [{'id': 'lives', 'quote': 'short'}]}), 'evidence_schema'),
+                 (self.envelope(value={**self.value, 'evidence': [self.reference, self.reference]}), 'evidence_duplicate')]
         for result, category in cases:
             with self.subTest(category=category):
                 outcome, rows, _ = self.invoke(result=result)
