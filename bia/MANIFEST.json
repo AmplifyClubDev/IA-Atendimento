@@ -1,5 +1,5 @@
 {
-  "release": "owner-demo-approved-reference-20261105",
+  "release": "owner-demo-knowledge-review-20261106-local-only",
   "source_count": 40,
   "files": [
     {
@@ -19,13 +19,13 @@
     },
     {
       "path": "config.py",
-      "bytes": 12087,
-      "sha256": "98927e3ae95555670102ded31829d16e93b5865fe1d67b92fbd35e363ed6625b"
+      "bytes": 12833,
+      "sha256": "d9d5053cee737444676b3212acba406fb4e8690ed654f9f965b8b704f2cdd1c6"
     },
     {
       "path": "context_ia.py",
-      "bytes": 4982,
-      "sha256": "027f2d0433b20ed6a9083f8b47af9dbe13b2b55c2832adab4a0e6bae2a3fcb57"
+      "bytes": 5780,
+      "sha256": "6c60efe2bcdf1981dc48060ad1ae6e5f80b8d01db2eb75949b0c541969d5ee9d"
     },
     {
       "path": "contracts.py",
@@ -64,18 +64,18 @@
     },
     {
       "path": "demo_answers.py",
-      "bytes": 5720,
-      "sha256": "ba6cae499592cc038b2691a4833a869a893ecf1f826f93b9429d2f5cdd1bf0a1"
+      "bytes": 6786,
+      "sha256": "122fb4773b1e857255652556b660ecf184afd37ef1f2b63d687a5a929bebc0e3"
     },
     {
       "path": "demo_flow.py",
-      "bytes": 10309,
-      "sha256": "60eb24690fcef04955ef6c9942e320a84c69e4be1fd1ec80a0d2c6642cd75808"
+      "bytes": 11798,
+      "sha256": "51c7d6442b76e627ab4280fd19adcb720708beca2c32b6cc8cdca2d10794dd1d"
     },
     {
       "path": "demo_router.py",
-      "bytes": 33574,
-      "sha256": "715fc1c6670dce25a55dce705bbb411c876d552c4c8e37f28dfaebc2d69f17c1"
+      "bytes": 35119,
+      "sha256": "63fbddd0bb25283018947e991a56df5b9f208f33c9e121e7c669ad325b507d42"
     },
     {
       "path": "engine.py",
