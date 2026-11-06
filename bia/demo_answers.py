@@ -1,11 +1,92 @@
 """Read demo-selected V5 knowledge for each question; never invoke business tools."""
 import json
+import hashlib
 import re
+import threading
 from demo_flow import format_answer, safe_context_text, RETURN_STEPS, FAQ_STEPS
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 from urllib.error import HTTPError, URLError
 
 TOPICS = ('faq_agency', 'faq_terms', 'faq_invite', 'faq_unknown', 'faq_benefits')
+SMOKE_QUESTIONS = (('benefits', 'Quais benefícios da Amplify?'),
+                   ('lives', 'Sou obrigado a fazer live?'))
+
+
+def schedule_smoke_check(settings, store, slot, answerer, *, thread_factory=None):
+    """Opt-in, durable at-most-once AI diagnostic. Never receives a send adapter."""
+    if settings.get('demo_smoke_check') is not True:
+        return {'status': 'disabled'}
+    from config import demo_context_issue
+    version, check_id = settings.get('demo_context_version'), settings.get('demo_smoke_check_id')
+
+    def report(category, status, **safe_fields):
+        row = {'event': 'demo_ai_smoke', 'category': category, 'status': status, **safe_fields}
+        try:
+            print(json.dumps(row, sort_keys=True), flush=True)
+        except OSError:
+            pass
+        return {'status': status}
+
+    if (settings.get('demo_enabled') is not True or not version or demo_context_issue(settings)
+            or settings.get('ai_enabled') is not True or not callable(answerer)
+            or not isinstance(check_id, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}', check_id)
+            or not isinstance(slot, str) or not re.fullmatch(r'[a-f0-9]{64}', slot)):
+        return report('run', 'configuration_invalid')
+    # Reuse isolated start metadata under a non-routing slot. Older demo code
+    # ignores these rows, so enabling the check does not break schema rollback.
+    marker_slot = 'smoke:' + slot
+    marker_id = hashlib.sha256(json.dumps([version, check_id]).encode()).hexdigest()
+    try:
+        with store.transaction():
+            if not any(row[1] == 'main' and row[2] for row in store.db.execute('PRAGMA database_list')):
+                return report('run', 'durable_store_required')
+            inserted = store.db.execute('INSERT OR IGNORE INTO demo_starts VALUES(?,?,?,?)',
+                                       (marker_slot, marker_id, version, json.dumps({'status': 'claimed'}))).rowcount
+        if not inserted:
+            return report('run', 'already_claimed', candidate_version=version)
+    except Exception:
+        return report('run', 'store_unavailable')
+
+    def run():
+        summaries = []
+        report('run', 'started', candidate_version=version)
+        for category, question in SMOKE_QUESTIONS:
+            summary = {'category': category, 'status': 'unavailable'}
+            try:
+                result = answerer(question)
+                if isinstance(result, dict):
+                    known_version, evidence = result.get('knowledge_version'), result.get('evidence')
+                    if (isinstance(known_version, str)
+                            and re.fullmatch(r'contextos-ia-v1:[a-f0-9]{32}\+[a-f0-9]{12}', known_version)
+                            and isinstance(result.get('answer'), str) and 1 <= len(result['answer']) <= 900
+                            and isinstance(evidence, list) and 1 <= len(evidence) <= 6):
+                        summary.update(status='passed', knowledge_version=known_version, evidence_count=len(evidence))
+                    else:
+                        summary['status'] = 'invalid_response'
+                elif result == 'faq_unknown':
+                    summary['status'] = 'unsupported'
+                elif result != 'faq_unavailable':
+                    summary['status'] = 'invalid_response'
+            except Exception:
+                summary['status'] = 'error'
+            summaries.append(summary)
+            report(**summary)
+        status = 'passed' if all(row['status'] == 'passed' for row in summaries) else 'failed'
+        try:
+            with store.transaction():
+                store.db.execute('UPDATE demo_starts SET result=? WHERE slot=? AND request_id=?',
+                                 (json.dumps({'status': status, 'results': summaries}), marker_slot, marker_id))
+        except Exception:
+            # The durable claim survives. Never rerun automatically after uncertainty.
+            return report('run', 'result_unconfirmed', candidate_version=version)
+        report('run', status, candidate_version=version)
+
+    try:
+        worker = (thread_factory or threading.Thread)(target=run, name='bia-demo-ai-smoke', daemon=True)
+        worker.start()
+    except Exception:
+        return report('run', 'start_unconfirmed', candidate_version=version)
+    return {'status': 'scheduled'}
 
 
 class NoRedirect(HTTPRedirectHandler):
