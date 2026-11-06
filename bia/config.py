@@ -6,6 +6,17 @@ from datetime import datetime
 from urllib.parse import urlsplit
 
 PROJECT_REF = 'divlvdmsqbwplervsqwu'
+DEMO_CONTEXT_VERSION = 'amplify_doc_20261106_v1'
+
+
+def demo_context_issue(settings):
+    """A candidate is opt-in and can only be read by the isolated demo."""
+    version = settings.get('demo_context_version', '')
+    if not isinstance(version, str) or version not in ('', DEMO_CONTEXT_VERSION):
+        return 'demo_context_version_invalid'
+    if version and settings.get('demo_enabled') is not True:
+        return 'demo_context_requires_demo'
+    return None
 
 
 def invite_method_issue(settings):
@@ -36,6 +47,8 @@ def load_settings(environ=None):
                  'account_id': get('CHATWOOT_ACCOUNT_ID'), 'inbox_id': get('CHATWOOT_INBOX_ID'), 'phone': phone},
         'pilot_scope': pilot_scope.load_scope(values), 'test_phone': phone, 'state_dir': get('V5_STATE_DIR', '/data'),
         'demo_enabled': get('V5_DEMO_ROUTER_ENABLED').lower() == 'true',
+        # Keep this exact: whitespace or an unknown version must fail closed.
+        'demo_context_version': str(values.get('V5_DEMO_CONTEXT_VERSION', '')),
         'demo_whatsapp_live': get('V5_DEMO_WHATSAPP_LIVE').lower() == 'true',
         'demo_continuation_enabled': get('V5_DEMO_CONTINUATION_ENABLED').lower() == 'true',
         'demo_state_path': get('V5_DEMO_STATE_PATH'),
@@ -89,6 +102,9 @@ def load_settings(environ=None):
         settings['tiktok_' + role + '_token'] = get('V5_TIKTOK_' + role.upper() + '_TOKEN')
     settings['simulated_checks'] = settings['tiktok_mode'] != 'real'
     issues = []
+    context_issue = demo_context_issue(settings)
+    if context_issue:
+        issues.append(context_issue)
     from contracts import parse_pilot_phones
     phones, phones_issue = parse_pilot_phones(get('V5_PILOT_PHONES'), phone)
     if phones_issue:
