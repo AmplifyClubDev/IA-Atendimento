@@ -56,7 +56,7 @@ class StructuredAnswerCases(unittest.TestCase):
         self.assertEqual(schema['type'], 'object')
         self.assertFalse(schema['additionalProperties'])
         self.assertEqual(set(schema['required']), {'answer', 'evidence'})
-        self.assertEqual(schema['properties']['answer'], {'type': 'string'})
+        self.assertEqual(schema['properties']['answer'], {'type': 'string', 'minLength': 0, 'maxLength': 600})
         evidence = schema['properties']['evidence']
         self.assertEqual(evidence['type'], 'array')
         self.assertEqual(evidence['items']['type'], 'string')
@@ -73,6 +73,18 @@ class StructuredAnswerCases(unittest.TestCase):
                 outcome, _, rows = self.run_answer(value=value)
                 self.assertEqual(outcome, 'faq_unavailable')
                 self.assertEqual(rows[-1]['category'], category)
+
+    def test_answer_length_schema_and_client_bounds_agree_without_truncation(self):
+        outcome, body, _ = self.run_answer(value={**self.value, 'answer': 'x' * 600})
+        self.assertIsInstance(outcome, dict)
+        self.assertIn('x' * 600, outcome['answer'])
+        self.assertEqual(body['text']['format']['schema']['properties']['answer']['maxLength'], 600)
+        outcome, _, rows = self.run_answer(value={**self.value, 'answer': 'x' * 601})
+        self.assertEqual(outcome, 'faq_unavailable')
+        self.assertEqual(rows[-1]['category'], 'answer_length')
+        outcome, _, rows = self.run_answer(value={'answer': '', 'evidence': []})
+        self.assertEqual(outcome, 'faq_unknown')
+        self.assertEqual(rows[-1]['category'], 'knowledge_not_supported')
 
     def test_markdown_or_extra_prose_is_not_tolerantly_reparsed(self):
         for text in ('```json\n' + json.dumps(self.value) + '\n```',
