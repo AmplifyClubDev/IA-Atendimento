@@ -321,14 +321,14 @@ class ResetWebhookCases(unittest.TestCase):
         for result in ({'status': 'demo_identity_rejected'}, {'status': 'demo_stale_event'},
                        {'status': 'demo_delivery_unconfirmed'}):
             with self.subTest(result=result):
-                router.handle = Mock(return_value=(result, 202))
+                router.handle_verified_webhook = Mock(return_value=(result, 202))
                 with patch('builtins.print') as log:
                     response = app.test_client().post('/webhook/chatwoot', json=self.raw('private synthetic text'),
                                                      headers={'X-Amplify-Webhook-Token': TOKEN})
                 self.assertEqual(response.status_code, 202)
                 self.assertEqual(json.loads(log.call_args.args[0]), {
                     'message_id': '101', 'conversation_id': '7', 'status': result['status']})
-        router.handle = Mock(side_effect=RuntimeError('private synthetic exception'))
+        router.handle_verified_webhook = Mock(side_effect=RuntimeError('private synthetic exception'))
         with patch('builtins.print') as log:
             response = app.test_client().post('/webhook/chatwoot', json=self.raw('private synthetic text'),
                                              headers={'X-Amplify-Webhook-Token': TOKEN})
