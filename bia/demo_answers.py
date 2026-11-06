@@ -3,6 +3,7 @@ import json
 import re
 from demo_flow import format_answer, safe_context_text, RETURN_STEPS, FAQ_STEPS
 from urllib.request import Request, build_opener, HTTPRedirectHandler
+from urllib.error import HTTPError, URLError
 
 TOPICS = ('faq_agency', 'faq_terms', 'faq_invite', 'faq_unknown', 'faq_benefits')
 
@@ -10,6 +11,37 @@ TOPICS = ('faq_agency', 'faq_terms', 'faq_invite', 'faq_unknown', 'faq_benefits'
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs):
         return None
+
+
+def _diagnostic(category, *, knowledge=None, completed=None, http_status=None,
+                incomplete_reason=None, answer_length=None, usage=None):
+    """Fixed categories and bounded metadata only; never provider or lead text."""
+    row = {'event': 'demo_ai', 'category': category}
+    if isinstance(knowledge, dict):
+        version, count = knowledge.get('knowledge_version'), knowledge.get('card_count')
+        if isinstance(version, str) and re.fullmatch(r'contextos-ia-v1:[a-f0-9]{32}\+[a-f0-9]{12}', version):
+            row['knowledge_version'] = version
+        if type(count) is int and 3 <= count <= 64:
+            row['card_count'] = count
+    if type(completed) is bool:
+        row['completed'] = completed
+    if type(http_status) is int and 100 <= http_status <= 599:
+        row['http_status'] = http_status
+    if incomplete_reason is not None:
+        row['incomplete_reason'] = (incomplete_reason if incomplete_reason in
+                                   ('max_output_tokens', 'content_filter') else 'other')
+    if type(answer_length) is int and 0 <= answer_length <= 65536:
+        row['answer_length'] = answer_length
+    if isinstance(usage, dict):
+        details = usage.get('output_tokens_details')
+        for key, value in (('output_tokens', usage.get('output_tokens')),
+                           ('reasoning_tokens', details.get('reasoning_tokens') if isinstance(details, dict) else None)):
+            if type(value) is int and 0 <= value <= 10000000:
+                row[key] = value
+    try:
+        print(json.dumps(row, sort_keys=True), flush=True)
+    except OSError:
+        pass  # Diagnostic delivery must not change a grounded answer or retry it.
 
 
 def build_answerer(settings, *, opener=None, context_loader=None):
@@ -35,8 +67,18 @@ def build_answerer(settings, *, opener=None, context_loader=None):
                     dialogue[key] = conversation[key]
             for key in ('last_question', 'last_answer'):
                 dialogue[key] = safe_context_text(conversation.get(key), 900)
-        knowledge = context_loader(settings)
-        if knowledge.get('source') != 'database':
+        try:
+            knowledge = context_loader(settings)
+        except Exception:
+            _diagnostic('context_unavailable')
+            raise
+        if not isinstance(knowledge, dict) or knowledge.get('source') != 'database':
+            _diagnostic('context_invalid')
+            return 'faq_unavailable'
+        _diagnostic('context_loaded', knowledge=knowledge)
+
+        def unavailable(category, **details):
+            _diagnostic(category, knowledge=knowledge, **details)
             return 'faq_unavailable'
         body = {'model': model, 'store': False,
                 'instructions': (
@@ -69,31 +111,97 @@ def build_answerer(settings, *, opener=None, context_loader=None):
                 'max_output_tokens': 1500}
         request = Request('https://api.openai.com/v1/responses', data=json.dumps(body).encode(), method='POST',
                           headers={'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'})
-        with (opener or build_opener(NoRedirect())).open(request, timeout=12) as response:
-            raw = response.read(65537)
+        http_status = None
+        try:
+            with (opener or build_opener(NoRedirect())).open(request, timeout=12) as response:
+                http_status = getattr(response, 'status', None)
+                raw = response.read(65537)
+        except HTTPError as error:
+            code = error.code
+            error.close()
+            return unavailable('provider_http', http_status=code)
+        except TimeoutError:
+            return unavailable('provider_timeout')
+        except URLError as error:
+            return unavailable('provider_timeout' if isinstance(error.reason, TimeoutError) else 'provider_transport')
+        except Exception:
+            return unavailable('provider_transport')
         if len(raw) > 65536:
-            return 'faq_unavailable'
-        result = json.loads(raw)
-        if result.get('status') != 'completed':
-            return 'faq_unavailable'
-        pieces = [part.get('text', '') for item in result.get('output', []) if item.get('type') == 'message'
-                  and item.get('role') == 'assistant' for part in item.get('content', []) if part.get('type') == 'output_text']
-        value = json.loads(''.join(pieces).strip())
+            return unavailable('provider_body_too_large', http_status=http_status)
+        try:
+            result = json.loads(raw)
+        except (ValueError, TypeError, UnicodeError):
+            return unavailable('provider_json', http_status=http_status)
+        if not isinstance(result, dict):
+            return unavailable('provider_schema', http_status=http_status)
+        completed = result.get('status') == 'completed'
+        diagnostic = {'completed': completed, 'http_status': http_status, 'usage': result.get('usage')}
+        if not completed:
+            details = result.get('incomplete_details')
+            reason = details.get('reason') if isinstance(details, dict) else None
+            return unavailable('provider_incomplete' if result.get('status') == 'incomplete' else 'provider_not_completed',
+                               incomplete_reason=reason or 'other', **diagnostic)
+        output = result.get('output')
+        if not isinstance(output, list):
+            return unavailable('provider_schema', **diagnostic)
+        pieces = []
+        for item in output:
+            if not isinstance(item, dict):
+                return unavailable('provider_schema', **diagnostic)
+            if item.get('type') != 'message' or item.get('role') != 'assistant':
+                continue
+            if not isinstance(item.get('content'), list):
+                return unavailable('provider_schema', **diagnostic)
+            for part in item['content']:
+                if not isinstance(part, dict):
+                    return unavailable('provider_schema', **diagnostic)
+                if part.get('type') == 'refusal':
+                    return unavailable('provider_refusal', **diagnostic)
+                if part.get('type') == 'output_text':
+                    if not isinstance(part.get('text'), str):
+                        return unavailable('provider_schema', **diagnostic)
+                    pieces.append(part['text'])
+        if not pieces:
+            return unavailable('model_output_missing', **diagnostic)
+        try:
+            value = json.loads(''.join(pieces).strip())
+        except (ValueError, TypeError):
+            return unavailable('model_json', **diagnostic)
+        if not isinstance(value, dict):
+            return unavailable('answer_schema', **diagnostic)
         text, evidence = value.get('answer'), value.get('evidence')
+        diagnostic['answer_length'] = len(text) if isinstance(text, str) else None
         if text == '' and evidence == []:
+            _diagnostic('knowledge_not_supported', knowledge=knowledge, **diagnostic)
             return 'faq_unknown'
-        if (not isinstance(text, str) or not 1 <= len(text.strip()) <= 600
-                or not isinstance(evidence, list) or not 1 <= len(evidence) <= 6
-                or re.search(r'https?://|www\.|@[\w.]|[💜💙]', text)):
-            return 'faq_unavailable'
-        sources = {row['id']: row['answer'] for row in knowledge['topics']}
-        sources['limits'] = knowledge['limits']
+        if not isinstance(text, str):
+            return unavailable('answer_schema', **diagnostic)
+        if not 1 <= len(text.strip()) <= 600:
+            return unavailable('answer_length', **diagnostic)
+        if re.search(r'https?://|www\.|@[\w.]|[💜💙]', text):
+            return unavailable('answer_forbidden_content', **diagnostic)
+        if not isinstance(evidence, list) or not 1 <= len(evidence) <= 6:
+            return unavailable('evidence_schema', **diagnostic)
+        try:
+            sources = {row['id']: row['answer'] for row in knowledge['topics']}
+            sources['limits'] = knowledge['limits']
+        except (KeyError, TypeError):
+            return unavailable('context_invalid', **diagnostic)
         for item in evidence:
-            if (not isinstance(item, dict) or item.get('id') not in sources
-                    or not isinstance(item.get('quote'), str) or len(item['quote']) < 12
-                    or item['quote'] not in sources[item['id']]):
-                return 'faq_unavailable'
-        return {'answer': format_answer(text), 'evidence': evidence,
+            if not isinstance(item, dict) or not isinstance(item.get('id'), str):
+                return unavailable('evidence_schema', **diagnostic)
+            if item['id'] not in sources:
+                return unavailable('evidence_source', **diagnostic)
+            if not isinstance(item.get('quote'), str) or len(item['quote']) < 12:
+                return unavailable('evidence_quote_invalid', **diagnostic)
+            if item['quote'] not in sources[item['id']]:
+                return unavailable('evidence_quote_mismatch', **diagnostic)
+        try:
+            formatted = format_answer(text)
+        except (ValueError, TypeError):
+            return unavailable('answer_format', **diagnostic)
+        _diagnostic('answer_accepted', knowledge=knowledge, **diagnostic)
+        return {'answer': formatted, 'evidence': evidence,
                 'knowledge_version': knowledge['knowledge_version']}
     answer.accepts_dialogue_context = True
     return answer
