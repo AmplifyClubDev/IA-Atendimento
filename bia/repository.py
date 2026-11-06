@@ -169,10 +169,11 @@ class Repository:
 
     def set_demo_scope(self, scope):
         self.demo_scope = scope
-        self.set_excluded_conversations((scope.conversation_key,))
+        self.set_excluded_conversations(scope.conversation_keys)
 
     def _demo_row_blocked(self, row):
-        if row['conversation_key'] in self.excluded_conversations:
+        if (row['conversation_key'] in self.excluded_conversations
+                or (self.demo_scope and row['conversation_key'] in self.demo_scope.conversation_keys)):
             return True
         if self.demo_scope:
             try:
