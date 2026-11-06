@@ -7,12 +7,13 @@ from urllib.parse import urlsplit
 
 PROJECT_REF = 'divlvdmsqbwplervsqwu'
 DEMO_CONTEXT_VERSION = 'amplify_doc_20261106_v1'
+DEMO_CONTEXT_VERSIONS = frozenset({DEMO_CONTEXT_VERSION, 'amplify_circle_20261106_v2'})
 
 
 def demo_context_issue(settings):
     """A candidate is opt-in and can only be read by the isolated demo."""
     version = settings.get('demo_context_version', '')
-    if not isinstance(version, str) or version not in ('', DEMO_CONTEXT_VERSION):
+    if not isinstance(version, str) or version not in ('', *DEMO_CONTEXT_VERSIONS):
         return 'demo_context_version_invalid'
     if version and settings.get('demo_enabled') is not True:
         return 'demo_context_requires_demo'
@@ -49,6 +50,8 @@ def load_settings(environ=None):
         'demo_enabled': get('V5_DEMO_ROUTER_ENABLED').lower() == 'true',
         # Keep this exact: whitespace or an unknown version must fail closed.
         'demo_context_version': str(values.get('V5_DEMO_CONTEXT_VERSION', '')),
+        'demo_smoke_check': get('V5_DEMO_SMOKE_CHECK').lower() == 'true',
+        'demo_smoke_check_id': str(values.get('V5_DEMO_SMOKE_CHECK_ID', '')),
         'demo_whatsapp_live': get('V5_DEMO_WHATSAPP_LIVE').lower() == 'true',
         'demo_continuation_enabled': get('V5_DEMO_CONTINUATION_ENABLED').lower() == 'true',
         'demo_state_path': get('V5_DEMO_STATE_PATH'),
