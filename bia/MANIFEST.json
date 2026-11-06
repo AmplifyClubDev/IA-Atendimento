@@ -1,11 +1,11 @@
 {
   "release": "owner-demo-knowledge-review-20261106-local-only",
-  "source_count": 40,
+  "source_count": 41,
   "files": [
     {
       "path": "Dockerfile",
-      "bytes": 924,
-      "sha256": "a1c1188a4afbefd4eec15e3801a1f44714464f591149c210cda4fa3972dd775c"
+      "bytes": 941,
+      "sha256": "1ef0bb0b5af0d821c4555a89692bfc967f3abba081db92b463d6925d14b6d616"
     },
     {
       "path": "answers.py",
@@ -19,8 +19,8 @@
     },
     {
       "path": "config.py",
-      "bytes": 14387,
-      "sha256": "2f970223c881496849c4c3fc074158ca8032ae757f284a86721082e4acad678b"
+      "bytes": 14472,
+      "sha256": "5cf3803e20764d5e234297ced7549eb87a63a8ad2f2b89a2ce53937c37bfcef6"
     },
     {
       "path": "context_ia.py",
@@ -69,13 +69,18 @@
     },
     {
       "path": "demo_flow.py",
-      "bytes": 14096,
-      "sha256": "7d5f01ceac8be9179ad3f44a1718ded1105bec341e3f2aae88ebd321cc95eba4"
+      "bytes": 14205,
+      "sha256": "69f6d84290f8967f809ef04e01fc7165f5a365d08f2e505c81dcfebb520d9d78"
+    },
+    {
+      "path": "demo_followup.py",
+      "bytes": 5359,
+      "sha256": "dad43f7c6ac6f8293b7a41a43fd20946a451ceeb5cdd0b60c1c90dd7c8b7252a"
     },
     {
       "path": "demo_router.py",
-      "bytes": 59553,
-      "sha256": "ce6227115fbebcc8ecdd8a4793d6ce06203291e00bed90b7acb9a713f840b230"
+      "bytes": 61925,
+      "sha256": "4010d77e1441b4cf75755f35e8f26bfa013e23969af481417e4ac9fbde82d2c2"
     },
     {
       "path": "engine.py",
@@ -184,8 +189,8 @@
     },
     {
       "path": "server.py",
-      "bytes": 95800,
-      "sha256": "fd68b3b52608da9b46b475abb0077f0c4867f2a77b3fae67e657e67f9541abad"
+      "bytes": 96327,
+      "sha256": "fbc468f8e629fe7981048e3d5157b4c072481a1c6adc7dfa2bc4ccad09109e91"
     },
     {
       "path": "smtp.py",

@@ -13,17 +13,17 @@ TEMPLATES = {
     'faq_more': ('Qual assunto te interessa? 💬\n\nVocê também pode escrever sua dúvida.',
                  {'topic_lives': 'Lives e conteúdo', 'topic_club': 'Amplify Club', 'back': 'Ver tópicos'}),
     'profile': ('Que legal! Vamos começar 🚀\n\nMe manda seu *@ de creator no TikTok* para seguirmos com seu agenciamento.',
-                {'question': 'Tenho dúvidas', 'opening': 'Voltar ao início'}),
+                {'question': 'Tenho dúvidas'}),
     'member': ('Que bom te ver por aqui de novo! 👋\n\nComo posso te ajudar? Neste teste, não vou consultar seu cadastro.',
-               {'question': 'Tenho uma dúvida', 'join': 'Ver o agenciamento', 'opening': 'Voltar ao início'}),
+               {'question': 'Tenho uma dúvida', 'join': 'Ver o agenciamento'}),
     'conditions': ('Recebi seu perfil! ✅\n\nVamos simular as próximas etapas. As condições reais ainda precisam ser confirmadas; este teste não representa aceite comercial.',
-                   {'continue_test': 'Seguir no teste', 'question': 'Tenho uma dúvida', 'opening': 'Voltar ao início'}),
+                   {'continue_test': 'Seguir no teste', 'question': 'Tenho uma dúvida'}),
     'invite': ('Convite de demonstração preparado 📨\n\nQuer simular o aceite para ver como a confirmação aparece?',
                {'accept_demo': 'Simular aceite', 'decline': 'Agora não', 'question': 'Tenho uma dúvida'}),
     'confirmed': ('Teste concluído! 🎉\n\nO aceite e o vínculo foram simulados. Seu perfil real não foi consultado nem agenciado.',
-                  {'opening': 'Recomeçar teste', 'question': 'Tenho uma dúvida', 'close': 'Encerrar teste'}),
-    'paused': ('Tudo bem 😊\n\nO convite de teste ficou pausado. Quer retomar ou voltar ao início?',
-               {'resume': 'Retomar teste', 'opening': 'Voltar ao início', 'close': 'Encerrar teste'}),
+                  {'question': 'Tenho uma dúvida', 'close': 'Encerrar teste'}),
+    'paused': ('Tudo bem 😊\n\nO convite de teste ficou pausado. Quer retomar ou encerrar por agora?',
+               {'resume': 'Retomar teste', 'close': 'Encerrar teste'}),
     'faq': ('Claro! Me conta sua dúvida por aqui 💬',
             {'back': 'Ver tópicos'}),
     'faq_agency': ('A Amplify é uma agência e comunidade para creators do TikTok Shop ✨ Você pode tirar suas dúvidas antes de decidir se quer se agenciar.',
@@ -40,8 +40,8 @@ TEMPLATES = {
                     {'question': 'Tenho outra dúvida', 'join': 'Quero me agenciar'}),
     'faq_unavailable': ('Não consegui consultar as informações agora ⚙️\n\nSua etapa está preservada. Você pode tentar a pergunta novamente.',
                         {'retry': 'Tentar novamente', 'back': 'Retomar etapa'}),
-    'closed': ('Teste encerrado 👋\n\nSe quiser começar de novo, é só tocar abaixo.',
-               {'opening': 'Recomeçar teste'}),
+    'closed': ('Teste encerrado 👋\n\nSe quiser começar um novo teste, escreva Resetar.',
+               {}),
 }
 FAQ_STEPS = frozenset(step for step in TEMPLATES if step == 'faq' or step.startswith('faq_'))
 KNOWLEDGE_STEPS = FAQ_STEPS | {'about'}
@@ -152,6 +152,8 @@ def payload(key, opening, opening_choices, answer=None):
     text = format_answer(text)
     if len(text.encode('utf-16-le')) // 2 > 1024:
         raise ValueError('demo_interactive_body_too_long')
+    if not choices:
+        return {'content': text, 'message_type': 'outgoing', 'private': False, 'content_type': 'text'}
     return {'content': text, 'message_type': 'outgoing', 'private': False, 'content_type': 'input_select',
             'content_attributes': {'items': [{'title': title, 'value': key + ':' + action}
                                             for action, title in choices.items()]}}
@@ -176,6 +178,9 @@ def decision(step, text, *, correlated, opening_choices, question_answerer=None,
              last_question=None, current_choices=None):
     choices = current_choices if current_choices is not None else (opening_choices if step == 'opening' else TEMPLATES[step][1])
     action = next((action for action, title in choices.items() if text == title), None) if correlated else None
+    # Old buttons must not restart the introduction after deployment.
+    if action == 'opening' or text in {'Voltar ao início', 'Recomeçar teste'}:
+        return None
     if not action and step == 'profile' and isinstance(text, str) and re.fullmatch(r'@[A-Za-z0-9_.]{2,24}', text.strip()):
         return {'action': 'profile_received', 'step': 'conditions', 'effects': [('tiktok', 'eligible')]}
     if step in KNOWLEDGE_STEPS and action == 'back':

@@ -944,6 +944,17 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
         executor.followup_status = lambda: {**followup.status(), 'retomada': retomada.status(),
                                             'pos_pausa': pos_pausa.status(), 'reconferencia': reconferencia.status()}
 
+    if demo_router and settings.get('demo_followup_enabled') is True:
+        from demo_followup import tick_all
+        prior_followup_tick = executor.followup_tick
+        def combined_followup_tick():
+            demo_results = tick_all(demo_router)
+            if callable(prior_followup_tick):
+                prior_followup_tick()
+            return {'demo': demo_results}
+        executor.followup_tick = combined_followup_tick
+        app.extensions['v5_demo_followup_tick'] = lambda: tick_all(demo_router)
+
     def inactivity_notice(state):
         """Project a question only when the last accepted outbox is its warning."""
         from followup import configured, sequence_keys

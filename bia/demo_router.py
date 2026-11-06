@@ -242,7 +242,7 @@ class DemoStore:
         if tables & {'sessions', 'inbound_events', 'operations', 'outbox', 'real_jobs'}:
             self.db.close()
             raise ValueError('demo_store_contains_production_schema')
-        if tables - {'demo_runs', 'demo_starts', 'demo_events', 'demo_outbox', 'demo_simulations'}:
+        if tables - {'demo_runs', 'demo_starts', 'demo_events', 'demo_outbox', 'demo_simulations', 'demo_followups'}:
             self.db.close()
             raise ValueError('demo_store_not_dedicated')
         if path != ':memory:':
@@ -261,6 +261,9 @@ class DemoStore:
           CREATE TABLE IF NOT EXISTS demo_outbox (
             key TEXT PRIMARY KEY, slot TEXT NOT NULL, run TEXT NOT NULL,
             payload TEXT NOT NULL, status TEXT NOT NULL, receipt TEXT);
+          CREATE TABLE IF NOT EXISTS demo_followups (
+            key TEXT PRIMARY KEY, slot TEXT NOT NULL, source_key TEXT NOT NULL,
+            due TEXT NOT NULL, status TEXT NOT NULL, payload TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS demo_simulations (
             slot TEXT NOT NULL, run TEXT NOT NULL, operation TEXT NOT NULL,
             result TEXT NOT NULL);
@@ -396,7 +399,10 @@ class DemoWhatsAppGateway:
             raise ValueError('demo_egress_scope_mismatch')
         if payload != self.expected_payload(key):
             raise ValueError('demo_payload_not_approved')
-        self.preflight(scope)  # Identity/window rechecked directly before POST.
+        preflight = self.preflight(scope)  # Identity/window rechecked directly before POST.
+        if key.startswith('bia-demo-followup:'):
+            if not callable(getattr(self, 'followup_current', None)) or not self.followup_current(key, preflight):
+                raise ValueError('demo_followup_source_changed')
         result = self._api(scope, 'POST', '/messages', payload)
         if (not identifier(result.get('id')) or (result.get('conversation_id') is not None
                                                and str(result['conversation_id']) != scope.conversation_id)):
@@ -404,6 +410,8 @@ class DemoWhatsAppGateway:
         return {'status': 'accepted', 'message_id': str(result['id']), 'external_id': result.get('source_id')}
 
     def expected_payload(self, key):
+        if key.startswith('bia-demo-followup:') and callable(getattr(self, 'followup_payload', None)):
+            return self.followup_payload(key)
         if key.startswith('bia-demo:v2:') and demo_flow.key_parts(key)[1] == 'faq_context':
             if self.continuation_enabled is not True or not callable(self.context_payload):
                 raise ValueError('demo_context_payload_unavailable')
@@ -419,8 +427,8 @@ class DemoWhatsAppGateway:
         rows = self._api(scope, 'GET', '/messages').get('payload') or []
         matches = [m for m in rows if m.get('content') == expected['content']
                    and m.get('message_type') in (1, 'outgoing') and m.get('private') is False
-                   and m.get('content_type') == 'input_select'
-                   and (m.get('content_attributes') or {}).get('items') == expected['content_attributes']['items']
+                   and m.get('content_type') == expected['content_type']
+                   and (m.get('content_attributes') or {}).get('items') == (expected.get('content_attributes') or {}).get('items')
                    and all(m.get(key) is None or str(m[key]) == value for key, value in (
                        ('account_id', scope.account_id), ('inbox_id', scope.inbox_id), ('conversation_id', scope.conversation_id)))]
         if len(matches) != 1 or not identifier(matches[0].get('id')):
@@ -465,7 +473,8 @@ class ProductionTransportFence:
 
 
 class DemoRouter:
-    def __init__(self, scope, store, gateway=None, *, now=clock, continuation_enabled=False, question_answerer=None):
+    def __init__(self, scope, store, gateway=None, *, now=clock, continuation_enabled=False, question_answerer=None, followup_enabled=False):
+        self.followup_enabled = followup_enabled is True
         self.scope, self.store = scope, store
         self.gateway, self.now = gateway or RecordingGateway(), now
         self.continuation_enabled = continuation_enabled is True
@@ -581,6 +590,9 @@ class DemoRouter:
                                 'message_id': str(receipt['message_id']), 'production_effects': False}
                 self.store.db.execute('UPDATE demo_events SET result=? WHERE slot=? AND event_key=?',
                                       (json.dumps(event_result), self.scope.slot, metadata['reset_event_key']))
+        if self.followup_enabled and self.continuation_enabled:
+            from demo_followup import arm
+            arm(self, key)
         return result
 
     def _handle_flow_locked(self, event, state, event_key, fingerprint, *, correlated, conflict):
@@ -751,6 +763,9 @@ class DemoRouter:
             raise ValueError('demo_event_outside_scope')
         if not self.scope.accepts(event):
             return {'accepted': False, 'status': 'demo_identity_rejected'}, 202
+        if self.followup_enabled:
+            from demo_followup import cancel_for_inbound
+            cancel_for_inbound(self, event)
         event_key, fingerprint = inbound_key(event), digest(event)
         if event['text'].strip().casefold() == 'resetar':
             return self._handle_reset(event, event_key, fingerprint)
@@ -819,12 +834,29 @@ def configure_context_payload(gateway, store, scope):
                 raise ValueError('demo_context_payload_not_persisted')
             return json.loads(row['payload'])
         gateway.context_payload = persisted_context_payload
+        def persisted_followup_payload(key):
+            with store.lock:
+                row = store.db.execute('SELECT payload FROM demo_followups WHERE key=? AND slot=? AND status=?',
+                                       (key, scope.slot, 'outcome_unknown')).fetchone()
+            if row is None:
+                raise ValueError('demo_followup_not_reserved')
+            return json.loads(row['payload'])
+        gateway.followup_payload = persisted_followup_payload
+        def followup_current(key, preflight):
+            with store.lock:
+                state = store.current(scope.slot)
+                row = store.db.execute('SELECT source_key FROM demo_followups WHERE key=? AND slot=? AND status=?',
+                                       (key, scope.slot, 'outcome_unknown')).fetchone()
+                return bool(state and row and row['source_key'] == state['outbox_key']
+                            and preflight.get('after_message_id') == str(max(int(state['watermark']), int(state['parent_id']))))
+        gateway.followup_current = followup_current
 
 
 class DemoPendingRouter:
     """Only an authenticated, provider-verified fresh webhook can bind once."""
     def __init__(self, reservation, store, existing_scopes, gateway_factory, *,
-                 continuation_enabled=False, question_answerer=None, now=clock):
+                 continuation_enabled=False, question_answerer=None, now=clock, followup_enabled=False):
+        self.followup_enabled = followup_enabled is True
         self.scope, self.store, self.existing_scopes = reservation, store, tuple(existing_scopes)
         self.gateway_factory = gateway_factory
         self.continuation_enabled, self.question_answerer = continuation_enabled, question_answerer
@@ -861,7 +893,8 @@ class DemoPendingRouter:
         gateway = self.gateway_factory(scope) if gateway is None else gateway
         configure_context_payload(gateway, self.store, scope)
         return DemoRouter(scope, self.store, gateway, now=lambda: self.now(),
-                          continuation_enabled=self.continuation_enabled, question_answerer=self.question_answerer)
+                          continuation_enabled=self.continuation_enabled, question_answerer=self.question_answerer,
+                          followup_enabled=self.followup_enabled)
 
     def claims(self, event):
         return self.scope.claims(event)
@@ -1034,7 +1067,8 @@ def build_demo_router(settings, *, gateway=None, production_path=None, pending_g
             configure_context_payload(scoped_gateway, store, scope)
             routers.append(DemoRouter(scope, store, scoped_gateway,
                 continuation_enabled=settings.get('demo_continuation_enabled') is True,
-                question_answerer=build_answerer(settings)))
+                question_answerer=build_answerer(settings),
+                followup_enabled=settings.get('demo_followup_enabled') is True))
         if pending is not None:
             if pending_gateway_factory is None:
                 def pending_gateway_factory(scope):
@@ -1043,7 +1077,8 @@ def build_demo_router(settings, *, gateway=None, production_path=None, pending_g
                         continuation_enabled=settings.get('demo_continuation_enabled') is True)
             routers.append(DemoPendingRouter(pending, store, scopes, pending_gateway_factory,
                 continuation_enabled=settings.get('demo_continuation_enabled') is True,
-                question_answerer=build_answerer(settings)))
+                question_answerer=build_answerer(settings),
+                followup_enabled=settings.get('demo_followup_enabled') is True))
         router = routers[0] if len(routers) == 1 else DemoMultiplexer(routers)
         settings['_demo_scope'] = router.scope
         # The smoke test is configuration-wide, not one message per contact.

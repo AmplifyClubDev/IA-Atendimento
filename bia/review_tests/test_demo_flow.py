@@ -154,7 +154,8 @@ class FlowCases(unittest.TestCase):
         self.choose('accept_demo')
         self.assertEqual(self.choose('close'), 'closed')
         self.assertTrue(self.router.claims(fixtures.event()))
-        self.assertEqual(self.choose('opening'), 'opening')
+        result = self.router.handle(self.source(text='Resetar', correlated=False))[0]
+        self.assertEqual(result['status'], 'demo_reset_presented')
         self.assertEqual(self.router.start('synthetic-flow-start'), self.opening)
 
     def test_gateway_requires_explicit_continuation_and_exact_canonical_payload(self):
@@ -177,7 +178,7 @@ class FlowCases(unittest.TestCase):
             with self.subTest(step=step):
                 self.assertLessEqual(len(text), 500)
                 self.assertNotRegex(text, r'https?://|\d|%|/cadastro')
-                self.assertTrue(1 <= len(choices) <= 3)
+                self.assertTrue((0 if step == 'closed' else 1) <= len(choices) <= 3)
                 self.assertTrue(all(1 <= len(label) <= 20 for label in choices.values()))
                 self.assertEqual(len(set(choices.values())), len(choices))
 

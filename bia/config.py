@@ -54,6 +54,7 @@ def load_settings(environ=None):
         'demo_smoke_check': get('V5_DEMO_SMOKE_CHECK').lower() == 'true',
         'demo_smoke_check_id': str(values.get('V5_DEMO_SMOKE_CHECK_ID', '')),
         'demo_whatsapp_live': get('V5_DEMO_WHATSAPP_LIVE').lower() == 'true',
+        'demo_followup_enabled': get('V5_DEMO_FOLLOWUP_ENABLED').lower() == 'true',
         'demo_continuation_enabled': get('V5_DEMO_CONTINUATION_ENABLED').lower() == 'true',
         'demo_state_path': get('V5_DEMO_STATE_PATH'),
         'demo_scope': {'account_id': get('CHATWOOT_ACCOUNT_ID'), 'inbox_id': get('CHATWOOT_INBOX_ID'),

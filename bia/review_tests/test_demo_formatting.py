@@ -13,7 +13,7 @@ class FormattingCases(unittest.TestCase):
             self.assertEqual(re.findall(r'\w+', message['content']), re.findall(r'\w+', original))
             self.assertNotIn('**', message['content'])
             self.assertEqual(message['content'].count('*') % 2, 0)
-            self.assertEqual([i['title'] for i in message['content_attributes']['items']], list(choices.values()))
+            self.assertEqual([i['title'] for i in message.get('content_attributes', {}).get('items', [])], list(choices.values()))
             self.assertLessEqual(len(message['content'].encode('utf-16-le')) // 2, 1024)
 
     def test_dense_benefits_keep_conditions_and_become_list(self):
@@ -36,7 +36,7 @@ class FormattingCases(unittest.TestCase):
         message = payload(key, OPENING, CHOICES, answer)
         self.assertIn('*Referência de comissão:* 10%', message['content'])
         self.assertNotIn('Ficou mais claro?', message['content'])
-        self.assertEqual([i['title'] for i in message['content_attributes']['items']],
+        self.assertEqual([i['title'] for i in message.get('content_attributes', {}).get('items', [])],
                          ['Quero me agenciar', 'Tenho outra dúvida'])
         self.assertLessEqual(len(message['content'].encode('utf-16-le')) // 2, 1024)
         self.assertEqual(message['content'].count('*') % 2, 0)

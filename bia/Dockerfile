@@ -6,7 +6,7 @@ RUN pip install --no-cache-dir --disable-pip-version-check -r requirements.txt
 COPY answers.py bootstrap.py config.py contracts.py engine.py forms.py gateway.py knowledge.json repository.py server.py smtp.py transport.py conversation.py guided_ai.py context_ia.py real_journey.py real_operations.py playwright_client.py ./
 COPY verify_private.py ./
 COPY pilot_scope.py conversao.py retomada.py reconferencia.py ./
-COPY demo_router.py ./
+COPY demo_router.py demo_followup.py ./
 COPY demo_flow.py ./
 COPY demo_answers.py ./
 COPY recovery.py ./
