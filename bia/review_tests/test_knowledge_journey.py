@@ -31,10 +31,12 @@ class JourneyMemoryCases(unittest.TestCase):
         self.router.question_answerer = Mock(return_value=self.grounded())
         return self.router.handle(self.source(text=text, correlated=False))[0]
 
-    def test_question_after_profile_returns_to_conditions_without_recollecting(self):
+    def test_question_after_profile_opens_topics_and_explicit_join_preserves_conditions(self):
         self.choose('join'); self.choose('use_profile')
         self.assertEqual(self.ask()['step'], 'faq_context')
-        self.assertEqual(self.choose('back'), 'conditions')
+        self.assertEqual(self.choose('question'), 'about')
+        self.assertEqual(self.choose('faq_benefits'), 'faq_context')
+        self.assertEqual(self.choose('join'), 'conditions')
         self.assertEqual(self.store.db.execute('SELECT count(*) FROM demo_simulations').fetchone()[0], 1)
 
     def test_multiple_questions_return_to_invite_not_profile(self):
@@ -44,17 +46,19 @@ class JourneyMemoryCases(unittest.TestCase):
         self.assertEqual(self.choose('join'), 'invite')
         self.assertEqual(self.store.db.execute('SELECT count(*) FROM demo_simulations').fetchone()[0], 2)
 
-    def test_short_yes_only_redisplays_invite_and_does_not_accept_it(self):
+    def test_short_yes_only_opens_topics_without_resuming_or_accepting_invite(self):
         for action in ('join', 'use_profile', 'continue_test'):self.choose(action)
         self.ask()
-        self.assertEqual(self.router.handle(self.source(text='sim', correlated=False))[0]['step'], 'invite')
+        self.assertEqual(self.router.handle(self.source(text='sim', correlated=False))[0]['step'], 'about')
         self.assertEqual(self.store.db.execute('SELECT count(*) FROM demo_simulations').fetchone()[0], 2)
 
     def test_resume_survives_router_recreation(self):
         self.choose('join'); self.choose('use_profile'); self.ask()
         self.router = DemoRouter(self.router.scope, self.store, self.gateway, now=self.router.now,
-                                 continuation_enabled=True)
-        self.assertEqual(self.choose('back'), 'conditions')
+                                 continuation_enabled=True, question_answerer=self.router.question_answerer)
+        self.assertEqual(self.choose('question'), 'about')
+        self.assertEqual(self.choose('faq_benefits'), 'faq_context')
+        self.assertEqual(self.choose('join'), 'conditions')
 
     def test_unknown_delivery_reconciles_with_resume_metadata(self):
         self.choose('join'); self.choose('use_profile')
@@ -65,7 +69,9 @@ class JourneyMemoryCases(unittest.TestCase):
         self.assertEqual(result['status'], 'demo_delivery_unconfirmed')
         self.gateway.lookup = lambda scope, key: {'status': 'accepted', 'message_id': '202', 'simulated': True}
         self.router.reconcile(); self.gateway.send = send
-        self.assertEqual(self.choose('back'), 'conditions')
+        self.assertEqual(self.choose('question'), 'about')
+        self.assertEqual(self.choose('faq_benefits'), 'faq_context')
+        self.assertEqual(self.choose('join'), 'conditions')
 
     def test_technical_failure_is_not_missing_business_knowledge(self):
         self.choose('join')
@@ -73,7 +79,7 @@ class JourneyMemoryCases(unittest.TestCase):
         result = self.router.handle(self.source(text='Como funciona?', correlated=False))[0]
         self.assertEqual(result['step'], 'faq_unavailable')
         self.assertNotIn('informação confirmada', self.gateway.sent[-1]['payload']['content'])
-        self.assertEqual(self.choose('back'), 'profile')
+        self.assertEqual(self.choose('back'), 'about')
 
     def test_last_question_and_answer_context_are_available_without_contact_identity(self):
         self.choose('join'); self.choose('use_profile'); self.ask('Como funciona?')
