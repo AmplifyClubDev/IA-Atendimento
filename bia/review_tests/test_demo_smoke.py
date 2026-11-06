@@ -84,12 +84,12 @@ class SmokeCases(unittest.TestCase):
         self.assertEqual(result['status'], 'durable_store_required')
         self.answerer.assert_not_called()
 
-    def test_only_four_fixed_questions_and_safe_metadata_are_used(self):
+    def test_only_six_fixed_questions_and_safe_metadata_are_used(self):
         with patch('builtins.print') as log:
             self.assertEqual(self.run_check()['status'], 'scheduled')
         self.assertEqual([call.args for call in self.answerer.call_args_list], [(q,) for _, q in SMOKE_QUESTIONS])
         rows = [json.loads(call.args[0]) for call in log.call_args_list]
-        self.assertEqual([row['category'] for row in rows], ['run', 'benefits', 'benefits_paraphrase', 'lives', 'lives_paraphrase', 'run'])
+        self.assertEqual([row['category'] for row in rows], ['run', 'benefits', 'benefits_paraphrase', 'lives', 'lives_paraphrase', 'partnership_exit', 'partnership_exit_paraphrase', 'run'])
         self.assertTrue(all(set(row) <= {'event', 'category', 'status', 'candidate_version',
                                         'knowledge_version', 'evidence_count', 'semantic_verdict'} for row in rows))
         record = self.store.db.execute("SELECT result FROM demo_starts WHERE slot LIKE 'smoke:%'").fetchone()
@@ -132,7 +132,7 @@ class SmokeCases(unittest.TestCase):
         self.answerer.assert_not_called()
 
     def test_failures_run_once_and_only_explicit_new_id_retries(self):
-        self.answerer.side_effect = [TimeoutError('private failure'), 'faq_unavailable', 'faq_unknown', 'faq_unavailable', grounded(), grounded(), grounded(), grounded()]
+        self.answerer.side_effect = [TimeoutError('private failure'), 'faq_unavailable', 'faq_unknown', 'faq_unavailable', 'faq_unavailable', 'faq_unknown'] + [grounded() for _ in SMOKE_QUESTIONS]
         with patch('builtins.print') as log:
             self.run_check()
         self.assertNotIn('private failure', str(log.call_args_list))
@@ -194,6 +194,6 @@ class CandidateV2Cases(unittest.TestCase):
         self.assertEqual(load_demo_context(values, transport=transport)['card_count'], 3)
         self.assertEqual(transport.call_args.kwargs['json'], {'p_version': 'amplify_circle_20261106_v2'})
         self.assertTrue(transport.call_args.kwargs['url'].endswith('/ler_contexto_ia_ensaio_v5'))
-        for version in ('amplify_circle_20261106_v2 ', 'amplify_circle_20261106_v3'):
+        for version in ('amplify_circle_20261106_v2 ', 'amplify_circle_20261106_v4'):
             self.assertEqual(config.demo_context_issue({**values, 'demo_context_version': version}), 'demo_context_version_invalid')
         self.assertEqual(config.demo_context_issue({**values, 'demo_enabled': False}), 'demo_context_requires_demo')
