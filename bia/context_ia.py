@@ -1,4 +1,4 @@
-"""Read the active, server-only V5 context. No writes or legacy-file fallback."""
+"""Read server-only V5 context; candidate selection is isolated to the demo."""
 from __future__ import annotations
 
 import hashlib
@@ -6,6 +6,7 @@ import json
 import re
 
 from gateway import Gateway
+from config import demo_context_issue
 
 
 class ContextUnavailable(ValueError):
@@ -31,47 +32,68 @@ PATTERNS = {
 
 
 def load_context(settings, transport=None):
+    """Production always reads the active RPC, regardless of demo configuration."""
     try:
         payload = Gateway(settings, transport=transport)._rpc('ler_contexto_ia_v5', {})
-        if (not isinstance(payload, dict) or set(payload) != {'version', 'cards'}
-                or not isinstance(payload['version'], str)
-                or not re.fullmatch(r'contextos-ia-v1:[a-f0-9]{32}', payload['version'])
-                or not isinstance(payload['cards'], list) or not 3 <= len(payload['cards']) <= 64):
-            raise ValueError('context_shape')
-        cards, ids, total = [], set(), 0
-        for row in payload['cards']:
-            if not isinstance(row, dict) or set(row) != {'id', 'tipo', 'titulo', 'conteudo', 'atualizado_em'}:
-                raise ValueError('context_card_shape')
-            identifier, kind, title, content, updated = (row[key] for key in
-                ('id', 'tipo', 'titulo', 'conteudo', 'atualizado_em'))
-            if (not isinstance(identifier, str) or not re.fullmatch(r'[a-z][a-z0-9_]{0,79}', identifier)
-                    or identifier in ids or kind not in ('personalidade', 'conhecimento', 'limites')
-                    or not isinstance(title, str) or not title.strip() or len(title) > 120
-                    or not isinstance(content, str) or not content.strip() or len(content) > 8000
-                    or not isinstance(updated, str) or not 10 <= len(updated) <= 50):
-                raise ValueError('context_card_invalid')
-            total += len(title) + len(content)
-            if total > 40000:
-                raise ValueError('context_too_large')
-            ids.add(identifier)
-            cards.append(dict(row))
-        if {row['tipo'] for row in cards} != {'personalidade', 'conhecimento', 'limites'}:
-            raise ValueError('context_type_missing')
-        cards.sort(key=lambda row: row['id'])
-        canonical = json.dumps(cards, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
-        return {
-            'version': payload['version'],
-            'knowledge_version': payload['version'] + '+' + hashlib.sha256(canonical.encode()).hexdigest()[:12],
-            'source': 'database', 'card_count': len(cards),
-            'personality': '\n\n'.join(row['conteudo'] for row in cards if row['tipo'] == 'personalidade'),
-            'limits': '\n\n'.join(row['conteudo'] for row in cards if row['tipo'] == 'limites'),
-            'topics': [{'id': row['id'], 'title': row['titulo'], 'answer': row['conteudo'],
-                        'patterns': PATTERNS.get(row['id'], [row['titulo']])}
-                       for row in cards if row['tipo'] == 'conhecimento'],
-        }
+        return _validated_context(payload)
     except Exception:
         # Never expose provider/database exception text or credentials to a lead.
         raise ContextUnavailable('context_ia_unavailable') from None
+
+
+def load_demo_context(settings, transport=None):
+    """Read one allowlisted candidate only when explicitly enabled for the demo."""
+    try:
+        if demo_context_issue(settings):
+            raise ValueError('demo_context_configuration_invalid')
+        version = settings.get('demo_context_version', '')
+        if not version:
+            return load_context(settings, transport=transport)
+        payload = Gateway(settings, transport=transport)._rpc(
+            'ler_contexto_ia_ensaio_v5', {'p_version': version})
+        return _validated_context(payload)
+    except Exception:
+        # An unavailable or invalid candidate must never fall back to active cards.
+        raise ContextUnavailable('context_ia_unavailable') from None
+
+
+def _validated_context(payload):
+    if (not isinstance(payload, dict) or set(payload) != {'version', 'cards'}
+            or not isinstance(payload['version'], str)
+            or not re.fullmatch(r'contextos-ia-v1:[a-f0-9]{32}', payload['version'])
+            or not isinstance(payload['cards'], list) or not 3 <= len(payload['cards']) <= 64):
+        raise ValueError('context_shape')
+    cards, ids, total = [], set(), 0
+    for row in payload['cards']:
+        if not isinstance(row, dict) or set(row) != {'id', 'tipo', 'titulo', 'conteudo', 'atualizado_em'}:
+            raise ValueError('context_card_shape')
+        identifier, kind, title, content, updated = (row[key] for key in
+            ('id', 'tipo', 'titulo', 'conteudo', 'atualizado_em'))
+        if (not isinstance(identifier, str) or not re.fullmatch(r'[a-z][a-z0-9_]{0,79}', identifier)
+                or identifier in ids or kind not in ('personalidade', 'conhecimento', 'limites')
+                or not isinstance(title, str) or not title.strip() or len(title) > 120
+                or not isinstance(content, str) or not content.strip() or len(content) > 8000
+                or not isinstance(updated, str) or not 10 <= len(updated) <= 50):
+            raise ValueError('context_card_invalid')
+        total += len(title) + len(content)
+        if total > 40000:
+            raise ValueError('context_too_large')
+        ids.add(identifier)
+        cards.append(dict(row))
+    if {row['tipo'] for row in cards} != {'personalidade', 'conhecimento', 'limites'}:
+        raise ValueError('context_type_missing')
+    cards.sort(key=lambda row: row['id'])
+    canonical = json.dumps(cards, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+    return {
+        'version': payload['version'],
+        'knowledge_version': payload['version'] + '+' + hashlib.sha256(canonical.encode()).hexdigest()[:12],
+        'source': 'database', 'card_count': len(cards),
+        'personality': '\n\n'.join(row['conteudo'] for row in cards if row['tipo'] == 'personalidade'),
+        'limits': '\n\n'.join(row['conteudo'] for row in cards if row['tipo'] == 'limites'),
+        'topics': [{'id': row['id'], 'title': row['titulo'], 'answer': row['conteudo'],
+                    'patterns': PATTERNS.get(row['id'], [row['titulo']])}
+                   for row in cards if row['tipo'] == 'conhecimento'],
+    }
 
 
 def style_instructions(knowledge):
