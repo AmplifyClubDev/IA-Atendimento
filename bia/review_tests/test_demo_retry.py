@@ -39,7 +39,7 @@ class RetryCases(unittest.TestCase):
         self.assertEqual(self.router.handle(source), first)
         self.assertEqual(answer.call_count, 2)
         self.assertEqual(len(self.gateway.sent), count)
-        self.assertEqual(self.choose('back'), 'about')
+        self.assertEqual(self.choose('question'), 'about')
 
     def test_free_question_survives_repeated_failure_and_router_recreation(self):
         self.choose('join')
@@ -52,7 +52,7 @@ class RetryCases(unittest.TestCase):
         self.assertEqual(self.choose('retry'), 'faq_unavailable')
         self.assertEqual(self.choose('retry'), 'faq_context')
         self.assertEqual([call.args[0] for call in answer.call_args_list], [question] * 3)
-        self.assertEqual(self.choose('back'), 'profile')
+        self.assertEqual(self.choose('question'), 'about')
 
     def test_retry_requires_current_button_correlation(self):
         self.choose('know')
