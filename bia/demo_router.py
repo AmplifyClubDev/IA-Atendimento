@@ -394,7 +394,9 @@ class DemoRouter:
             pending = self.store.db.execute('SELECT receipt FROM demo_outbox WHERE key=?', (key,)).fetchone()
             metadata = json.loads(pending['receipt']) if pending and pending['receipt'] else {}
             self.store.db.execute('UPDATE demo_outbox SET status=?,receipt=? WHERE key=?',
-                                  ('accepted', json.dumps({**receipt, 'grounded': metadata.get('grounded')}), key))
+                                  ('accepted', json.dumps({**receipt, 'grounded': metadata.get('grounded'),
+                                                         'resume_step': metadata.get('resume_step'),
+                                                         'last_question': metadata.get('last_question')}), key))
             if flow:
                 self.store.db.execute("UPDATE demo_runs SET parent_id=?,parent_external=?,"
                                       "step=CASE WHEN step='delivery_pending' THEN ? ELSE step END WHERE slot=? AND outbox_key=?",
@@ -423,8 +425,19 @@ class DemoRouter:
             run, step, _ = demo_flow.key_parts(state['outbox_key'])
             referenced = event.get('demo_reply_to') is not None or event.get('demo_reply_external') is not None
             if run == state['run'] and step == state['step'] and not conflict and (not referenced or correlated):
+                previous = self.store.db.execute('SELECT receipt,payload FROM demo_outbox WHERE key=?', (state['outbox_key'],)).fetchone()
+                metadata = json.loads(previous['receipt']) if previous and previous['receipt'] else {}
+                resume_step = metadata.get('resume_step') if step in demo_flow.FAQ_STEPS else step
+                if resume_step not in demo_flow.RETURN_STEPS:
+                    resume_step = 'opening'
+                question_answerer = self.question_answerer
+                if getattr(question_answerer, 'accepts_dialogue_context', False) is True:
+                    dialogue = {'current_step': step, 'return_step': resume_step,
+                                'last_question': metadata.get('last_question', ''),
+                                'last_answer': json.loads(previous['payload']).get('content', '') if previous else ''}
+                    question_answerer = lambda question: self.question_answerer(question, conversation=dialogue)
                 decision = demo_flow.decision(step, event.get('text'), correlated=correlated, opening_choices=CHOICES,
-                                              question_answerer=self.question_answerer)
+                                              question_answerer=question_answerer, resume_step=resume_step)
                 if decision:
                     key = demo_flow.new_key(run, decision['step'])
                     grounded = decision.get('grounded')
@@ -438,7 +451,9 @@ class DemoRouter:
                         self.store.db.execute('INSERT INTO demo_outbox VALUES(?,?,?,?,?,?)',
                                               (key, self.scope.slot, run, json.dumps(payload), 'outcome_unknown',
                                                json.dumps({'pending_event_key': event_key, 'choice': decision['action'],
-                                                           'grounded': grounded})))
+                                                           'grounded': grounded,
+                                                           'resume_step': resume_step if decision['step'] in demo_flow.FAQ_STEPS else decision['step'],
+                                                           'last_question': demo_flow.safe_context_text(event.get('text'), 500) if decision['action'] == 'question' else ''})))
                         self.store.db.execute('UPDATE demo_runs SET step=?,choice=?,parent_id=NULL,parent_external=NULL,'
                                               'outbox_key=?,started=?,watermark=? WHERE slot=?',
                                               ('delivery_pending', decision['action'], key, clock(self.now()).isoformat(),
