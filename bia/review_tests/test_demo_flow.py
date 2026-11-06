@@ -35,12 +35,13 @@ class FlowCases(unittest.TestCase):
         self.assertFalse(response['production_effects'])
         return self.store.current(fixtures.SCOPE.slot)['step']
 
-    def test_short_about_has_only_approved_identity_and_join_cta(self):
+    def test_know_opens_short_topic_menu_before_explicit_join(self):
         self.assertEqual(self.choose('know'), 'about')
         payload = self.gateway.sent[-1]['payload']
-        self.assertEqual(payload['content'], demo_flow.TEMPLATES['about'][0])
-        self.assertEqual(payload['content_attributes']['items'][0]['title'], 'Quero me agenciar')
-        self.assertNotIn('benefício', payload['content'].lower())
+        self.assertEqual(payload['content'], demo_flow.format_answer(demo_flow.TEMPLATES['about'][0]))
+        self.assertEqual([item['title'] for item in payload['content_attributes']['items']],
+                         ['Conhecer benefícios', 'Parceria e regras', 'Mais assuntos'])
+        self.assertEqual(self.choose('faq_benefits'), 'faq_benefits')
         self.assertEqual(self.choose('join'), 'profile')
 
     def test_join_reaches_simulated_confirmation_without_real_profile_or_terms(self):
@@ -57,7 +58,7 @@ class FlowCases(unittest.TestCase):
         self.assertEqual(self.choose('member'), 'member')
         self.assertIn('não vou consultar seu cadastro', self.gateway.sent[-1]['payload']['content'])
         self.assertEqual(self.store.db.execute('SELECT count(*) FROM demo_simulations').fetchone()[0], 0)
-        self.assertEqual(self.choose('question'), 'faq')
+        self.assertEqual(self.choose('question'), 'about')
         self.assertEqual(self.router.handle(self.source(text='Como funciona o convite?'))[0]['step'], 'faq_invite')
 
     def test_free_questions_use_static_answers_and_do_not_store_profile_text(self):
