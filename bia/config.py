@@ -1,5 +1,6 @@
 """Explicit configuration for the single-contact rehearsal; no dotenv loading."""
 import os
+import json
 import pilot_scope
 import re
 from datetime import datetime
@@ -96,6 +97,28 @@ def load_settings(environ=None):
         'whatsapp_cloud_token': get('V5_WHATSAPP_CLOUD_TOKEN'),
         'whatsapp_cloud_phone_number_id': get('V5_WHATSAPP_PHONE_NUMBER_ID'),
     }
+    # Optional complete identities. An explicitly malformed list must not
+    # silently fall back to the legacy contact or broaden the production gate.
+    if 'V5_DEMO_SCOPES_JSON' in values:
+        raw_scopes = values['V5_DEMO_SCOPES_JSON']
+        if not isinstance(raw_scopes, str) or not 1 <= len(raw_scopes) <= 8192:
+            raise ValueError('demo_scopes_json_invalid')
+        try:
+            settings['demo_scopes'] = json.loads(raw_scopes)
+        except (ValueError, TypeError):
+            raise ValueError('demo_scopes_json_invalid') from None
+        from demo_router import configured_scopes
+        configured_scopes(settings)
+    if 'V5_DEMO_PENDING_SCOPE_JSON' in values:
+        raw_pending = values['V5_DEMO_PENDING_SCOPE_JSON']
+        if not isinstance(raw_pending, str) or not 1 <= len(raw_pending) <= 2048:
+            raise ValueError('demo_pending_scope_json_invalid')
+        try:
+            settings['demo_pending_scope'] = json.loads(raw_pending)
+        except (ValueError, TypeError):
+            raise ValueError('demo_pending_scope_json_invalid') from None
+        from demo_router import configured_scopes, configured_pending_scope
+        configured_pending_scope(settings, configured_scopes(settings))
     for role, default_url in (
             ('precheck', 'https://tiktok-pre-validacao-production.up.railway.app/bridge'),
             ('agency', 'https://tiktok-agenciamento-production.up.railway.app/bridge'),
@@ -206,4 +229,3 @@ def load_settings(environ=None):
         issues.append('restricted_pilot_scope_missing')
     settings['readiness_issues'] = issues
     return settings
-
