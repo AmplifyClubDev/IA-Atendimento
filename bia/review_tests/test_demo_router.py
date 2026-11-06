@@ -114,7 +114,7 @@ class RouterCases(unittest.TestCase):
     def test_free_text_old_title_and_missing_parent_do_not_advance(self):
         self.start()
         for index, change in enumerate(({'text': 'old scripted title'}, {'demo_reply_to': None},
-                                         {'text': 'resetar'}, {'demo_reply_to': '8'})):
+                                         {'text': 'como resetar?'}, {'demo_reply_to': '8'})):
             result, _ = self.router.handle(self.click(message_id=str(110 + index), **change))
             self.assertEqual(result['status'], 'demo_choice_not_current')
         self.assertEqual(len(self.gateway.sent), 1)
