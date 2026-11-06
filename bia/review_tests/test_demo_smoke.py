@@ -83,12 +83,12 @@ class SmokeCases(unittest.TestCase):
         self.assertEqual(result['status'], 'durable_store_required')
         self.answerer.assert_not_called()
 
-    def test_only_two_fixed_questions_and_safe_metadata_are_used(self):
+    def test_only_four_fixed_questions_and_safe_metadata_are_used(self):
         with patch('builtins.print') as log:
             self.assertEqual(self.run_check()['status'], 'scheduled')
         self.assertEqual([call.args for call in self.answerer.call_args_list], [(q,) for _, q in SMOKE_QUESTIONS])
         rows = [json.loads(call.args[0]) for call in log.call_args_list]
-        self.assertEqual([row['category'] for row in rows], ['run', 'benefits', 'lives', 'run'])
+        self.assertEqual([row['category'] for row in rows], ['run', 'benefits', 'benefits_paraphrase', 'lives', 'lives_paraphrase', 'run'])
         self.assertTrue(all(set(row) <= {'event', 'category', 'status', 'candidate_version',
                                         'knowledge_version', 'evidence_count'} for row in rows))
         record = self.store.db.execute("SELECT result FROM demo_starts WHERE slot LIKE 'smoke:%'").fetchone()
@@ -108,7 +108,7 @@ class SmokeCases(unittest.TestCase):
             self.assertEqual(result['status'], 'already_claimed')
         finally:
             reopened.close()
-        self.assertEqual(self.answerer.call_count, 2)
+        self.assertEqual(self.answerer.call_count, len(SMOKE_QUESTIONS))
 
     def test_claim_is_committed_before_thread_starts_and_unknown_never_repeats(self):
         factory = Mock()
@@ -131,20 +131,20 @@ class SmokeCases(unittest.TestCase):
         self.answerer.assert_not_called()
 
     def test_failures_run_once_and_only_explicit_new_id_retries(self):
-        self.answerer.side_effect = [TimeoutError('private failure'), 'faq_unavailable', grounded(), grounded()]
+        self.answerer.side_effect = [TimeoutError('private failure'), 'faq_unavailable', 'faq_unknown', 'faq_unavailable', grounded(), grounded(), grounded(), grounded()]
         with patch('builtins.print') as log:
             self.run_check()
         self.assertNotIn('private failure', str(log.call_args_list))
         self.assertEqual(json.loads(self.store.db.execute("SELECT result FROM demo_starts WHERE slot LIKE 'smoke:%'").fetchone()[0])['status'], 'failed')
         self.assertEqual(self.run_check()['status'], 'already_claimed')
         self.run_check(values(demo_smoke_check_id='review-check-2'))
-        self.assertEqual(self.answerer.call_count, 4)
+        self.assertEqual(self.answerer.call_count, 2 * len(SMOKE_QUESTIONS))
         self.assertEqual(self.store.db.execute("SELECT count(*) FROM demo_starts WHERE slot LIKE 'smoke:%'").fetchone()[0], 2)
 
     def test_candidate_version_separates_markers(self):
         self.run_check()
         self.run_check(values(demo_context_version='amplify_circle_20261106_v2'))
-        self.assertEqual(self.answerer.call_count, 4)
+        self.assertEqual(self.answerer.call_count, 2 * len(SMOKE_QUESTIONS))
         self.assertEqual(self.store.db.execute("SELECT count(*) FROM demo_starts WHERE slot LIKE 'smoke:%'").fetchone()[0], 2)
 
     def test_build_router_never_calls_message_gateway_or_effects_for_smoke(self):
@@ -154,7 +154,7 @@ class SmokeCases(unittest.TestCase):
                 patch('demo_answers.threading.Thread', ImmediateThread):
             router = build_demo_router(settings, gateway=gateway)
         try:
-            self.assertEqual(self.answerer.call_count, 2)
+            self.assertEqual(self.answerer.call_count, len(SMOKE_QUESTIONS))
             self.assertEqual(gateway.mock_calls, [])
             for table in ('demo_runs', 'demo_events', 'demo_outbox', 'demo_simulations'):
                 self.assertEqual(router.store.db.execute('SELECT count(*) FROM ' + table).fetchone()[0], 0)
@@ -174,7 +174,7 @@ class SmokeCases(unittest.TestCase):
         self.answerer = build_answerer({'ai_enabled': True, 'openai_api_key': 'synthetic', 'ai_model': 'test'},
                                       opener=opener, context_loader=lambda _: knowledge)
         self.run_check()
-        self.assertEqual(opener.open.call_count, 2)
+        self.assertEqual(opener.open.call_count, len(SMOKE_QUESTIONS))
         for call in opener.open.call_args_list:
             self.assertEqual(call.kwargs['timeout'], 12)
             body = json.loads(call.args[0].data)
