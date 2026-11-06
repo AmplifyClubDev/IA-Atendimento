@@ -4,7 +4,7 @@ import json
 import unittest
 from unittest.mock import Mock, patch
 
-from demo_answers import build_answerer, SMOKE_QUESTIONS
+from demo_answers import build_answerer, SMOKE_QUESTIONS, _evidence_catalog
 from demo_flow import format_answer
 
 
@@ -14,8 +14,10 @@ class StructuredAnswerCases(unittest.TestCase):
                           'card_count': 3, 'personality': 'Seja breve.', 'limits': 'Não garantir resultados.',
                           'topics': [{'id': 'benefits', 'answer': 'Os benefícios dependem da disponibilidade e da categoria.'},
                                      {'id': 'lives', 'answer': 'Fazer live não é obrigatório.'}]}
-        self.value = {'answer': 'Os benefícios dependem da disponibilidade e da categoria.',
-                      'evidence': [{'id': 'benefits', 'quote': 'Os benefícios dependem da disponibilidade e da categoria.'}]}
+        self.catalog = _evidence_catalog(self.knowledge)
+        self.reference = next(ref for ref, item in self.catalog.items() if item['id'] == 'benefits')
+        self.expected_evidence = [self.catalog[self.reference]]
+        self.value = {'answer': 'Os benefícios dependem da disponibilidade e da categoria.', 'evidence': [self.reference]}
 
     def run_answer(self, *, question='Quais benefícios?', value=None, output_text=None, envelope=None, conversation=None):
         if envelope is None:
@@ -57,15 +59,14 @@ class StructuredAnswerCases(unittest.TestCase):
         self.assertEqual(schema['properties']['answer'], {'type': 'string'})
         evidence = schema['properties']['evidence']
         self.assertEqual(evidence['type'], 'array')
-        self.assertEqual(set(evidence['items']['required']), {'id', 'quote'})
-        self.assertFalse(evidence['items']['additionalProperties'])
-        self.assertEqual(evidence['items']['properties'], {'id': {'type': 'string'}, 'quote': {'type': 'string'}})
+        self.assertEqual(evidence['items']['type'], 'string')
+        self.assertEqual(evidence['items']['enum'], sorted(self.catalog))
 
     def test_schema_does_not_replace_client_shape_and_evidence_checks(self):
         cases = [({**self.value, 'extra': True}, 'answer_schema'),
                  ({'answer': self.value['answer']}, 'answer_schema'),
-                 ({**self.value, 'evidence': [{**self.value['evidence'][0], 'extra': True}]}, 'evidence_schema'),
-                 ({**self.value, 'evidence': [{'id': 'lives', 'quote': 'Essa frase não está no card.'}]}, 'evidence_quote_mismatch'),
+                 ({**self.value, 'evidence': [{'id': 'benefits', 'quote': 'legacy object', 'extra': True}]}, 'evidence_schema'),
+                 ({**self.value, 'evidence': ['unknown-reference']}, 'evidence_source'),
                  ({**self.value, 'answer': 'x' * 601}, 'answer_length')]
         for value, category in cases:
             with self.subTest(category=category):
@@ -100,13 +101,13 @@ class StructuredAnswerCases(unittest.TestCase):
         instructions = body['instructions']
         for required in ('português simples, natural e acolhedor', 'processo operacional, base, contexto',
                          'validação interna ou roteamento', 'Preserve todos os fatos, condições e limites',
-                         'citações em evidence devem continuar literais', 'é opcional, sem pressão',
+                         'Escolha evidências apenas pelas referências fornecidas', 'é opcional, sem pressão',
                          'omita esse convite se já apareceu na última resposta', 'não acrescente rodapé fixo'):
             self.assertIn(required, instructions)
         self.assertNotIn('O sistema acrescenta os botões e a pergunta final.', instructions)
         self.assertEqual(json.loads(body['input'])['conversation']['last_answer'], previous)
         self.assertEqual(outcome['answer'], format_answer(self.value['answer']))
-        self.assertEqual(outcome['evidence'], self.value['evidence'])
+        self.assertEqual(outcome['evidence'], self.expected_evidence)
         self.assertNotIn(previous, outcome['answer'])
 
     def test_jargon_is_advisory_boolean_only_not_a_new_fallback_or_edit(self):
@@ -119,7 +120,7 @@ class StructuredAnswerCases(unittest.TestCase):
                 outcome, _, rows = self.run_answer(value=value)
                 self.assertIsInstance(outcome, dict)
                 self.assertEqual(outcome['answer'], format_answer(text))
-                self.assertEqual(outcome['evidence'], self.value['evidence'])
+                self.assertEqual(outcome['evidence'], self.expected_evidence)
                 self.assertIs(rows[-1]['jargon_present'], flagged)
                 self.assertEqual(rows[-1]['category'], 'answer_accepted')
                 self.assertNotIn(text, json.dumps(rows))
@@ -127,7 +128,8 @@ class StructuredAnswerCases(unittest.TestCase):
     def test_jargon_inside_literal_evidence_is_not_treated_as_answer_jargon(self):
         quote = 'O processo operacional preserva as condições.'
         self.knowledge['topics'][0]['answer'] = quote
-        value = {'answer': 'As condições são mantidas.', 'evidence': [{'id': 'benefits', 'quote': quote}]}
+        reference = next(ref for ref, item in _evidence_catalog(self.knowledge).items() if item['id'] == 'benefits')
+        value = {'answer': 'As condições são mantidas.', 'evidence': [reference]}
         outcome, _, rows = self.run_answer(value=value)
         self.assertIsInstance(outcome, dict)
         self.assertEqual(outcome['evidence'][0]['quote'], quote)
