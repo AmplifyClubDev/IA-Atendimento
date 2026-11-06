@@ -4,7 +4,7 @@ import json
 import unittest
 from unittest.mock import Mock
 
-from demo_answers import build_answerer
+from demo_answers import build_answerer, _evidence_catalog
 from demo_flow import safe_context_text
 from demo_router import DemoRouter
 import test_demo_flow
@@ -95,7 +95,8 @@ class ModelContextCases(unittest.TestCase):
         knowledge = {'source':'database','knowledge_version':'synthetic','personality':'Seja breve',
                      'limits':'Não prometer.', 'topics':[{'id':'offer','answer':'Conteúdo aprovado da base.'}]}
         fake = Mock()
-        payload = {'answer':'Conteúdo aprovado da base.', 'evidence':[{'id':'offer','quote':'Conteúdo aprovado da base.'}]}
+        reference = next(ref for ref, item in _evidence_catalog(knowledge).items() if item['id'] == 'offer')
+        payload = {'answer':'Conteúdo aprovado da base.', 'evidence':[reference]}
         fake.open.return_value = io.BytesIO(json.dumps({'status':'completed','output':[{'type':'message','role':'assistant',
             'content':[{'type':'output_text','text':json.dumps(payload)}]}]}).encode())
         answer=build_answerer({'ai_enabled':True,'openai_api_key':'synthetic','ai_model':'test'},opener=fake,context_loader=lambda _:knowledge)
