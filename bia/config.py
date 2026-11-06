@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 
 PROJECT_REF = 'divlvdmsqbwplervsqwu'
 DEMO_CONTEXT_VERSION = 'amplify_doc_20261106_v1'
-DEMO_CONTEXT_VERSIONS = frozenset({DEMO_CONTEXT_VERSION, 'amplify_circle_20261106_v2'})
+DEMO_CONTEXT_VERSIONS = frozenset({DEMO_CONTEXT_VERSION, 'amplify_circle_20261106_v2', 'amplify_circle_20261106_v3'})
 
 
 def demo_context_issue(settings):
@@ -206,3 +206,4 @@ def load_settings(environ=None):
         issues.append('restricted_pilot_scope_missing')
     settings['readiness_issues'] = issues
     return settings
+
