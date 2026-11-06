@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 
 import config
 from context_ia import load_demo_context
-from demo_answers import build_answerer, schedule_smoke_check, SMOKE_QUESTIONS
+from demo_answers import build_answerer, schedule_smoke_check, SMOKE_QUESTIONS, _evidence_catalog
 from demo_router import DemoStore, build_demo_router
 from test_demo_router import settings as router_settings, SCOPE
 from test_demo_context import payload as context_payload, settings as context_settings
@@ -45,7 +45,8 @@ class SmokeCases(unittest.TestCase):
 
     def run_check(self, settings=None, **kwargs):
         return schedule_smoke_check(settings or values(), self.store, SCOPE.slot, self.answerer,
-                                    thread_factory=kwargs.pop('thread_factory', ImmediateThread), **kwargs)
+                                    thread_factory=kwargs.pop('thread_factory', ImmediateThread),
+                                    verifier=kwargs.pop('verifier', lambda question, answer: 'supported'), **kwargs)
 
     def test_default_is_disabled_without_storage_model_thread_or_logging(self):
         settings = config.load_settings({})
@@ -90,7 +91,7 @@ class SmokeCases(unittest.TestCase):
         rows = [json.loads(call.args[0]) for call in log.call_args_list]
         self.assertEqual([row['category'] for row in rows], ['run', 'benefits', 'benefits_paraphrase', 'lives', 'lives_paraphrase', 'run'])
         self.assertTrue(all(set(row) <= {'event', 'category', 'status', 'candidate_version',
-                                        'knowledge_version', 'evidence_count'} for row in rows))
+                                        'knowledge_version', 'evidence_count', 'semantic_verdict'} for row in rows))
         record = self.store.db.execute("SELECT result FROM demo_starts WHERE slot LIKE 'smoke:%'").fetchone()
         self.assertEqual(json.loads(record['result'])['status'], 'passed')
         combined = json.dumps(rows) + record['result']
@@ -166,7 +167,8 @@ class SmokeCases(unittest.TestCase):
         knowledge = {'source': 'database', 'knowledge_version': VERSION, 'card_count': 3,
                      'personality': 'Brief', 'limits': 'Do not guarantee.',
                      'topics': [{'id': 'topic', 'answer': 'Literal synthetic supporting evidence.'}]}
-        content = {'answer': 'Synthetic answer.', 'evidence': [{'id': 'topic', 'quote': 'Literal synthetic supporting evidence.'}]}
+        reference = next(ref for ref, item in _evidence_catalog(knowledge).items() if item['id'] == 'topic')
+        content = {'answer': 'Synthetic answer.', 'evidence': [reference]}
         response = {'status': 'completed', 'output': [{'type': 'message', 'role': 'assistant',
                     'content': [{'type': 'output_text', 'text': json.dumps(content)}]}]}
         opener = Mock()
