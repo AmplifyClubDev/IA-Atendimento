@@ -21,9 +21,9 @@ TEMPLATES = {
     'invite': ('Convite de demonstração preparado 📨\n\nQuer simular o aceite para ver como a confirmação aparece?',
                {'accept_demo': 'Simular aceite', 'decline': 'Agora não', 'question': 'Tenho uma dúvida'}),
     'confirmed': ('Teste concluído! 🎉\n\nO aceite e o vínculo foram simulados. Seu perfil real não foi consultado nem agenciado.',
-                  {'question': 'Tenho uma dúvida', 'close': 'Encerrar teste'}),
+                  {'question': 'Tenho uma dúvida', 'close': 'Encerrar atendimento'}),
     'paused': ('Tudo bem 😊\n\nO convite de teste ficou pausado. Quer retomar ou encerrar por agora?',
-               {'resume': 'Retomar teste', 'close': 'Encerrar teste'}),
+               {'resume': 'Retomar teste', 'close': 'Encerrar atendimento'}),
     'faq': ('Claro! Me conta sua dúvida por aqui 💬',
             {'back': 'Ver tópicos'}),
     'faq_agency': ('A Amplify é uma agência e comunidade para creators do TikTok Shop ✨ Você pode tirar suas dúvidas antes de decidir se quer se agenciar.',
@@ -40,7 +40,7 @@ TEMPLATES = {
                     {'question': 'Tenho outra dúvida', 'join': 'Quero me agenciar'}),
     'faq_unavailable': ('Não consegui consultar as informações agora ⚙️\n\nSua etapa está preservada. Você pode tentar a pergunta novamente.',
                         {'retry': 'Tentar novamente', 'back': 'Retomar etapa'}),
-    'closed': ('Teste encerrado 👋\n\nSe quiser começar um novo teste, escreva Resetar.',
+    'closed': ('Atendimento encerrado. Obrigada pela conversa! 💙',
                {}),
 }
 FAQ_STEPS = frozenset(step for step in TEMPLATES if step == 'faq' or step.startswith('faq_'))

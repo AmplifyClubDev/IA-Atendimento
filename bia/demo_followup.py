@@ -7,7 +7,6 @@ WAITING = frozenset({'opening', 'about', 'profile', 'member', 'conditions', 'inv
                      'faq', 'faq_context', 'faq_agency', 'faq_benefits', 'faq_terms',
                      'faq_invite', 'faq_partnership', 'faq_more', 'faq_unknown'})
 PAYLOAD = {'content': 'Ainda estou por aqui 😊 Quer continuar de onde paramos? '
-           'Responda à última pergunta ou use as opções da mensagem anterior. '
            'Se não houver resposta em mais 5 minutos, encerro este atendimento por agora.',
            'message_type': 'outgoing', 'private': False, 'content_type': 'text'}
 
@@ -79,11 +78,11 @@ def tick(router):
                     router.store.db.execute("UPDATE demo_followups SET status='cancelled' WHERE key=?", (row['key'],))
                     return {'status': 'human_or_closed'}
             # Claim durably before network IO. A lost response is never retried.
-            cursor = router.store.db.execute("UPDATE demo_followups SET status='outcome_unknown' WHERE key=? AND status='pending'",
-                                             (row['key'],))
+            cursor = router.store.db.execute("UPDATE demo_followups SET status='outcome_unknown',payload=? WHERE key=? AND status='pending'",
+                                             (json.dumps(PAYLOAD), row['key']))
             if cursor.rowcount != 1:
                 return {'status': 'already_reserved'}
-            receipt = router.gateway.send(router.scope, json.loads(row['payload']), row['key'])
+            receipt = router.gateway.send(router.scope, dict(PAYLOAD), row['key'])
             status = 'accepted' if isinstance(receipt, dict) and receipt.get('status') == 'accepted' else 'outcome_unknown'
             with router.store.transaction():
                 router.store.db.execute('UPDATE demo_followups SET status=? WHERE key=?', (status, row['key']))
@@ -106,7 +105,7 @@ def tick_all(router):
     return results
 
 CLOSE_PAYLOAD = {'content': 'Como não tivemos resposta, encerrei este atendimento por agora. '
-                 'Seu histórico foi preservado. Para iniciar um novo teste, escreva Resetar. 💙',
+                 'Obrigada pela conversa! 💙',
                  'message_type': 'outgoing', 'private': False, 'content_type': 'text'}
 
 
@@ -190,11 +189,11 @@ def tick_closure(router):
                 return {'status': 'human_or_closed', 'stage': 'closure'}
         # The claim and notice receipt are separate durable boundaries. Never
         # repeat a possibly delivered notice or resolve a changed conversation.
-        reserved = router.store.db.execute("UPDATE demo_closures SET status='notice_unknown' WHERE key=? AND status='pending'",
-                                            (row['key'],)).rowcount
+        reserved = router.store.db.execute("UPDATE demo_closures SET status='notice_unknown',payload=? WHERE key=? AND status='pending'",
+                                            (json.dumps(CLOSE_PAYLOAD), row['key'])).rowcount
         if reserved != 1:
             return {'status': 'already_reserved', 'stage': 'closure'}
-        receipt = router.gateway.send(router.scope, json.loads(row['payload']), row['key'])
+        receipt = router.gateway.send(router.scope, dict(CLOSE_PAYLOAD), row['key'])
         message_id = identifier(receipt.get('message_id')) if isinstance(receipt, dict) else None
         if not message_id or receipt.get('status') != 'accepted':
             audit(router, 'closure', 'notice_unknown')
