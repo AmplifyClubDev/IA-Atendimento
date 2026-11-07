@@ -242,7 +242,7 @@ class DemoStore:
         if tables & {'sessions', 'inbound_events', 'operations', 'outbox', 'real_jobs'}:
             self.db.close()
             raise ValueError('demo_store_contains_production_schema')
-        if tables - {'demo_runs', 'demo_starts', 'demo_events', 'demo_outbox', 'demo_simulations', 'demo_followups'}:
+        if tables - {'demo_runs', 'demo_starts', 'demo_events', 'demo_outbox', 'demo_simulations', 'demo_followups', 'demo_closures'}:
             self.db.close()
             raise ValueError('demo_store_not_dedicated')
         if path != ':memory:':
@@ -261,6 +261,10 @@ class DemoStore:
           CREATE TABLE IF NOT EXISTS demo_outbox (
             key TEXT PRIMARY KEY, slot TEXT NOT NULL, run TEXT NOT NULL,
             payload TEXT NOT NULL, status TEXT NOT NULL, receipt TEXT);
+          CREATE TABLE IF NOT EXISTS demo_closures (
+            key TEXT PRIMARY KEY, slot TEXT NOT NULL, source_key TEXT NOT NULL,
+            due TEXT NOT NULL, status TEXT NOT NULL, payload TEXT NOT NULL,
+            warning_message_id TEXT NOT NULL, closure_message_id TEXT);
           CREATE TABLE IF NOT EXISTS demo_followups (
             key TEXT PRIMARY KEY, slot TEXT NOT NULL, source_key TEXT NOT NULL,
             due TEXT NOT NULL, status TEXT NOT NULL, payload TEXT NOT NULL);
@@ -306,6 +310,7 @@ class RecordingGateway:
     """Offline default: records synthetic presentation; no network capability."""
     def __init__(self):
         self.sent = []
+        self.resolved = []
 
     def preflight(self, scope):
         return {'after_message_id': '0'}
@@ -313,6 +318,10 @@ class RecordingGateway:
     def send(self, scope, payload, key):
         self.sent.append({'payload': payload, 'key': key})
         return {'status': 'accepted', 'message_id': str(int(digest(key)[:15], 16) or 1), 'simulated': True}
+
+    def resolve_inactivity(self, scope, key):
+        self.resolved.append({'scope': scope, 'key': key})
+        return {'status': 'resolved', 'simulated': True}
 
     def lookup(self, scope, key):
         return None
@@ -341,7 +350,7 @@ class DemoWhatsAppGateway:
             raise ValueError('demo_egress_scope_mismatch')
         if self.live_enabled is not True or not isinstance(self.token, str) or not self.token or re.search(r'[\r\n]', self.token):
             raise ValueError('demo_live_delivery_disabled')
-        if (method, suffix) not in {('GET', ''), ('GET', '/messages'), ('POST', '/messages')}:
+        if (method, suffix) not in {('GET', ''), ('GET', '/messages'), ('POST', '/messages'), ('POST', '/toggle_status')}:
             raise ValueError('demo_egress_denied')
         url = self.base_url + '/api/v1/accounts/' + scope.account_id + '/conversations/' + scope.conversation_id + suffix
         raw = None if payload is None else json.dumps(payload, ensure_ascii=True).encode()
@@ -400,17 +409,36 @@ class DemoWhatsAppGateway:
         if payload != self.expected_payload(key):
             raise ValueError('demo_payload_not_approved')
         preflight = self.preflight(scope)  # Identity/window rechecked directly before POST.
-        if key.startswith('bia-demo-followup:'):
+        if key.startswith(('bia-demo-followup:', 'bia-demo-close:')):
             if not callable(getattr(self, 'followup_current', None)) or not self.followup_current(key, preflight):
                 raise ValueError('demo_followup_source_changed')
+            self.inactivity_human_guard(scope)
         result = self._api(scope, 'POST', '/messages', payload)
         if (not identifier(result.get('id')) or (result.get('conversation_id') is not None
                                                and str(result['conversation_id']) != scope.conversation_id)):
             raise ValueError('demo_delivery_unconfirmed')
         return {'status': 'accepted', 'message_id': str(result['id']), 'external_id': result.get('source_id')}
 
+    def inactivity_human_guard(self, scope):
+        detail = self._api(scope, 'GET')
+        if (detail.get('status') != 'open' or (detail.get('meta') or {}).get('assignee')
+                or (detail.get('custom_attributes') or {}).get('human_control')):
+            raise ValueError('demo_human_or_closed')
+
+    def resolve_inactivity(self, scope, key):
+        if not key.startswith('bia-demo-close:'):
+            raise ValueError('demo_closure_key_required')
+        preflight = self.preflight(scope)
+        if not callable(getattr(self, 'followup_current', None)) or not self.followup_current(key, preflight):
+            raise ValueError('demo_closure_source_changed')
+        self.inactivity_human_guard(scope)
+        result = self._api(scope, 'POST', '/toggle_status', {'status': 'resolved'})
+        if result.get('status') != 'resolved':
+            raise ValueError('demo_resolution_unconfirmed')
+        return {'status': 'resolved'}
+
     def expected_payload(self, key):
-        if key.startswith('bia-demo-followup:') and callable(getattr(self, 'followup_payload', None)):
+        if key.startswith(('bia-demo-followup:', 'bia-demo-close:')) and callable(getattr(self, 'followup_payload', None)):
             return self.followup_payload(key)
         if key.startswith('bia-demo:v2:') and demo_flow.key_parts(key)[1] == 'faq_context':
             if self.continuation_enabled is not True or not callable(self.context_payload):
@@ -835,21 +863,14 @@ def configure_context_payload(gateway, store, scope):
             return json.loads(row['payload'])
         gateway.context_payload = persisted_context_payload
         def persisted_followup_payload(key):
-            with store.lock:
-                row = store.db.execute('SELECT payload FROM demo_followups WHERE key=? AND slot=? AND status=?',
-                                       (key, scope.slot, 'outcome_unknown')).fetchone()
-            if row is None:
-                raise ValueError('demo_followup_not_reserved')
-            return json.loads(row['payload'])
+            from demo_followup import persisted_payload
+            return persisted_payload(store, scope, key)
         gateway.followup_payload = persisted_followup_payload
         def followup_current(key, preflight):
-            with store.lock:
-                state = store.current(scope.slot)
-                row = store.db.execute('SELECT source_key FROM demo_followups WHERE key=? AND slot=? AND status=?',
-                                       (key, scope.slot, 'outcome_unknown')).fetchone()
-                return bool(state and row and row['source_key'] == state['outbox_key']
-                            and preflight.get('after_message_id') == str(max(int(state['watermark']), int(state['parent_id']))))
+            from demo_followup import source_current
+            return source_current(store, scope, key, preflight)
         gateway.followup_current = followup_current
+
 
 
 class DemoPendingRouter:
