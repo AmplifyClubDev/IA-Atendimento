@@ -2,7 +2,8 @@
 
 Disabled by default. This module never imports the production bootstrap,
 repository, provider clients, AI or mail sender. Live delivery is a separate
-explicit capability, limited to at most five verified Chatwoot conversations.
+explicit capability, limited to at most five approved contacts. Conversation
+renewal is separately opt-in and requires a direct Chatwoot identity proof.
 """
 from __future__ import annotations
 
@@ -137,6 +138,55 @@ class DemoPhoneReservation:
         return bool(self.bound_scope and self.bound_scope.accepts(event))
 
 
+class DemoContactReservation:
+    """Reserve a configured person and every independently verified conversation.
+
+    This is only an exclusion/dispatch identity, never an egress capability.
+    Each immutable DemoScope still owns its own gateway, state and history.
+    """
+    def __init__(self, scope, store):
+        self.original = scope
+        self.store = store
+        self.scopes = (scope,)
+        for name in DemoScope.__dataclass_fields__:
+            setattr(self, name, getattr(scope, name))
+
+    @property
+    def slot(self):
+        return self.original.slot
+
+    @property
+    def conversation_keys(self):
+        # Exclusions must be visible even to old workers which only know a
+        # conversation ID and have not handled another inbound since startup.
+        # This grants no egress authority or state: admission still needs guard().
+        with self.store.lock:
+            keys = [scope.conversation_key for scope in self.scopes]
+            for row in self.store.db.execute(
+                    'SELECT conversation_id,conversation_key FROM demo_conversation_bindings WHERE owner_slot=?',
+                    (self.slot,)):
+                conversation = identifier(row['conversation_id'])
+                if not conversation or row['conversation_key'] != 'chatwoot:' + self.account_id + ':' + conversation:
+                    raise ValueError('demo_conversation_binding_invalid')
+                if row['conversation_key'] not in keys:
+                    keys.append(row['conversation_key'])
+            return tuple(keys)
+
+    def reserve(self, scope):
+        if scope not in self.scopes:
+            self.scopes += (scope,)
+
+    def claims(self, event):
+        if any(scope.claims(event) for scope in self.scopes):
+            return True
+        return (isinstance(event, dict)
+                and (str(event.get('account_id')), str(event.get('inbox_id'))) == (self.account_id, self.inbox_id)
+                and 'chatwoot:' + self.account_id + ':' + str(event.get('conversation_id')) in self.conversation_keys)
+
+    def accepts(self, event):
+        return any(scope.accepts(event) for scope in self.scopes)
+
+
 @dataclass(frozen=True)
 class DemoScopes:
     """A bounded reservation, never an egress identity or a production gate."""
@@ -144,7 +194,7 @@ class DemoScopes:
 
     def __post_init__(self):
         if (type(self.scopes) is not tuple or not 1 <= len(self.scopes) <= MAX_DEMO_SCOPES
-                or any(not isinstance(scope, (DemoScope, DemoPhoneReservation)) for scope in self.scopes)):
+                or any(not isinstance(scope, (DemoScope, DemoPhoneReservation, DemoContactReservation)) for scope in self.scopes)):
             raise ValueError('demo_scopes_invalid')
         primary = self.scopes[0]
         for index, scope in enumerate(self.scopes):
@@ -154,6 +204,7 @@ class DemoScopes:
                 left = scope.bound_scope if isinstance(scope, DemoPhoneReservation) else scope
                 right = other.bound_scope if isinstance(other, DemoPhoneReservation) else other
                 if (same_phone(scope.phone, other.phone)
+                        or set(scope.conversation_keys) & set(other.conversation_keys)
                         or (left and right and (left.conversation_id == right.conversation_id
                                                or left.contact_id == right.contact_id))):
                     raise ValueError('demo_scopes_identity_overlap')
@@ -168,7 +219,7 @@ class DemoScopes:
 
 def verified_scopes(settings):
     scope = settings.get('_demo_scope') if isinstance(settings, dict) else None
-    if isinstance(scope, DemoScope):
+    if isinstance(scope, (DemoScope, DemoContactReservation)):
         return (scope,)
     return scope.scopes if isinstance(scope, DemoScopes) else ()
 
@@ -236,18 +287,25 @@ class DemoStore:
                     raise ValueError('demo_store_must_be_separate')
             Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
+        self.path = path
+        self.owner_locks = threading.local()
         self.db = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
         self.db.row_factory = sqlite3.Row
         tables = {row[0] for row in self.db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if tables & {'sessions', 'inbound_events', 'operations', 'outbox', 'real_jobs'}:
             self.db.close()
             raise ValueError('demo_store_contains_production_schema')
-        if tables - {'demo_runs', 'demo_starts', 'demo_events', 'demo_outbox', 'demo_simulations', 'demo_followups', 'demo_closures'}:
+        if tables - {'demo_runs', 'demo_starts', 'demo_events', 'demo_outbox', 'demo_simulations', 'demo_followups', 'demo_closures', 'demo_conversation_bindings'}:
             self.db.close()
             raise ValueError('demo_store_not_dedicated')
         if path != ':memory:':
             os.chmod(path, 0o600)
         self.db.executescript('''
+          CREATE TABLE IF NOT EXISTS demo_conversation_bindings (
+            owner_slot TEXT NOT NULL, conversation_id TEXT NOT NULL,
+            conversation_key TEXT NOT NULL UNIQUE, first_event_key TEXT NOT NULL,
+            first_event_digest TEXT NOT NULL, verified_at TEXT NOT NULL,
+            PRIMARY KEY(owner_slot,conversation_id), UNIQUE(owner_slot,first_event_key));
           CREATE TABLE IF NOT EXISTS demo_runs (
             slot TEXT PRIMARY KEY, run TEXT NOT NULL, started TEXT NOT NULL,
             watermark TEXT NOT NULL, step TEXT NOT NULL, choice TEXT,
@@ -280,6 +338,33 @@ class DemoStore:
 
     def close(self):
         self.db.close()
+
+    @contextmanager
+    def owner_lock(self, slot):
+        """Serialize one person's effects across threads and overlapping workers.
+
+        SQLite still owns each durable transaction. The separate advisory lock
+        spans verification and send, without holding a SQL transaction over IO.
+        """
+        with self.lock:
+            active = getattr(self.owner_locks, 'active', set())
+            if self.path == ':memory:' or slot in active:
+                yield
+                return
+            if not isinstance(slot, str) or not re.fullmatch(r'[a-f0-9]{64}', slot):
+                raise ValueError('demo_owner_lock_invalid')
+            import fcntl
+            fd = os.open(self.path + '.owner-' + slot + '.lock',
+                         os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX)
+                self.owner_locks.active = active | {slot}
+                try:
+                    yield
+                finally:
+                    self.owner_locks.active = active
+            finally:
+                os.close(fd)
 
     @contextmanager
     def transaction(self):
@@ -491,12 +576,11 @@ class ProductionTransportFence:
         path = urlsplit(url).path
         scopes = self.scope.scopes if isinstance(self.scope, DemoScopes) else (self.scope,)
         for scope in scopes:
-            scope = scope.bound_scope if isinstance(scope, DemoPhoneReservation) else scope
-            if scope is None:
-                continue
-            prefix = '/api/v1/accounts/' + scope.account_id + '/conversations/' + scope.conversation_id
-            if path == prefix or path.startswith(prefix + '/'):
-                raise ValueError('demo_contact_excluded_from_production')
+            for key in scope.conversation_keys:
+                _, account, conversation = key.split(':')
+                prefix = '/api/v1/accounts/' + account + '/conversations/' + conversation
+                if path == prefix or path.startswith(prefix + '/'):
+                    raise ValueError('demo_contact_excluded_from_production')
         return self.delegate.http(method=method, url=url, **kwargs)
 
 
@@ -525,11 +609,14 @@ class DemoRouter:
     def _start(self, request_id, *, reset_event=None):
         if not isinstance(request_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,80}', request_id):
             raise ValueError('demo_start_request_id_required')
-        with self.store.lock:
+        owner = getattr(self, 'contact_owner', None)
+        with owner.guard() if owner is not None else self.store.lock:
             previous = self.store.db.execute('SELECT result FROM demo_starts WHERE slot=? AND request_id=?',
                                              (self.scope.slot, request_id)).fetchone()
             if previous:
                 return json.loads(previous['result'])
+            if owner is not None and owner.effects_blocked(self.scope):
+                return {'status': 'demo_delivery_unconfirmed', 'repeat_allowed': False}
             pending = self.store.db.execute("SELECT 1 FROM demo_outbox WHERE slot=? AND status='outcome_unknown' LIMIT 1",
                                             (self.scope.slot,)).fetchone()
             if pending:
@@ -919,13 +1006,15 @@ def configure_context_payload(gateway, store, scope):
 class DemoPendingRouter:
     """Only an authenticated, provider-verified fresh webhook can bind once."""
     def __init__(self, reservation, store, existing_scopes, gateway_factory, *,
-                 continuation_enabled=False, question_answerer=None, now=clock, followup_enabled=False):
+                 continuation_enabled=False, question_answerer=None, now=clock, followup_enabled=False,
+                 conversation_rollover_enabled=False):
         self.followup_enabled = followup_enabled is True
         self.scope, self.store, self.existing_scopes = reservation, store, tuple(existing_scopes)
         self.gateway_factory = gateway_factory
         self.continuation_enabled, self.question_answerer = continuation_enabled, question_answerer
         self.now, self.router, self.binding = now, None, None
         self.binding_failed = False
+        self.conversation_rollover_enabled = conversation_rollover_enabled is True
         self._load_binding()
 
     def _load_binding(self):
@@ -944,6 +1033,7 @@ class DemoPendingRouter:
             self.scope.bound_scope = scope
             self.binding = dict(row)
             self.router = self._router(scope)
+            self.scope.bound_scope = self.router.scope
             return True
         return False
 
@@ -956,9 +1046,15 @@ class DemoPendingRouter:
     def _router(self, scope, gateway=None):
         gateway = self.gateway_factory(scope) if gateway is None else gateway
         configure_context_payload(gateway, self.store, scope)
-        return DemoRouter(scope, self.store, gateway, now=lambda: self.now(),
+        router = DemoRouter(scope, self.store, gateway, now=lambda: self.now(),
                           continuation_enabled=self.continuation_enabled, question_answerer=self.question_answerer,
                           followup_enabled=self.followup_enabled)
+        has_bindings = self.store.db.execute('SELECT 1 FROM demo_conversation_bindings WHERE owner_slot=? LIMIT 1',
+                                             (scope.slot,)).fetchone()
+        if self.conversation_rollover_enabled or has_bindings:
+            router = DemoConversationRouter(router, self.gateway_factory, enabled=self.conversation_rollover_enabled)
+            router.other_scopes = self.existing_scopes
+        return router
 
     def claims(self, event):
         return self.scope.claims(event)
@@ -1010,6 +1106,7 @@ class DemoPendingRouter:
                             ('binding:' + self.scope.slot, 'verified-scope-v1', 'binding-v1', json.dumps(binding)))
                     self.binding = binding
                     self.router = self._router(scope, gateway)
+                    self.scope.bound_scope = self.router.scope
                 except sqlite3.IntegrityError:
                     # An overlapping process may have already committed the only
                     # binding. Read that authority; never overwrite or rebind it.
@@ -1022,6 +1119,12 @@ class DemoPendingRouter:
                 except Exception:
                     self.binding_failed = True
                     return {'accepted': False, 'status': 'demo_binding_unavailable', 'production_effects': False}, 202
+            if isinstance(self.router, DemoConversationRouter):
+                # The initial phone binding remains immutable. Only its now
+                # proven contact may acquire independently verified conversations.
+                if inbound_key(event) == self.binding['first_event_key'] and digest(event) != self.binding['first_event_digest']:
+                    return {'accepted': False, 'status': 'demo_conflicting_duplicate'}, 202
+                return self.router.handle_verified_webhook(event)
             if not self.router.scope.accepts(event):
                 return {'accepted': False, 'status': 'demo_identity_rejected'}, 202
             if inbound_key(event) == self.binding['first_event_key']:
@@ -1031,6 +1134,201 @@ class DemoPendingRouter:
                 # Resetar. This is only a response to the first verified inbound.
                 return self.router._handle_reset(event, inbound_key(event), digest(event))
             return self.router.handle(event)
+
+
+class DemoConversationRouter:
+    """Opt-in, durable admission of fresh conversations for one approved person.
+
+    The webhook cannot change the person's identity. It supplies only a candidate
+    conversation ID, which a scoped read-only Chatwoot proof must corroborate.
+    Controls and catch-up cannot establish a binding. Old slots are never moved
+    or deleted, and an uncertain send is not bypassed by changing conversations.
+    """
+    MAX_CONVERSATIONS = 100
+
+    def __init__(self, original, gateway_factory, *, enabled=False):
+        self.original, self.store = original, original.store
+        self.scope = DemoContactReservation(original.scope, original.store)
+        self.gateway_factory, self.enabled = gateway_factory, enabled is True
+        self.now = original.now
+        original.now = lambda: self.now()
+        self.question_answerer = original.question_answerer
+        self.routers = {original.scope.conversation_id: original}
+        self.bindings = {}
+        self.other_scopes = ()
+        self.binding_failed = False
+        original.contact_owner = self
+        self._load_bindings()
+
+    def _candidate(self, conversation_id):
+        original = self.scope.original
+        return DemoScope(original.account_id, original.inbox_id, original.contact_id,
+                         identifier(conversation_id), original.phone)
+
+    def _router(self, scope, gateway=None):
+        gateway = self.gateway_factory(scope) if gateway is None else gateway
+        if not isinstance(gateway, DemoWhatsAppGateway) or gateway.scope != scope:
+            raise ValueError('demo_binding_verifier_required')
+        configure_context_payload(gateway, self.store, scope)
+        router = DemoRouter(scope, self.store, gateway, now=lambda: self.now(),
+            continuation_enabled=self.original.continuation_enabled,
+            question_answerer=self.question_answerer, followup_enabled=self.original.followup_enabled)
+        router.contact_owner = self
+        return router
+
+    def _load_bindings(self):
+        rows = self.store.db.execute(
+            'SELECT * FROM demo_conversation_bindings WHERE owner_slot=? ORDER BY rowid LIMIT ?',
+            (self.scope.slot, self.MAX_CONVERSATIONS + 1)).fetchall()
+        if len(rows) >= self.MAX_CONVERSATIONS:
+            raise ValueError('demo_conversation_bindings_limit')
+        for row in rows:
+            scope = self._candidate(row['conversation_id'])
+            if (scope == self.scope.original or row['conversation_key'] != scope.conversation_key
+                    or not re.fullmatch(r'chatwoot:' + scope.account_id + r':[1-9][0-9]{0,19}', row['first_event_key'])
+                    or not re.fullmatch(r'[a-f0-9]{64}', row['first_event_digest'])):
+                raise ValueError('demo_conversation_binding_invalid')
+            clock(row['verified_at'])
+            self.bindings[scope.conversation_id] = dict(row)
+            self.scope.reserve(scope)
+            if scope.conversation_id not in self.routers:
+                self.routers[scope.conversation_id] = self._router(scope)
+
+    @contextmanager
+    def guard(self):
+        with self.store.owner_lock(self.scope.slot):
+            # Another process may have verified a conversation since startup.
+            self._load_bindings()
+            yield
+
+    def effects_blocked(self, target):
+        for scope in self.scope.scopes:
+            if scope == target:
+                continue
+            for table, statuses in (
+                    ('demo_outbox', ('outcome_unknown',)),
+                    ('demo_followups', ('outcome_unknown',)),
+                    ('demo_closures', ('notice_unknown', 'resolve_unknown'))):
+                query = 'SELECT 1 FROM ' + table + ' WHERE slot=? AND status IN (' + ','.join('?' for _ in statuses) + ') LIMIT 1'
+                if self.store.db.execute(query, (scope.slot, *statuses)).fetchone():
+                    return True
+        return False
+
+    def claims(self, event):
+        return self.scope.claims(event)
+
+    decorate = staticmethod(DemoRouter.decorate)
+
+    def select(self, scope=None):
+        if self.binding_failed:
+            raise ValueError('demo_binding_unavailable')
+        if scope is None:
+            return self.original  # Preserve the established control destination.
+        for router in self.routers.values():
+            if scope == router.scope.__dict__:
+                return router
+        raise ValueError('demo_control_scope_invalid')
+
+    def start(self, request_id):
+        return self.select().start(request_id)
+
+    def reconcile(self):
+        return self.select().reconcile()
+
+    def stop(self):
+        return self.select().stop()
+
+    def simulate(self, operation, fixture='unknown'):
+        return self.select().simulate(operation, fixture)
+
+    def _target(self, event):
+        router = self.routers.get(identifier(event.get('conversation_id')))
+        return router if router and router.scope.accepts(event) else None
+
+    def conflicting_proof(self, event):
+        return any(row['first_event_key'] == inbound_key(event)
+                   and row['first_event_digest'] != digest(event) for row in self.bindings.values())
+
+    def handle(self, event):
+        if not self.claims(event):
+            raise ValueError('demo_event_outside_scope')
+        with self.guard():
+            target = self._target(event)
+            if self.conflicting_proof(event):
+                return {'accepted': False, 'status': 'demo_conflicting_duplicate', 'production_effects': False}, 202
+            if self.binding_failed or target is None:
+                return {'accepted': False, 'status': 'demo_identity_rejected', 'production_effects': False}, 202
+            if self.effects_blocked(target.scope):
+                return {'accepted': False, 'status': 'demo_delivery_unconfirmed', 'repeat_allowed': False, 'production_effects': False}, 202
+            return target.handle(event)
+
+    def handle_verified_webhook(self, event):
+        with self.guard():
+            if not self.claims(event):
+                raise ValueError('demo_event_outside_scope')
+            if self.binding_failed:
+                return {'accepted': False, 'status': 'demo_binding_unavailable', 'production_effects': False}, 202
+            if self.conflicting_proof(event):
+                return {'accepted': False, 'status': 'demo_conflicting_duplicate', 'production_effects': False}, 202
+            target = self._target(event)
+            if target is not None:
+                if self.effects_blocked(target.scope):
+                    return {'accepted': False, 'status': 'demo_delivery_unconfirmed', 'repeat_allowed': False, 'production_effects': False}, 202
+                return target.handle_verified_webhook(event)
+            if not self.enabled:
+                return {'accepted': False, 'status': 'demo_identity_rejected', 'production_effects': False}, 202
+            try:
+                scope = self._candidate(event.get('conversation_id'))
+                if (not scope.accepts(event) or scope.conversation_id in self.routers
+                        or any(other.claims(event) or scope.conversation_key in other.conversation_keys
+                               for other in self.other_scopes)
+                        or not isinstance(event.get('created_at'), str)
+                        or not clock(self.now()) - timedelta(minutes=5) <= clock(event['created_at']) <= clock(self.now()) + timedelta(seconds=30)):
+                    raise ValueError('demo_binding_identity_invalid')
+                if len(self.scope.scopes) >= self.MAX_CONVERSATIONS:
+                    raise ValueError('demo_conversation_bindings_limit')
+                if self.effects_blocked(scope):
+                    return {'accepted': False, 'status': 'demo_delivery_unconfirmed',
+                            'repeat_allowed': False, 'production_effects': False}, 202
+                gateway = self.gateway_factory(scope)
+                if (not isinstance(gateway, DemoWhatsAppGateway) or gateway.scope != scope
+                        or gateway.verify_inbound(scope, event) is not True):
+                    raise ValueError('demo_binding_verifier_required')
+            except Exception:
+                return {'accepted': False, 'status': 'demo_binding_unverified', 'production_effects': False}, 202
+            # Reserve the verified ID even if a write fails, so no production
+            # queue or low-level HTTP path gains access during uncertainty.
+            self.scope.reserve(scope)
+            try:
+                with self.store.transaction():
+                    self.store.db.execute('INSERT INTO demo_conversation_bindings VALUES(?,?,?,?,?,?)',
+                        (self.scope.slot, scope.conversation_id, scope.conversation_key,
+                         inbound_key(event), digest(event), clock(self.now()).isoformat()))
+                    # A new conversation must not revive reminders in an older one.
+                    # Keep the rows as history; do not cancel uncertain effects.
+                    for existing in self.scope.scopes:
+                        if existing != scope:
+                            for table in ('demo_followups', 'demo_closures'):
+                                self.store.db.execute('UPDATE ' + table + " SET status='cancelled' WHERE slot=? AND status='pending'",
+                                                      (existing.slot,))
+                self.routers[scope.conversation_id] = self._router(scope, gateway)
+                self._load_bindings()
+            except sqlite3.IntegrityError:
+                # A concurrent process may have won. Only its committed proof
+                # authorizes a send; conflicting replay cannot replace it.
+                row = self.store.db.execute(
+                    'SELECT * FROM demo_conversation_bindings WHERE owner_slot=? AND conversation_id=?',
+                    (self.scope.slot, scope.conversation_id)).fetchone()
+                if row is None:
+                    self.binding_failed = True
+                    return {'accepted': False, 'status': 'demo_binding_unavailable', 'production_effects': False}, 202
+                if row['first_event_key'] == inbound_key(event) and row['first_event_digest'] != digest(event):
+                    return {'accepted': False, 'status': 'demo_conflicting_duplicate', 'production_effects': False}, 202
+                self._load_bindings()
+            except Exception:
+                self.binding_failed = True
+                return {'accepted': False, 'status': 'demo_binding_unavailable', 'production_effects': False}, 202
+            return self.routers[scope.conversation_id].handle_verified_webhook(event)
 
 
 class DemoMultiplexer:
@@ -1067,6 +1365,14 @@ class DemoMultiplexer:
         return matches[0].handle(event)
 
     def handle_verified_webhook(self, event):
+        renewing = [router for router in self.routers
+                    if isinstance(router, DemoConversationRouter) and router.claims(event)]
+        if renewing:
+            # Partial matches from two people never choose or bind a recipient.
+            claims = [router for router in self.routers if router.claims(event)]
+            if len(claims) != 1:
+                return {'accepted': False, 'status': 'demo_identity_rejected'}, 202
+            return renewing[0].handle_verified_webhook(event)
         pending = [router for router in self.routers
                    if isinstance(router, DemoPendingRouter) and router.claims(event)]
         if len(pending) == 1:
@@ -1091,11 +1397,13 @@ class DemoMultiplexer:
         return self.select().simulate(operation, fixture)
 
 
-def build_demo_router(settings, *, gateway=None, production_path=None, pending_gateway_factory=None):
+def build_demo_router(settings, *, gateway=None, production_path=None, pending_gateway_factory=None,
+                      conversation_gateway_factory=None):
     if not isinstance(settings, dict):
         return None
     if settings.get('demo_enabled') is not True:
-        if 'demo_scopes' in settings or 'demo_pending_scope' in settings:
+        if ('demo_scopes' in settings or 'demo_pending_scope' in settings
+                or settings.get('demo_conversation_rollover_enabled') is True):
             raise ValueError('demo_reservations_require_enabled_router')
         return None
     scopes = configured_scopes(settings)
@@ -1129,20 +1437,43 @@ def build_demo_router(settings, *, gateway=None, production_path=None, pending_g
         routers = []
         for scope, scoped_gateway in zip(scopes, gateways):
             configure_context_payload(scoped_gateway, store, scope)
-            routers.append(DemoRouter(scope, store, scoped_gateway,
+            child = DemoRouter(scope, store, scoped_gateway,
                 continuation_enabled=settings.get('demo_continuation_enabled') is True,
                 question_answerer=build_answerer(settings),
-                followup_enabled=settings.get('demo_followup_enabled') is True))
+                followup_enabled=settings.get('demo_followup_enabled') is True)
+            # Persisted exclusions survive turning admission off. Never discard
+            # previously verified history or let those conversations reach production.
+            has_bindings = store.db.execute('SELECT 1 FROM demo_conversation_bindings WHERE owner_slot=? LIMIT 1',
+                                             (scope.slot,)).fetchone()
+            if settings.get('demo_conversation_rollover_enabled') is True or has_bindings:
+                if conversation_gateway_factory is None:
+                    def conversation_gateway_factory(candidate):
+                        return DemoWhatsAppGateway(settings.get('chatwoot_base_url', ''), settings.get('chatwoot_api_token', ''),
+                            scope=candidate, live_enabled=settings.get('demo_whatsapp_live') is True,
+                            continuation_enabled=settings.get('demo_continuation_enabled') is True)
+                child = DemoConversationRouter(child, conversation_gateway_factory,
+                    enabled=settings.get('demo_conversation_rollover_enabled') is True)
+            routers.append(child)
         if pending is not None:
             if pending_gateway_factory is None:
                 def pending_gateway_factory(scope):
                     return DemoWhatsAppGateway(settings.get('chatwoot_base_url', ''), settings.get('chatwoot_api_token', ''),
                         scope=scope, live_enabled=settings.get('demo_whatsapp_live') is True,
                         continuation_enabled=settings.get('demo_continuation_enabled') is True)
-            routers.append(DemoPendingRouter(pending, store, scopes, pending_gateway_factory,
+            routers.append(DemoPendingRouter(pending, store, tuple(child.scope for child in routers), pending_gateway_factory,
                 continuation_enabled=settings.get('demo_continuation_enabled') is True,
                 question_answerer=build_answerer(settings),
-                followup_enabled=settings.get('demo_followup_enabled') is True))
+                followup_enabled=settings.get('demo_followup_enabled') is True,
+                conversation_rollover_enabled=settings.get('demo_conversation_rollover_enabled') is True))
+        for child in routers:
+            if isinstance(child, DemoConversationRouter):
+                child.other_scopes = tuple(other.scope for other in routers if other is not child)
+        owners = {scope.slot for scope in scopes}
+        owners.update(child.router.scope.slot for child in routers
+                      if isinstance(child, DemoPendingRouter) and child.router is not None)
+        persisted_owners = {row[0] for row in store.db.execute('SELECT DISTINCT owner_slot FROM demo_conversation_bindings')}
+        if persisted_owners - owners:
+            raise ValueError('demo_conversation_binding_owner_changed')
         router = routers[0] if len(routers) == 1 else DemoMultiplexer(routers)
         settings['_demo_scope'] = router.scope
         # The smoke test is configuration-wide, not one message per contact.

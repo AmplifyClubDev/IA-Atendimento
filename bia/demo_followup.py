@@ -95,11 +95,17 @@ def tick(router):
 
 
 def tick_all(router):
-    from demo_router import DemoMultiplexer, DemoPendingRouter
+    from demo_router import DemoMultiplexer, DemoPendingRouter, DemoConversationRouter
     results = []
     for item in router.routers if isinstance(router, DemoMultiplexer) else (router,):
         if isinstance(item, DemoPendingRouter):
             item = item.router if not item.binding_failed else None
+        if isinstance(item, DemoConversationRouter):
+            if not item.binding_failed:
+                with item.guard():
+                    results.extend({'status': 'blocked'} if item.effects_blocked(child.scope) else tick(child)
+                                   for child in tuple(item.routers.values()))
+            continue
         if item is not None:
             results.append(tick(item))
     return results
