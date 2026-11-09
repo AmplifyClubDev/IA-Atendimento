@@ -6,7 +6,8 @@ from datetime import timedelta
 WAITING = frozenset({'opening', 'about', 'profile', 'member', 'conditions', 'invite',
                      'faq', 'faq_context', 'faq_agency', 'faq_benefits', 'faq_terms',
                      'faq_invite', 'faq_partnership', 'faq_more', 'faq_unknown'})
-PAYLOAD = {'content': 'Ainda estou por aqui 😊 Quer continuar de onde paramos? '
+PAYLOAD = {'content': 'Ainda estou por aqui 😊\n\n'
+           'Quer continuar de onde paramos?\n\n'
            'Se não houver resposta em mais 5 minutos, encerro este atendimento por agora.',
            'message_type': 'outgoing', 'private': False, 'content_type': 'text'}
 
@@ -110,9 +111,15 @@ def tick_all(router):
             results.append(tick(item))
     return results
 
-CLOSE_PAYLOAD = {'content': 'Como não tivemos resposta, encerrei este atendimento por agora. '
+CLOSE_PAYLOAD = {'content': 'Como não tivemos resposta, encerrei este atendimento por agora.\n\n'
                  'Obrigada pela conversa! 💙',
                  'message_type': 'outgoing', 'private': False, 'content_type': 'text'}
+
+# Receipt-only allowlist, never used to send new messages. This exact copy was
+# deployed through e3ed98104e83ed40b149806ec7eb09476ae01b82, before paragraph formatting.
+PRE_FORMAT_CLOSE_PAYLOAD = {'content': 'Como não tivemos resposta, encerrei este atendimento por agora. '
+                            'Obrigada pela conversa! 💙',
+                            'message_type': 'outgoing', 'private': False, 'content_type': 'text'}
 
 # Receipt-only allowlist, never used to send new messages. This exact copy was
 # deployed before 3bd9f6dfaee71f8e07022347e24f9fbe922cb431 (2026-11-07).
@@ -123,7 +130,7 @@ LEGACY_CLOSE_PAYLOAD = {'content': 'Como não tivemos resposta, encerrei este at
 
 def approved_closure_receipt(payload):
     return (isinstance(payload, dict) and payload.get('private') is False
-            and payload in (CLOSE_PAYLOAD, LEGACY_CLOSE_PAYLOAD))
+            and payload in (CLOSE_PAYLOAD, PRE_FORMAT_CLOSE_PAYLOAD, LEGACY_CLOSE_PAYLOAD))
 
 
 def audit(router, stage, status):

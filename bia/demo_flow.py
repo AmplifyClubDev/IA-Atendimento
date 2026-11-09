@@ -40,12 +40,34 @@ TEMPLATES = {
                     {'question': 'Tenho outra dúvida', 'join': 'Quero me agenciar'}),
     'faq_unavailable': ('Não consegui consultar as informações agora ⚙️\n\nSua etapa está preservada. Você pode tentar a pergunta novamente.',
                         {'retry': 'Tentar novamente', 'back': 'Retomar etapa'}),
+    'stopped': ('Tudo bem. Interrompi as mensagens desta conversa no ensaio. 💙\n\nIsso não altera nenhum vínculo com uma agência.', {}),
+    'declined': ('Tudo bem 😊 Não vou avançar no agenciamento.\n\nSe quiser, você ainda pode tirar uma dúvida ou encerrar por aqui.',
+                 {'question': 'Tenho uma dúvida', 'close': 'Encerrar atendimento'}),
+    'human_unavailable': ('Entendi seu pedido de falar com uma pessoa. 💬\n\nNão há atendimento humano disponível neste ensaio, então não fiz uma transferência. Posso continuar a explicação por aqui, se você quiser, ou encerrar.',
+                          {'resume': 'Retomar explicação', 'close': 'Encerrar atendimento'}),
+    'intent_clarify': ('Só para entender sua intenção 💬\n\nVocê quer conhecer as etapas, deixar para depois ou parar as mensagens desta conversa? Nenhum convite ou aceite será feito com essa escolha.',
+                       {'join': 'Conhecer as etapas', 'decline': 'Deixar para depois', 'stop': 'Parar mensagens'}),
+    'leave_clarify': ('Você quer encerrar esta conversa ou tirar uma dúvida sobre sair da agência? 💬\n\nNenhum vínculo será alterado por aqui.',
+                      {'close': 'Encerrar atendimento', 'leave_help': 'Dúvida sobre saída'}),
+    'leave_help': ('Não consigo realizar ou confirmar a saída de uma agência por aqui. 📋\n\nNão tenho o procedimento nem o prazo confirmados. Nenhum vínculo foi alterado. Você pode tirar uma dúvida geral ou encerrar esta conversa.',
+                   {'question': 'Tenho uma dúvida', 'close': 'Encerrar atendimento'}),
+    'help_account': ('Vamos entender a dificuldade com o convite 🔎\n\nNenhum convite real foi enviado por este ensaio. Se você está verificando um convite fora daqui, confira se está na conta TikTok correta. Você já conferiu? Não envie senha nem código.',
+                     {'help_checked': 'Já conferi a conta', 'decline': 'Deixar para depois', 'close': 'Encerrar atendimento'}),
+    'help_screen': ('O que aparece na tela ao procurar ou aceitar o convite? 🔎\n\nDescreva só o aviso, sem senha, código, documento ou dados pessoais. Não vou reenviar convite nem alterar vínculo por aqui.',
+                    {'decline': 'Deixar para depois', 'close': 'Encerrar atendimento'}),
+    'help_unavailable': ('Não consigo confirmar ou corrigir esse problema por aqui. ⚙️\n\nNão há atendimento humano disponível neste ensaio. Não vou repetir os mesmos passos nem reenviar um convite de resultado incerto. Você pode fazer outra pergunta ou encerrar.',
+                         {'question': 'Outra pergunta', 'close': 'Encerrar atendimento'}),
     'closed': ('Atendimento encerrado. Obrigada pela conversa! 💙',
                {}),
 }
 FAQ_STEPS = frozenset(step for step in TEMPLATES if step == 'faq' or step.startswith('faq_'))
 KNOWLEDGE_STEPS = FAQ_STEPS | {'about'}
 RETURN_STEPS = frozenset({'opening', 'about', 'profile', 'member', 'conditions', 'invite', 'confirmed', 'paused'})
+INTERRUPT_STEPS = frozenset({'paused', 'declined', 'human_unavailable', 'intent_clarify',
+                             'leave_clarify', 'leave_help', 'help_account', 'help_screen', 'help_unavailable'})
+CONTEXT_STEPS = KNOWLEDGE_STEPS | INTERRUPT_STEPS
+TERMINAL_STEPS = frozenset({'closed', 'stopped'})
+PROTECTIVE_INTENTS = frozenset({'stop', 'pause', 'decline', 'human'})
 
 
 def safe_context_text(value, limit=900):
@@ -63,7 +85,8 @@ TRANSITIONS = {'join': 'profile', 'know': 'about', 'member': 'member', 'question
                'close': 'closed', 'faq_agency': 'faq_agency', 'faq_terms': 'faq_terms',
                'faq_invite': 'faq_invite', 'faq_benefits': 'faq_benefits', 'retry': 'faq_unavailable',
                'topic_partnership': 'faq_partnership', 'topic_more': 'faq_more',
-               'topic_lives': 'faq_unavailable', 'topic_club': 'faq_unavailable'}
+               'topic_lives': 'faq_unavailable', 'topic_club': 'faq_unavailable',
+               'stop': 'stopped', 'leave_help': 'leave_help', 'help_checked': 'help_screen'}
 TOPIC_QUESTIONS = {
     'faq_benefits': 'Conhecer benefícios',
     'faq_terms': 'Quais são as regras da parceria e como funciona a saída?',
@@ -177,10 +200,110 @@ def question_step(text):
     return None
 
 
+def normalize_intent(text):
+    if not isinstance(text, str) or not 1 <= len(text) <= 500:
+        return ''
+    text = ''.join(c for c in unicodedata.normalize('NFKD', text.casefold()) if not unicodedata.combining(c))
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+def free_intent(text):
+    """Conservative, deterministic intent only. Never authorizes an effect.
+
+    Quotes, hypotheticals, questions and negated requests cannot start a flow.
+    Clear requests to stop outrank all other intentions. Unknown wording remains
+    a question for the grounded path, not an inferred commercial authorization.
+    """
+    value = normalize_intent(text)
+    if not value:
+        return None
+    if re.search(r'["“”«»]|\b(?:se eu|se alguem|caso eu|hipoteticamente|por exemplo|exemplo de|ele disse|ela disse)\b', value):
+        return None
+    value = re.sub(r'^(?:(?:oi|ola|bia|por favor)[ ,.!:]+)+', '', value).strip(' .!')
+    # Only direct clauses, never an arbitrary substring inside a reported request.
+    clauses = re.split(r'[.!;\n]+\s*|,\s*(?:mas\s+)?|\s+(?:mas|e)\s+(?=(?:pare|para|nao|quero))', value)
+    stop = r'(?:pare|para|parem|parar|quero parar|pode parar) (?:de (?:me )?(?:mandar|enviar|receber) (?:mais )?mensage(?:m|ns)|(?:com )?(?:as )?mensage(?:m|ns))'
+    no_messages = r'nao (?:quero(?: (?:mais )?receber)?|(?:me )?(?:mande|envie)(?: mais)?) (?:mais )?mensage(?:m|ns)'
+    if any(re.fullmatch(r'(?:' + stop + '|' + no_messages + r'|nao me contate(?: mais)?|remova meu contato|cancele as mensage(?:m|ns))(?: (?:por favor|aqui|neste ensaio|para mim|pra mim))?[.!? ]*', part.strip()) for part in clauses):
+        return 'stop'
+    if re.search(r'\b(?:nao (?:quero|preciso|desejo|tenho interesse)|nao me|nao pare|nao e para|nao vou|nao posso|sem interesse)\b', value):
+        if re.fullmatch(r'(?:eu )?(?:nao (?:tenho interesse(?: em (?:me agenciar|entrar na agencia|participar))?|quero (?:me agenciar|entrar(?: na agencia)?|participar|continuar))|sem interesse)(?: (?:agora|por enquanto))?(?:,? obrigado|,? obrigada)?', value):
+            return 'pause' if re.search(r'\b(?:agora|por enquanto)\b', value) else 'decline'
+        return None
+    human_pattern = r'(?:eu )?(?:(?:quero|preciso|gostaria de) (?:falar|conversar) com (?:um |uma )?(?:humano|humana|pessoa|atendente)|(?:quero|preciso de) (?:um |uma )?(?:humano|humana|atendente)|(?:me )?(?:transfira|encaminhe)(?: para)? (?:um |uma )?(?:humano|humana|pessoa|atendente))(?: (?:por favor|de verdade|real|agora))?'
+    human = any(re.fullmatch(human_pattern, part.strip()) for part in clauses)
+    polite_human = re.fullmatch(r'(?:pode|poderia) me (?:passar|transferir|encaminhar) para (?:um |uma )?(?:humano|humana|pessoa|atendente)\??', value)
+    if human or polite_human or value in {'atendimento humano', 'falar com atendente', 'falar com humano', 'tem atendimento humano?'}:
+        return 'human'
+    if '?' in value:
+        return None
+    leave = re.fullmatch(r'(?:eu )?(?:quero|gostaria de|preciso) (?:sair|me desligar) (?:da agencia|da amplify)|(?:eu )?quero cancelar (?:meu |o )?(?:agenciamento|vinculo|contrato)', value)
+    if leave:
+        return 'leave'
+    if value in {'retomar', 'quero retomar', 'retomar explicacao'}:
+        return 'resume'
+    if value in {'sair', 'quero sair', 'cancelar', 'quero cancelar', 'parar', 'quero parar'}:
+        return 'leave_clarify'
+    pause = re.search(r'\b(?:agora nao|nao agora|mais tarde|depois|outra hora|por enquanto nao|pausar|dar um tempo)\b', value)
+    interest = re.search(r'\b(?:(?:quero|gostaria de|tenho interesse em) (?:me agenciar|entrar (?:na agencia|na amplify)|participar (?:da agencia|da amplify)|conhecer as etapas)|quero ser agenciado|quero ser agenciada)\b', value)
+    if interest:
+        if pause or re.search(r'\b(?:mas|antes|se|talvez|depende|ou|ainda|quanto|custa|comissao|gratis)\b', value):
+            return 'ambiguous'
+        if re.fullmatch(r'(?:eu )?(?:(?:quero|gostaria de|tenho interesse em) (?:me agenciar|entrar (?:na agencia|na amplify)|participar (?:da agencia|da amplify)|conhecer as etapas)|quero ser agenciad[oa])(?: (?:por favor|agora))?', value):
+            return 'interest'
+        return 'ambiguous'
+    if pause and re.fullmatch(r'(?:agora nao|nao agora|(?:vamos |quero |pode )?(?:deixar (?:isso )?(?:para )?(?:depois|mais tarde|outra hora)|pausar)|mais tarde|depois|outra hora|por enquanto nao|(?:quero )?dar um tempo)(?: (?:por favor|agora))?', value):
+        return 'pause'
+    if re.search(r'\bconvite\b', value) and re.search(r'\b(?:nao aparece|nao apareceu|nao chegou|nao recebi|nao consigo|erro|falha|expirou|expirado|deu errado|problema|dificuldade)\b', value):
+        return 'difficulty'
+    if value in {'aceito', 'pode mandar', 'pode enviar', 'pode falar', 'quero entrar', 'tenho interesse'}:
+        return 'ambiguous'
+    return None
+
+
+def safe_resume(resume_step):
+    # A pause before profile collection must never jump straight to invitation.
+    return resume_step if resume_step in RETURN_STEPS - {'opening', 'about', 'member', 'paused'} else 'about'
+
+
+def _intent_decision(intent, step, *, resume_step=None, difficulty_stage=0, text=''):
+    target = {'stop': 'stopped', 'pause': 'paused', 'decline': 'declined', 'human': 'human_unavailable',
+              'leave': 'leave_help', 'leave_clarify': 'leave_clarify', 'ambiguous': 'intent_clarify'}.get(intent)
+    if intent == 'resume':
+        target = safe_resume(resume_step)
+    if intent == 'interest':
+        target = resume_step if resume_step in {'profile', 'conditions', 'invite', 'confirmed'} else 'profile'
+    if intent == 'difficulty':
+        if difficulty_stage >= 3:
+            return {'action': 'difficulty_bounded', 'step': step, 'effects': [], 'no_op': True}
+        target = ('help_account' if difficulty_stage == 0 and not re.search(r'ja (?:conferi|verifiquei)', normalize_intent(text))
+                  else 'help_screen' if difficulty_stage < 2 else 'help_unavailable')
+    if target:
+        result = {'action': 'intent_' + intent, 'step': target, 'effects': []}
+        if target == step:
+            result['no_op'] = True
+        if target.startswith('help_'):
+            result['difficulty_stage'] = {'help_account': 1, 'help_screen': 2, 'help_unavailable': 3}[target]
+        return result
+    return None
+
+
 def decision(step, text, *, correlated, opening_choices, question_answerer=None, resume_step=None,
-             last_question=None, current_choices=None, pending_clarification=''):
+             last_question=None, current_choices=None, pending_clarification='', difficulty_stage=0):
     choices = current_choices if current_choices is not None else (opening_choices if step == 'opening' else TEMPLATES[step][1])
     action = next((action for action, title in choices.items() if text == title), None) if correlated else None
+    if step in TERMINAL_STEPS:
+        return None
+    intent = free_intent(text) if not action else None
+    if intent:
+        return _intent_decision(intent, step, resume_step=resume_step, difficulty_stage=difficulty_stage, text=text)
+    if action == 'resume':
+        return {'action': action, 'step': safe_resume(resume_step), 'effects': []}
+    if action == 'help_checked':
+        return {'action': action, 'step': 'help_screen', 'effects': [], 'difficulty_stage': 2}
+    # A bounded diagnostic gathers no credentials and never retries an invite.
+    if not action and step in {'help_account', 'help_screen'}:
+        return _intent_decision('difficulty', step, difficulty_stage=max(difficulty_stage, 1 if step == 'help_account' else 2), text=text)
     # Old buttons must not restart the introduction after deployment.
     if action == 'opening' or text in {'Voltar ao início', 'Recomeçar teste'}:
         return None
@@ -188,9 +311,9 @@ def decision(step, text, *, correlated, opening_choices, question_answerer=None,
         return {'action': 'profile_received', 'step': 'conditions', 'effects': [('tiktok', 'eligible')]}
     if step in KNOWLEDGE_STEPS and action == 'back':
         return {'action': action, 'step': 'about', 'effects': []}
-    if step in KNOWLEDGE_STEPS and action == 'join':
+    if step in CONTEXT_STEPS and action == 'join':
         target = resume_step if resume_step in RETURN_STEPS else 'profile'
-        if target in {'opening', 'about', 'member'}:
+        if target in {'opening', 'about', 'member', 'paused'}:
             target = 'profile'
         return {'action': action, 'step': target, 'effects': []}
     # An acknowledgment is not a request to start or resume collecting data.
@@ -199,8 +322,8 @@ def decision(step, text, *, correlated, opening_choices, question_answerer=None,
             and not pending_clarification):
         return {'action': 'acknowledge', 'step': step, 'effects': [], 'no_op': True}
     target = TRANSITIONS[action] if action else question_step(text)
-    # A bare menu label must not bypass reply correlation. Free questions never
-    # execute transitions or authorize simulated acceptance, even if AI errs.
+    # Except explicitly recognized safe intents, bare labels require correlation.
+    # Free text never authorizes invite/acceptance effects, even if AI errs.
     known_labels = set(opening_choices.values()) | set(choices.values()) | {label for _, menu in TEMPLATES.values() for label in menu.values()}
     if not action and (text in known_labels if isinstance(text, str) else False):
         return None

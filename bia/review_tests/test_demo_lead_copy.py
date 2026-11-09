@@ -17,7 +17,7 @@ class LeadCopy(unittest.TestCase):
         for text in texts:
             self.assertNotRegex(text.casefold(),r'test|reset|simula|ensaio')
         self.assertIn('mais 5 minutos',texts[0])
-        self.assertEqual(texts[1], 'Como não tivemos resposta, encerrei este atendimento por agora. Obrigada pela conversa! 💙')
+        self.assertEqual(texts[1], 'Como não tivemos resposta, encerrei este atendimento por agora.\n\nObrigada pela conversa! 💙')
         self.assertEqual(demo_flow.TEMPLATES['closed'][1], {})
         for _, menu in demo_flow.TEMPLATES.values():
             if 'close' in menu:self.assertEqual(menu['close'],'Encerrar atendimento')

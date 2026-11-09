@@ -78,7 +78,7 @@ class FlowCases(unittest.TestCase):
         self.counter += 1
         stale = {**old, 'message_id': str(self.counter)}
         self.assertEqual(self.router.handle(stale)[0]['status'], 'demo_choice_not_current')
-        self.assertEqual(self.router.handle(self.source(text='Quero me agenciar', correlated=False))[0]['status'], 'demo_choice_not_current')
+        self.assertEqual(self.router.handle(self.source(text='Conhecer a Amplify', correlated=False))[0]['status'], 'demo_choice_not_current')
         self.assertEqual(len(self.gateway.sent), count)
         other_store = DemoStore(':memory:'); self.addCleanup(other_store.close)
         legacy = DemoRouter(fixtures.SCOPE, other_store, now=lambda: fixtures.NOW)
@@ -178,7 +178,7 @@ class FlowCases(unittest.TestCase):
             with self.subTest(step=step):
                 self.assertLessEqual(len(text), 500)
                 self.assertNotRegex(text, r'https?://|\d|%|/cadastro')
-                self.assertTrue((0 if step == 'closed' else 1) <= len(choices) <= 3)
+                self.assertTrue((0 if step in demo_flow.TERMINAL_STEPS else 1) <= len(choices) <= 3)
                 self.assertTrue(all(1 <= len(label) <= 20 for label in choices.values()))
                 self.assertEqual(len(set(choices.values())), len(choices))
 

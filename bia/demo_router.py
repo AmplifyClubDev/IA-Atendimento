@@ -656,7 +656,7 @@ class DemoRouter:
     def start(self, request_id):
         return self._start(request_id)
 
-    def _start(self, request_id, *, reset_event=None):
+    def _start(self, request_id, *, reset_event=None, entry_intent=None, entry_text=''):
         if not isinstance(request_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,80}', request_id):
             raise ValueError('demo_start_request_id_required')
         owner = getattr(self, 'contact_owner', None)
@@ -678,7 +678,10 @@ class DemoRouter:
             if reset_event:
                 watermark = str(max(int(watermark), int(reset_event[2])))
             run = uuid.uuid4().hex
-            key = (demo_flow.new_key(run, 'opening') if self.continuation_enabled else
+            entry = (demo_flow._intent_decision(entry_intent, 'opening', text=entry_text)
+                     if self.continuation_enabled and entry_intent else None)
+            initial_step = entry['step'] if entry else 'opening'
+            key = (demo_flow.new_key(run, initial_step) if self.continuation_enabled else
                    'bia-demo:' + VERSION + ':' + run + ':opening')
             payload = message_payload(key, continuation_enabled=self.continuation_enabled)
             self.store.db.execute('BEGIN IMMEDIATE')
@@ -688,8 +691,11 @@ class DemoRouter:
                     return {'status': 'demo_delivery_unconfirmed', 'repeat_allowed': False}
                 self.store.db.execute('INSERT OR REPLACE INTO demo_runs VALUES(?,?,?,?,?,?,?,?,?)',
                     (self.scope.slot, run, clock(self.now()).isoformat(), watermark,
-                     'delivery_pending' if self.continuation_enabled else 'opening', None, None, None, key))
+                     'delivery_pending' if self.continuation_enabled else 'opening', entry['action'] if entry else None, None, None, key))
                 metadata = {'reset_event_key': reset_event[0]} if reset_event else None
+                if entry:
+                    metadata = {**(metadata or {}), 'resume_step': 'opening',
+                                'difficulty_stage': entry.get('difficulty_stage', 0)}
                 self.store.db.execute('INSERT INTO demo_outbox VALUES(?,?,?,?,?,?)',
                     (key, self.scope.slot, run, json.dumps(payload), 'outcome_unknown',
                      json.dumps(metadata) if metadata else None))
@@ -733,11 +739,14 @@ class DemoRouter:
             self.store.db.execute('UPDATE demo_outbox SET status=?,receipt=? WHERE key=? AND slot=?',
                                   ('accepted', json.dumps({**receipt, 'grounded': metadata.get('grounded'),
                                                          'resume_step': metadata.get('resume_step'),
-                                                         'last_question': metadata.get('last_question')}), key, self.scope.slot))
+                                                         'last_question': metadata.get('last_question'),
+                                                         'difficulty_stage': metadata.get('difficulty_stage', 0),
+                                                         'interruption': metadata.get('interruption')}), key, self.scope.slot))
             if flow:
                 self.store.db.execute("UPDATE demo_runs SET parent_id=?,parent_external=?,"
                                       "step=CASE WHEN step='delivery_pending' THEN ? ELSE step END WHERE slot=? AND outbox_key=?",
-                                      (str(receipt['message_id']), receipt.get('external_id'), step, self.scope.slot, key))
+                                      (str(receipt['message_id']), receipt.get('external_id'),
+                                       'stopped' if metadata.get('interruption') == 'stop' else step, self.scope.slot, key))
             else:
                 self.store.db.execute('UPDATE demo_runs SET parent_id=?,parent_external=? WHERE slot=? AND outbox_key=?',
                                       (str(receipt['message_id']), receipt.get('external_id'), self.scope.slot, key))
@@ -751,11 +760,11 @@ class DemoRouter:
                 self.store.db.execute('UPDATE demo_events SET result=? WHERE slot=? AND event_key=?',
                                       (json.dumps(event_result), self.scope.slot, metadata['pending_event_key']))
             if metadata.get('reset_event_key'):
-                event_result = {'accepted': True, 'status': 'demo_reset_presented', 'step': 'opening',
+                event_result = {'accepted': True, 'status': 'demo_reset_presented', 'step': step,
                                 'message_id': str(receipt['message_id']), 'production_effects': False}
                 self.store.db.execute('UPDATE demo_events SET result=? WHERE slot=? AND event_key=?',
                                       (json.dumps(event_result), self.scope.slot, metadata['reset_event_key']))
-        if self.followup_enabled and self.continuation_enabled:
+        if self.followup_enabled and self.continuation_enabled and not metadata.get('interruption'):
             from demo_followup import arm
             arm(self, key)
         return result
@@ -801,22 +810,51 @@ class DemoRouter:
 
     def _handle_flow_locked(self, event, state, event_key, fingerprint, *, correlated, conflict):
         result = {'accepted': False, 'status': 'demo_choice_not_current', 'production_effects': False}
+        intent = demo_flow.free_intent(event.get('text'))
+        protective = intent in demo_flow.PROTECTIVE_INTENTS
         if state['step'] == 'delivery_pending':
             result.update(status='demo_delivery_unconfirmed', repeat_allowed=False)
+            if protective:
+                # Record withdrawal locally without retrying or clearing the
+                # unknown send. Later receipt reconciliation must not rearm it.
+                with self.store.transaction():
+                    pending = self.store.db.execute('SELECT receipt FROM demo_outbox WHERE key=? AND slot=?',
+                                                    (state['outbox_key'], self.scope.slot)).fetchone()
+                    if pending is None:
+                        raise ValueError('demo_outbox_scope_mismatch')
+                    metadata = json.loads(pending['receipt']) if pending['receipt'] else {}
+                    # A later pause cannot weaken an already recorded stop.
+                    persisted_step = demo_flow.key_parts(state['outbox_key'])[1]
+                    effective = ('stop' if metadata.get('interruption') == 'stop' or persisted_step == 'stopped'
+                                 else intent)
+                    metadata['interruption'] = effective
+                    self.store.db.execute('UPDATE demo_outbox SET receipt=? WHERE key=? AND slot=?',
+                                          (json.dumps(metadata), state['outbox_key'], self.scope.slot))
+                    target = demo_flow._intent_decision(effective, 'delivery_pending')['step']
+                    result.update(accepted=True, status='demo_intent_recorded', step=target)
+                    self.store.db.execute('INSERT INTO demo_events VALUES(?,?,?,?)',
+                                          (self.scope.slot, event_key, fingerprint, json.dumps(result)))
+                return result, 202
+
+        elif state['step'] in demo_flow.TERMINAL_STEPS:
+            pass  # Neither interruption metadata nor a stale button reopens a terminal flow.
         elif not state['outbox_key'].startswith('bia-demo:v2:'):
             result['status'] = 'demo_flow_restart_required'
         else:
             run, step, _ = demo_flow.key_parts(state['outbox_key'])
             referenced = event.get('demo_reply_to') is not None or event.get('demo_reply_external') is not None
-            if run == state['run'] and step == state['step'] and not conflict and (not referenced or correlated):
+            if run == state['run'] and step == state['step'] and (protective or (not conflict and (not referenced or correlated))):
                 previous = self.store.db.execute('SELECT receipt,payload FROM demo_outbox WHERE key=? AND slot=?',
                                                  (state['outbox_key'], self.scope.slot)).fetchone()
                 if previous is None:
                     raise ValueError('demo_outbox_scope_mismatch')
                 metadata = json.loads(previous['receipt']) if previous and previous['receipt'] else {}
-                resume_step = metadata.get('resume_step') if step in demo_flow.KNOWLEDGE_STEPS else step
+                resume_step = metadata.get('resume_step') if step in demo_flow.CONTEXT_STEPS else step
                 if resume_step not in demo_flow.RETURN_STEPS:
                     resume_step = 'opening'
+                difficulty_stage = metadata.get('difficulty_stage', 0)
+                if type(difficulty_stage) is not int or not 0 <= difficulty_stage <= 3:
+                    difficulty_stage = 3  # Corrupt metadata cannot restart diagnostics.
                 last_question = demo_flow.safe_context_text(metadata.get('last_question'), 500)
                 if not last_question and step == 'faq_unavailable' and state['choice'] == 'faq_benefits':
                     # Compatibility with an already presented failure from the old
@@ -827,10 +865,17 @@ class DemoRouter:
                 if getattr(question_answerer, 'accepts_dialogue_context', False) is True:
                     question_answerer = lambda question: self.question_answerer(question, conversation=dialogue)
                 previous_payload = json.loads(previous['payload'])
-                decision = demo_flow.decision(step, event.get('text'), correlated=correlated, opening_choices=CHOICES,
-                                              question_answerer=question_answerer, resume_step=resume_step,
+                interruption = metadata.get('interruption')
+                logical_step = (demo_flow._intent_decision(interruption, step)['step']
+                                if interruption in demo_flow.PROTECTIVE_INTENTS else step)
+                # No interruption menu was delivered while the prior send was
+                # uncertain, so its old buttons cannot authorize another effect.
+                choices = ({} if interruption else
+                           demo_flow.presented_choices(state['outbox_key'], previous_payload))
+                decision = demo_flow.decision(logical_step, event.get('text'), correlated=correlated, opening_choices=CHOICES,
+                                              question_answerer=question_answerer, resume_step=resume_step, difficulty_stage=difficulty_stage,
                                               last_question=last_question, pending_clarification=dialogue['pending_clarification'],
-                                              current_choices=demo_flow.presented_choices(state['outbox_key'], previous_payload))
+                                              current_choices=choices)
                 if decision and decision.get('no_op') is True:
                     result = {'accepted': True, 'status': 'demo_acknowledged', 'step': step,
                               'production_effects': False}
@@ -851,7 +896,8 @@ class DemoRouter:
                                               (key, self.scope.slot, run, json.dumps(payload), 'outcome_unknown',
                                                json.dumps({'pending_event_key': event_key, 'choice': decision['action'],
                                                            'grounded': grounded,
-                                                           'resume_step': resume_step if decision['step'] in demo_flow.KNOWLEDGE_STEPS else decision['step'],
+                                                           'resume_step': resume_step if decision['step'] in demo_flow.CONTEXT_STEPS else decision['step'],
+                                                           'difficulty_stage': decision.get('difficulty_stage', difficulty_stage),
                                                            'last_question': demo_flow.safe_context_text(decision.get('question'), 500)})))
                         self.store.db.execute('UPDATE demo_runs SET step=?,choice=?,parent_id=NULL,parent_external=NULL,'
                                               'outbox_key=?,started=?,watermark=? WHERE slot=?',
@@ -910,7 +956,7 @@ class DemoRouter:
                     or (state['parent_external'] and event.get('demo_reply_external') is not None and not external))
         return recent, parent or external, conflict
 
-    def _handle_reset(self, event, event_key, fingerprint):
+    def _handle_reset(self, event, event_key, fingerprint, *, entry_intent=None):
         # Reset is a fresh inbound command, not an old button or an expiry bypass.
         # Keep the same identity checks, durable deduplication and unknown-send fence.
         with self.store.lock:
@@ -933,7 +979,8 @@ class DemoRouter:
             if recent:
                 try:
                     result = self._start('inbound-reset-' + digest(event_key),
-                                         reset_event=(event_key, fingerprint, event['message_id']))
+                                         reset_event=(event_key, fingerprint, event['message_id']), entry_intent=entry_intent,
+                                         entry_text=event.get('text', ''))
                 except Exception:
                     result = {'status': 'demo_reset_unavailable'}
                 # The start transaction persisted this event before any send. If
@@ -958,6 +1005,14 @@ class DemoRouter:
             state = self.store.current(self.scope.slot)
             if state:
                 recent, correlated, conflict = self._input_context(event, state)
+                if not recent and demo_flow.free_intent(event.get('text')) in demo_flow.PROTECTIVE_INTENTS:
+                    try:
+                        stamp, now = clock(event['created_at']), clock(self.now())
+                        recent = (now - timedelta(minutes=5) <= stamp <= now + timedelta(seconds=30)
+                                  and stamp >= clock(state['started'])
+                                  and int(event['message_id']) > int(state['watermark']))
+                    except (ValueError, TypeError, KeyError, OverflowError):
+                        recent = False
                 if recent:
                     return self._handle_flow_locked(event, state, event_key, fingerprint,
                                                     correlated=correlated, conflict=conflict)
@@ -1013,7 +1068,8 @@ class DemoRouter:
             return {'accepted': False, 'status': 'demo_identity_rejected'}, 202
         with self.store.lock:
             if self.store.current(self.scope.slot) is None:
-                return self._handle_reset(event, inbound_key(event), digest(event))
+                return self._handle_reset(event, inbound_key(event), digest(event),
+                                          entry_intent=demo_flow.free_intent(event.get('text')))
             return self.handle(event)
 
     def simulate(self, operation, fixture='unknown'):
