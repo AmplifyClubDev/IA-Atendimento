@@ -114,6 +114,17 @@ CLOSE_PAYLOAD = {'content': 'Como não tivemos resposta, encerrei este atendimen
                  'Obrigada pela conversa! 💙',
                  'message_type': 'outgoing', 'private': False, 'content_type': 'text'}
 
+# Receipt-only allowlist, never used to send new messages. This exact copy was
+# deployed before 3bd9f6dfaee71f8e07022347e24f9fbe922cb431 (2026-11-07).
+LEGACY_CLOSE_PAYLOAD = {'content': 'Como não tivemos resposta, encerrei este atendimento por agora. '
+                        'Seu histórico foi preservado. Para iniciar um novo teste, escreva Resetar. 💙',
+                        'message_type': 'outgoing', 'private': False, 'content_type': 'text'}
+
+
+def approved_closure_receipt(payload):
+    return (isinstance(payload, dict) and payload.get('private') is False
+            and payload in (CLOSE_PAYLOAD, LEGACY_CLOSE_PAYLOAD))
+
 
 def audit(router, stage, status):
     # Operational receipt only: never message text, phone, token or profile.
@@ -164,6 +175,43 @@ def source_current(store, scope, key, preflight):
                                (key, scope.slot, 'outcome_unknown')).fetchone()
         return bool(row and row['source_key'] == state['outbox_key'] and state['step'] in WAITING
                     and preflight.get('after_message_id') == str(max(int(state['watermark']), int(state['parent_id']))))
+
+
+def reconcile_resolutions(router):
+    """Confirm historical closes by GET only, preserving all send uncertainties."""
+    from demo_router import identifier, DemoWhatsAppGateway
+    if not isinstance(router.gateway, DemoWhatsAppGateway):
+        return 0  # Offline adapters cannot establish provider truth.
+    confirmed = 0
+    with router.store.lock:
+        # Bound provider work per inbound. Malformed or older receipts stay held.
+        rows = router.store.db.execute(
+            "SELECT * FROM demo_closures WHERE slot=? AND status='resolve_unknown' ORDER BY rowid DESC LIMIT 1",
+            (router.scope.slot,)).fetchall()
+        for row in rows:
+            try:
+                if (not row['key'].startswith('bia-demo-close:')
+                        or not identifier(row['closure_message_id']) or not identifier(row['warning_message_id'])
+                        or not approved_closure_receipt(json.loads(row['payload']))):
+                    continue
+                source = router.store.db.execute(
+                    "SELECT 1 FROM demo_outbox WHERE key=? AND slot=? AND status='accepted'",
+                    (row['source_key'], router.scope.slot)).fetchone()
+                if not source or router.gateway.verify_resolution(
+                        router.scope, row['closure_message_id'], json.loads(row['payload'])) is not True:
+                    continue
+                updated = router.store.db.execute(
+                    "UPDATE demo_closures SET status='resolved' WHERE key=? AND slot=? AND status='resolve_unknown' "
+                    'AND source_key=? AND closure_message_id=?',
+                    (row['key'], router.scope.slot, row['source_key'], row['closure_message_id'])).rowcount
+                if updated == 1:
+                    confirmed += 1
+                    audit(router, 'resolution_readback', 'resolved')
+            except Exception:
+                # No provider writes, retries, state deletion or blanket clearing.
+                # Keep the original uncertainty if any proof or persistence fails.
+                audit(router, 'resolution_readback', 'unconfirmed')
+    return confirmed
 
 
 def tick_closure(router):

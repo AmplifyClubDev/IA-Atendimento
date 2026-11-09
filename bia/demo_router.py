@@ -518,9 +518,59 @@ class DemoWhatsAppGateway:
             raise ValueError('demo_closure_source_changed')
         self.inactivity_human_guard(scope)
         result = self._api(scope, 'POST', '/toggle_status', {'status': 'resolved'})
-        if result.get('status') != 'resolved':
+        # Chatwoot's accounts API wraps its receipt and uses current_status,
+        # not the conversation detail's top-level status field.
+        if isinstance(result, dict) and 'payload' in result:
+            receipt = result['payload']
+            confirmed = (isinstance(receipt, dict) and receipt.get('success') is True
+                         and identifier(receipt.get('conversation_id')) == scope.conversation_id
+                         and receipt.get('current_status') == 'resolved')
+        else:
+            # Retain compatibility with the previously supported flat adapter.
+            confirmed = (isinstance(result, dict) and result.get('status') == 'resolved'
+                         and (result.get('conversation_id') is None
+                              or identifier(result['conversation_id']) == scope.conversation_id))
+        if not confirmed:
             raise ValueError('demo_resolution_unconfirmed')
         return {'status': 'resolved'}
+
+    def verify_resolution(self, scope, message_id, payload):
+        """Read-only evidence for an already attempted close; never retry it.
+
+        A closed conversation is not sufficient on its own: prove the complete
+        recipient and the previously acknowledged closing message as well.
+        An expired reply window does not prevent reading a historical receipt.
+        """
+        from demo_followup import approved_closure_receipt
+        if not identifier(message_id) or not approved_closure_receipt(payload):
+            raise ValueError('demo_resolution_proof_invalid')
+
+        def resolved_identity(detail):
+            sender = (detail.get('meta') or {}).get('sender') or {}
+            return (str(detail.get('id')) == scope.conversation_id
+                    and str(detail.get('account_id')) == scope.account_id
+                    and str(detail.get('inbox_id')) == scope.inbox_id
+                    and str(sender.get('id')) == scope.contact_id
+                    and same_phone(scope.phone, sender.get('phone_number'))
+                    and detail.get('status') == 'resolved')
+
+        if not resolved_identity(self._api(scope, 'GET')):
+            return False
+        rows = self._api(scope, 'GET', '/messages').get('payload')
+        if not isinstance(rows, list):
+            return False
+        matches = [row for row in rows if isinstance(row, dict) and identifier(row.get('id')) == message_id]
+        if len(matches) != 1:
+            return False
+        row = matches[0]
+        if (row.get('message_type') not in (1, 'outgoing') or row.get('private') is not False
+                or str(row.get('conversation_id')) != scope.conversation_id
+                or row.get('content') != payload['content'] or row.get('content_type') != payload['content_type']
+                or any(row.get(name) is not None and str(row[name]) != getattr(scope, name)
+                       for name in ('account_id', 'inbox_id'))):
+            return False
+        # Do not release the fence if it reopened or changed owner during reads.
+        return resolved_identity(self._api(scope, 'GET'))
 
     def expected_payload(self, key):
         if key.startswith(('bia-demo-followup:', 'bia-demo-close:')) and callable(getattr(self, 'followup_payload', None)):
@@ -1214,6 +1264,15 @@ class DemoConversationRouter:
                     return True
         return False
 
+    def reconcile_resolution_blockers(self, target):
+        from demo_followup import reconcile_resolutions
+        for router in tuple(self.routers.values()):
+            if router.scope != target and self.store.db.execute(
+                    "SELECT 1 FROM demo_closures WHERE slot=? AND status='resolve_unknown' LIMIT 1",
+                    (router.scope.slot,)).fetchone():
+                reconcile_resolutions(router)
+                break  # At most one historical receipt/readback per fresh inbound.
+
     def claims(self, event):
         return self.scope.claims(event)
 
@@ -1249,6 +1308,13 @@ class DemoConversationRouter:
         return any(row['first_event_key'] == inbound_key(event)
                    and row['first_event_digest'] != digest(event) for row in self.bindings.values())
 
+    def fresh_webhook(self, event):
+        try:
+            return (isinstance(event.get('created_at'), str)
+                    and clock(self.now()) - timedelta(minutes=5) <= clock(event['created_at']) <= clock(self.now()) + timedelta(seconds=30))
+        except (ValueError, TypeError, OverflowError):
+            return False
+
     def handle(self, event):
         if not self.claims(event):
             raise ValueError('demo_event_outside_scope')
@@ -1272,6 +1338,8 @@ class DemoConversationRouter:
                 return {'accepted': False, 'status': 'demo_conflicting_duplicate', 'production_effects': False}, 202
             target = self._target(event)
             if target is not None:
+                if self.effects_blocked(target.scope) and self.fresh_webhook(event):
+                    self.reconcile_resolution_blockers(target.scope)
                 if self.effects_blocked(target.scope):
                     return {'accepted': False, 'status': 'demo_delivery_unconfirmed', 'repeat_allowed': False, 'production_effects': False}, 202
                 return target.handle_verified_webhook(event)
@@ -1282,11 +1350,15 @@ class DemoConversationRouter:
                 if (not scope.accepts(event) or scope.conversation_id in self.routers
                         or any(other.claims(event) or scope.conversation_key in other.conversation_keys
                                for other in self.other_scopes)
-                        or not isinstance(event.get('created_at'), str)
-                        or not clock(self.now()) - timedelta(minutes=5) <= clock(event['created_at']) <= clock(self.now()) + timedelta(seconds=30)):
+                        or not self.fresh_webhook(event)):
                     raise ValueError('demo_binding_identity_invalid')
                 if len(self.scope.scopes) >= self.MAX_CONVERSATIONS:
                     raise ValueError('demo_conversation_bindings_limit')
+                if self.effects_blocked(scope):
+                    # Only a fresh, fully matching authenticated webhook may
+                    # trigger this bounded read-only provider reconciliation.
+                    # It never resends a notice or repeats toggle_status.
+                    self.reconcile_resolution_blockers(scope)
                 if self.effects_blocked(scope):
                     return {'accepted': False, 'status': 'demo_delivery_unconfirmed',
                             'repeat_allowed': False, 'production_effects': False}, 202
