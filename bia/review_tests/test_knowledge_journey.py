@@ -1,3 +1,4 @@
+# Structural tests isolate generation; semantic gating has dedicated integration coverage.
 """Offline regression tests: no model, database, WhatsApp or provider IO."""
 import io
 import json
@@ -46,10 +47,13 @@ class JourneyMemoryCases(unittest.TestCase):
         self.assertEqual(self.choose('join'), 'invite')
         self.assertEqual(self.store.db.execute('SELECT count(*) FROM demo_simulations').fetchone()[0], 2)
 
-    def test_short_yes_only_opens_topics_without_resuming_or_accepting_invite(self):
+    def test_short_yes_is_noop_without_resuming_or_accepting_invite(self):
         for action in ('join', 'use_profile', 'continue_test'):self.choose(action)
         self.ask()
-        self.assertEqual(self.router.handle(self.source(text='sim', correlated=False))[0]['step'], 'about')
+        before = self.store.current(self.router.scope.slot)['step']
+        result = self.router.handle(self.source(text='sim', correlated=False))[0]
+        self.assertEqual(result['status'], 'demo_acknowledged')
+        self.assertEqual(result['step'], before)  # No menu reset or implied consent.
         self.assertEqual(self.store.db.execute('SELECT count(*) FROM demo_simulations').fetchone()[0], 2)
 
     def test_resume_survives_router_recreation(self):
@@ -93,7 +97,8 @@ class JourneyMemoryCases(unittest.TestCase):
         self.assertEqual(seen[0]['return_step'], 'conditions')
         self.assertEqual(seen[0]['last_question'], 'Como funciona?')
         self.assertIn('base aprovada', seen[0]['last_answer'])
-        self.assertEqual(set(seen[0]), {'current_step','return_step','last_question','last_answer'})
+        self.assertEqual(set(seen[0]), {'current_step','return_step','last_question','last_answer',
+                                      'recent_dialogue','prior_questions','pending_clarification','operational_facts'})
 
 
 class ModelContextCases(unittest.TestCase):
@@ -105,7 +110,7 @@ class ModelContextCases(unittest.TestCase):
         payload = {'answer':'Conteúdo aprovado da base.', 'evidence':[reference]}
         fake.open.return_value = io.BytesIO(json.dumps({'status':'completed','output':[{'type':'message','role':'assistant',
             'content':[{'type':'output_text','text':json.dumps(payload)}]}]}).encode())
-        answer=build_answerer({'ai_enabled':True,'openai_api_key':'synthetic','ai_model':'test'},opener=fake,context_loader=lambda _:knowledge)
+        answer=build_answerer({'ai_enabled':True,'openai_api_key':'synthetic','ai_model':'test'},opener=fake,context_loader=lambda _:knowledge, semantic_verifier=lambda *_: 'supported')
         result=answer('Dúvida @perfil', conversation={'current_step':'faq_context','return_step':'conditions',
             'last_question':'email teste@example.com, @perfil, +55 11 99999-9999',
             'last_answer':'A'*1000, 'api_key':'must-never-leak','phone':'must-never-leak'})
@@ -136,11 +141,11 @@ class FailureClassificationCases(unittest.TestCase):
                 fake=Mock()
                 fake.open.return_value=io.BytesIO(json.dumps({'status':'completed','output':[{'type':'message','role':'assistant',
                     'content':[{'type':'output_text','text':json.dumps(value)}]}]}).encode())
-                answer=build_answerer({'ai_enabled':True,'openai_api_key':'synthetic','ai_model':'test'},opener=fake,context_loader=lambda _:knowledge)
+                answer=build_answerer({'ai_enabled':True,'openai_api_key':'synthetic','ai_model':'test'},opener=fake,context_loader=lambda _:knowledge, semantic_verifier=lambda *_: 'supported')
                 self.assertEqual(answer('Como funciona?'),expected)
 
     def test_noncompleted_response_is_technical_failure(self):
         fake=Mock();fake.open.return_value=io.BytesIO(b'{"status":"incomplete"}')
         answer=build_answerer({'ai_enabled':True,'openai_api_key':'synthetic','ai_model':'test'},opener=fake,
-                             context_loader=lambda _: {'source':'database'})
+                             context_loader=lambda _: {'source':'database'}, semantic_verifier=lambda *_: 'supported')
         self.assertEqual(answer('Como funciona?'),'faq_unavailable')

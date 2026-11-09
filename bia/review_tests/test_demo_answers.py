@@ -1,3 +1,4 @@
+# Structural tests isolate generation; semantic gating has dedicated integration coverage.
 import io
 import json
 import unittest
@@ -24,7 +25,7 @@ class AnswerCases(unittest.TestCase):
             fake.open.return_value = io.BytesIO(json.dumps({'status': 'completed', 'output': [
                 {'type': 'message', 'role': 'assistant', 'content': [{'type': 'output_text', 'text': response}]}]}).encode())
             loader = Mock(return_value=context)
-            answer = build_answerer({'ai_enabled': True, 'openai_api_key': 'synthetic', 'ai_model': 'test'}, opener=fake, context_loader=loader)
+            answer = build_answerer({'ai_enabled': True, 'openai_api_key': 'synthetic', 'ai_model': 'test'}, opener=fake, context_loader=loader, semantic_verifier=lambda *_: 'supported')
             result = answer('É obrigatório fazer live? @private_profile')
             self.assertEqual(isinstance(result, dict), expected)
             request = json.loads(fake.open.call_args.args[0].data)

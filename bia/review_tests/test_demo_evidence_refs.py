@@ -1,3 +1,4 @@
+# Structural tests isolate generation; semantic gating has dedicated integration coverage.
 """Full-source references and smoke-only semantic review, with synthetic provider IO."""
 from copy import deepcopy
 import io
@@ -77,7 +78,7 @@ class CatalogCases(unittest.TestCase):
         reference = next(ref for ref, item in _evidence_catalog(context).items() if item['id'] == 'benefits')
         value = {'answer': 'Você pode ter treinamentos, conforme sua categoria e a disponibilidade da ação.', 'evidence': [reference]}
         opener = Mock(); opener.open.return_value = io.BytesIO(json.dumps(model_response(value)).encode())
-        answer = build_answerer(settings(), opener=opener, context_loader=lambda _: context)
+        answer = build_answerer(settings(), opener=opener, context_loader=lambda _: context, semantic_verifier=lambda *_: 'supported')
         with patch('demo_answers.build_smoke_verifier', side_effect=AssertionError('verifier cannot run in conversation')):
             result = answer('Quais vantagens tenho?')
         self.assertEqual(result['answer'].replace('*', '').replace('📚 ', ''), value['answer'])
@@ -100,7 +101,7 @@ class CatalogCases(unittest.TestCase):
             with self.subTest(evidence=evidence):
                 opener = Mock()
                 opener.open.return_value = io.BytesIO(json.dumps(model_response({'answer': 'Resposta sintética.', 'evidence': evidence})).encode())
-                answer = build_answerer(settings(), opener=opener, context_loader=lambda _: context)
+                answer = build_answerer(settings(), opener=opener, context_loader=lambda _: context, semantic_verifier=lambda *_: 'supported')
                 self.assertEqual(answer('Quais vantagens tenho?'), 'faq_unavailable')
                 opener.open.assert_called_once()
 
@@ -109,7 +110,7 @@ class CatalogCases(unittest.TestCase):
         ref = next(ref for ref, row in _evidence_catalog(context).items() if row['id'] == 'benefits')
         context['topics'][0]['answer'] += ' Condições atualizadas.'
         opener = Mock(); opener.open.return_value = io.BytesIO(json.dumps(model_response({'answer': 'Resposta.', 'evidence': [ref]})).encode())
-        answer = build_answerer(settings(), opener=opener, context_loader=lambda _: context)
+        answer = build_answerer(settings(), opener=opener, context_loader=lambda _: context, semantic_verifier=lambda *_: 'supported')
         self.assertEqual(answer('Quais vantagens?'), 'faq_unavailable')
 
 

@@ -51,17 +51,19 @@ def load_demo_context(settings, transport=None):
             return load_context(settings, transport=transport)
         payload = Gateway(settings, transport=transport)._rpc(
             'ler_contexto_ia_ensaio_v5', {'p_version': version})
-        return _validated_context(payload)
+        return _validated_context(payload, demo=True)
     except Exception:
         # An unavailable or invalid candidate must never fall back to active cards.
         raise ContextUnavailable('context_ia_unavailable') from None
 
 
-def _validated_context(payload):
+def _validated_context(payload, *, demo=False):
+    # Demo ingestion headroom is separate from the unchanged production contract.
+    max_cards, max_chars = (256, 240000) if demo else (64, 40000)
     if (not isinstance(payload, dict) or set(payload) != {'version', 'cards'}
             or not isinstance(payload['version'], str)
             or not re.fullmatch(r'contextos-ia-v1:[a-f0-9]{32}', payload['version'])
-            or not isinstance(payload['cards'], list) or not 3 <= len(payload['cards']) <= 64):
+            or not isinstance(payload['cards'], list) or not 3 <= len(payload['cards']) <= max_cards):
         raise ValueError('context_shape')
     cards, ids, total = [], set(), 0
     for row in payload['cards']:
@@ -76,7 +78,7 @@ def _validated_context(payload):
                 or not isinstance(updated, str) or not 10 <= len(updated) <= 50):
             raise ValueError('context_card_invalid')
         total += len(title) + len(content)
-        if total > 40000:
+        if total > max_chars:
             raise ValueError('context_too_large')
         ids.add(identifier)
         cards.append(dict(row))

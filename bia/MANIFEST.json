@@ -1,11 +1,11 @@
 {
-  "release": "owner-demo-knowledge-review-20261106-local-only",
-  "source_count": 41,
+  "release": "bia-mind-consolidation-20261109-ensaio",
+  "source_count": 43,
   "files": [
     {
       "path": "Dockerfile",
-      "bytes": 941,
-      "sha256": "1ef0bb0b5af0d821c4555a89692bfc967f3abba081db92b463d6925d14b6d616"
+      "bytes": 975,
+      "sha256": "fbe316ca265e4783d7c7be3d60620ad30df845569c92d3e26867996487600d0d"
     },
     {
       "path": "answers.py",
@@ -24,8 +24,8 @@
     },
     {
       "path": "context_ia.py",
-      "bytes": 5780,
-      "sha256": "6c60efe2bcdf1981dc48060ad1ae6e5f80b8d01db2eb75949b0c541969d5ee9d"
+      "bytes": 5965,
+      "sha256": "dd0f7ff566bd8fe4a5389218fbe2fe63648896133609b42937ff2d9524086576"
     },
     {
       "path": "contracts.py",
@@ -64,13 +64,13 @@
     },
     {
       "path": "demo_answers.py",
-      "bytes": 34783,
-      "sha256": "5bb5b1a12b586381eef84c968da5fdaca086a38f0116a452a3a1848abe9b826b"
+      "bytes": 38163,
+      "sha256": "06db5cd2d9d176f96dbff12d217a28b277f727408bca3ca8d4d1343d85f22a59"
     },
     {
       "path": "demo_flow.py",
-      "bytes": 14194,
-      "sha256": "d2a7c8ce2992d9d7c5d3ee8f8dd2f25d15738bed3600cf9200f4b18abecec0de"
+      "bytes": 14747,
+      "sha256": "a82b4b0e1ae422d3e5b4413b8cfe29ee0460e4938e490c15874c0eea669fe3fb"
     },
     {
       "path": "demo_followup.py",
@@ -78,9 +78,19 @@
       "sha256": "ea5f391c8b74570add14ec4b44afd8268066e55b4ae3659a9eea7ce6701a82c9"
     },
     {
+      "path": "demo_knowledge.py",
+      "bytes": 12820,
+      "sha256": "5e14dbccaadf6be7d5388194a831536922b3724b2d151af3939b3a10bc511c5a"
+    },
+    {
       "path": "demo_router.py",
-      "bytes": 62845,
-      "sha256": "639474129ee630e0785df022810c49f31bb650f823a35e030a4d4f869a3280fc"
+      "bytes": 65666,
+      "sha256": "9ce63787594b6db60da9629b2e4abdae14473ed5721da54c99ac85a8866d812d"
+    },
+    {
+      "path": "demo_support.py",
+      "bytes": 9011,
+      "sha256": "9f87374ce04907b09bab98575a924f4bb95ec1ae83f823a82bc473718d3b52b7"
     },
     {
       "path": "engine.py",
@@ -215,7 +225,8 @@
     "comparison_branch": "fix/bia-51-followup",
     "comparison_commit": "b01dd6bbb99910a4a7bad54a802e56e1aca875ab",
     "sanitized": true,
-    "change": "Isolated demo continuation draft v2, disabled by default; no deployment of this revision.",
-    "router_parent_commit": "2190b692cbdb11bd4a5e413dded904e15ff704ca"
+    "change": "Ensaio-only: whole-card knowledge selection, bounded delivered dialogue memory, contextual clarification and fail-closed semantic review.",
+    "router_parent_commit": "2190b692cbdb11bd4a5e413dded904e15ff704ca",
+    "baseline_commit": "3bd9f6dfaee71f8e07022347e24f9fbe922cb431"
   }
 }

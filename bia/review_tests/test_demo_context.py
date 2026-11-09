@@ -1,3 +1,4 @@
+# Structural tests isolate generation; semantic gating has dedicated integration coverage.
 """Synthetic-only coverage for the opt-in demo knowledge reader and its boundary."""
 from copy import deepcopy
 import io
@@ -181,8 +182,11 @@ class DemoContextReaderCases(unittest.TestCase):
                                      (load_demo_context, 'ler_contexto_ia_ensaio_v5', {'p_version': VERSION})):
                 with self.subTest(case=index, loader=loader.__name__):
                     transport = Mock(return_value=deepcopy(value))
-                    with self.assertRaises(ContextUnavailable):
-                        loader(settings(), transport=transport)
+                    if loader is load_demo_context and index in (15, 16):
+                        self.assertEqual(loader(settings(), transport=transport)['card_count'], len(value['cards']))
+                    else:
+                        with self.assertRaises(ContextUnavailable):
+                            loader(settings(), transport=transport)
                     self.assert_request(transport, rpc, body)
 
 
@@ -190,7 +194,7 @@ class DemoContextIntegrationCases(unittest.TestCase):
     def test_demo_answerer_selects_candidate_and_reloads_each_question(self):
         opener = model_opener()
         values = settings(ai_enabled=True, openai_api_key='synthetic-only', ai_model='test')
-        answer = build_answerer(values, opener=opener)
+        answer = build_answerer(values, opener=opener, semantic_verifier=lambda *_: 'supported')
         with patch('context_ia.Gateway._rpc', return_value=payload()) as rpc:
             for _ in range(2):
                 result = answer('É obrigatório fazer live?')
@@ -206,7 +210,7 @@ class DemoContextIntegrationCases(unittest.TestCase):
         values = settings(ai_enabled=True, openai_api_key='synthetic-only', ai_model='test')
         values.pop('demo_context_version')
         with patch('context_ia.Gateway._rpc', return_value=payload()) as rpc:
-            self.assertIsInstance(build_answerer(values, opener=opener)('É obrigatório fazer live?'), dict)
+            self.assertIsInstance(build_answerer(values, opener=opener, semantic_verifier=lambda *_: 'supported')('É obrigatório fazer live?'), dict)
             rpc.assert_called_once_with('ler_contexto_ia_v5', {})
 
     def test_invalid_candidate_prevents_database_and_model_calls(self):
@@ -216,7 +220,7 @@ class DemoContextIntegrationCases(unittest.TestCase):
                 values = settings(ai_enabled=True, openai_api_key='synthetic-only', ai_model='test', **update)
                 with patch('context_ia.Gateway._rpc') as rpc:
                     with self.assertRaises(ContextUnavailable):
-                        build_answerer(values, opener=opener)('É obrigatório fazer live?')
+                        build_answerer(values, opener=opener, semantic_verifier=lambda *_: 'supported')('É obrigatório fazer live?')
                     rpc.assert_not_called()
                 opener.open.assert_not_called()
 

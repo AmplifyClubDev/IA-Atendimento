@@ -1,3 +1,4 @@
+# Structural tests isolate generation; semantic gating has dedicated integration coverage.
 """Complete demo answers, bounded rewrite, and explicit separation of facts and simulated steps."""
 import io
 import json
@@ -38,7 +39,7 @@ def opener_for(texts, *, source_id='benefits', evidence=None):
 def answerer(opener):
     loader = Mock(return_value=knowledge())
     return build_answerer({'ai_enabled': True, 'openai_api_key': 'synthetic', 'ai_model': 'test'},
-                          opener=opener, context_loader=loader), loader
+                          opener=opener, context_loader=loader, semantic_verifier=lambda *_: 'supported'), loader
 
 
 class IntegrityCases(unittest.TestCase):

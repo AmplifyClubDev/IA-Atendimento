@@ -1,3 +1,4 @@
+# Structural tests isolate generation; semantic gating has dedicated integration coverage.
 """Offline retry and diagnostics: no real model, provider or database calls."""
 import io
 import json
@@ -127,7 +128,7 @@ class DiagnosticCases(unittest.TestCase):
             opener.open.return_value = io.BytesIO(raw if raw is not None else json.dumps(result).encode())
         loader = Mock(side_effect=context_error) if context_error else Mock(return_value=self.knowledge)
         answer = build_answerer({'ai_enabled': True, 'openai_api_key': 'private-synthetic-key', 'ai_model': 'test'},
-                                opener=opener, context_loader=loader)
+                                opener=opener, context_loader=loader, semantic_verifier=lambda *_: 'supported')
         with patch('builtins.print') as log:
             if context_error:
                 with self.assertRaises(type(context_error)):

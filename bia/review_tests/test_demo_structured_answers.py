@@ -1,3 +1,4 @@
+# Structural tests isolate generation; semantic gating has dedicated integration coverage.
 """Strict generic response schema and plain-language guidance, with synthetic model IO."""
 import io
 import json
@@ -27,7 +28,7 @@ class StructuredAnswerCases(unittest.TestCase):
         opener = Mock()
         opener.open.return_value = io.BytesIO(json.dumps(envelope).encode())
         answer = build_answerer({'ai_enabled': True, 'openai_api_key': 'private-synthetic-key', 'ai_model': 'test'},
-                                opener=opener, context_loader=lambda _: self.knowledge)
+                                opener=opener, context_loader=lambda _: self.knowledge, semantic_verifier=lambda *_: 'supported')
         with patch('builtins.print') as log:
             outcome = answer(question, conversation=conversation)
         opener.open.assert_called_once()

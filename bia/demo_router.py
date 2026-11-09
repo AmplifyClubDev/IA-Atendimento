@@ -623,6 +623,45 @@ class DemoRouter:
             arm(self, key)
         return result
 
+    def _dialogue_context(self, state, step, resume_step):
+        """Rebuild bounded dialogue from confirmed outbox rows in this run only.
+
+        No model-produced summary, profile input, pending output, or simulated
+        effect is promoted into a business fact or consent.
+        """
+        rows = self.store.db.execute(
+            "SELECT key,payload,receipt FROM demo_outbox WHERE slot=? AND run=? "
+            "AND status='accepted' AND rowid <= "
+            "(SELECT rowid FROM demo_outbox WHERE key=? AND slot=? AND run=?) "
+            "ORDER BY rowid DESC LIMIT 24",
+            (self.scope.slot, state['run'], state['outbox_key'], self.scope.slot, state['run'])).fetchall()
+        recent = []
+        pending, last_question, last_answer = '', '', ''
+        for row in rows:
+            metadata = json.loads(row['receipt']) if row['receipt'] else {}
+            question = demo_flow.safe_context_text(metadata.get('last_question'), 500)
+            answer = demo_flow.safe_context_text(json.loads(row['payload']).get('content'), 900)
+            if row['key'] == state['outbox_key']:
+                last_question, last_answer = question, answer
+                grounded = metadata.get('grounded')
+                if isinstance(grounded, dict) and grounded.get('evidence') and grounded.get('knowledge_version'):
+                    clarification = grounded.get('clarification_question')
+                    original = grounded.get('answer')
+                    from demo_support import clarification_question
+                    if (isinstance(clarification, str) and clarification.strip().endswith('?')
+                            and isinstance(original, str) and clarification_question(original) == clarification.strip()):
+                        pending = demo_flow.safe_context_text(clarification.strip(), 500)
+            if question and len(recent) < 6:
+                recent.append({'question': question, 'answer': answer})
+        recent.reverse()
+        return {'current_step': step, 'return_step': resume_step,
+                'last_question': last_question, 'last_answer': last_answer,
+                'recent_dialogue': recent,
+                'prior_questions': list(dict.fromkeys(item['question'] for item in recent)),
+                'pending_clarification': pending,
+                'operational_facts': {'real_profile_checked': False, 'real_invite_sent': False,
+                                      'real_relationship_created': False, 'commercial_consent': False}}
+
     def _handle_flow_locked(self, event, state, event_key, fingerprint, *, correlated, conflict):
         result = {'accepted': False, 'status': 'demo_choice_not_current', 'production_effects': False}
         if state['step'] == 'delivery_pending':
@@ -646,17 +685,21 @@ class DemoRouter:
                     # Compatibility with an already presented failure from the old
                     # benefits button, whose exact menu question was not persisted.
                     last_question = demo_flow.TEMPLATES['about'][1]['faq_benefits']
+                dialogue = self._dialogue_context(state, step, resume_step)
                 question_answerer = self.question_answerer
                 if getattr(question_answerer, 'accepts_dialogue_context', False) is True:
-                    dialogue = {'current_step': step, 'return_step': resume_step,
-                                'last_question': last_question,
-                                'last_answer': json.loads(previous['payload']).get('content', '') if previous else ''}
                     question_answerer = lambda question: self.question_answerer(question, conversation=dialogue)
                 previous_payload = json.loads(previous['payload'])
                 decision = demo_flow.decision(step, event.get('text'), correlated=correlated, opening_choices=CHOICES,
                                               question_answerer=question_answerer, resume_step=resume_step,
-                                              last_question=last_question,
+                                              last_question=last_question, pending_clarification=dialogue['pending_clarification'],
                                               current_choices=demo_flow.presented_choices(state['outbox_key'], previous_payload))
+                if decision and decision.get('no_op') is True:
+                    result = {'accepted': True, 'status': 'demo_acknowledged', 'step': step,
+                              'production_effects': False}
+                    self.store.db.execute('INSERT INTO demo_events VALUES(?,?,?,?)',
+                                          (self.scope.slot, event_key, fingerprint, json.dumps(result)))
+                    return result, 202
                 if decision:
                     key = demo_flow.new_key(run, decision['step'])
                     grounded = decision.get('grounded')

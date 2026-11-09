@@ -3,6 +3,7 @@ import json
 import hashlib
 import re
 import threading
+import time
 import unicodedata
 from copy import deepcopy
 from demo_flow import format_answer, safe_context_text, RETURN_STEPS, FAQ_STEPS
@@ -183,7 +184,7 @@ def _diagnostic(category, *, knowledge=None, completed=None, http_status=None,
         version, count = knowledge.get('knowledge_version'), knowledge.get('card_count')
         if isinstance(version, str) and re.fullmatch(r'contextos-ia-v1:[a-f0-9]{32}\+[a-f0-9]{12}', version):
             row['knowledge_version'] = version
-        if type(count) is int and 3 <= count <= 64:
+        if type(count) is int and 3 <= count <= 256:
             row['card_count'] = count
     if type(completed) is bool:
         row['completed'] = completed
@@ -210,7 +211,7 @@ def _diagnostic(category, *, knowledge=None, completed=None, http_status=None,
         pass  # Diagnostic delivery must not change a grounded answer or retry it.
 
 
-def build_answerer(settings, *, opener=None, context_loader=None):
+def build_answerer(settings, *, opener=None, context_loader=None, semantic_verifier=None, clock=time.monotonic):
     if settings.get('ai_enabled') is not True:
         return None
     token, model = settings.get('openai_api_key'), settings.get('ai_model')
@@ -220,8 +221,11 @@ def build_answerer(settings, *, opener=None, context_loader=None):
     if context_loader is None:
         from context_ia import load_demo_context
         context_loader = load_demo_context
+    from demo_support import build_semantic_verifier, clarification_question
+    support_check = semantic_verifier or build_semantic_verifier(settings, opener=opener)
 
     def answer(question, *, conversation=None):
+        deadline = clock() + 28.0
         if not isinstance(question, str) or not 1 <= len(question) <= 500:
             return 'faq_unknown'
         # Only a bounded, redacted dialogue context is allowed; no contact IDs or handles.
@@ -233,6 +237,18 @@ def build_answerer(settings, *, opener=None, context_loader=None):
                     dialogue[key] = conversation[key]
             for key in ('last_question', 'last_answer'):
                 dialogue[key] = safe_context_text(conversation.get(key), 900)
+            dialogue['pending_clarification'] = safe_context_text(conversation.get('pending_clarification'), 240)
+            rows = conversation.get('recent_dialogue', [])
+            dialogue['recent_dialogue'] = [
+                {'question': safe_context_text(row.get('question'), 300),
+                 'answer': safe_context_text(row.get('answer'), 600)}
+                for row in rows[-6:] if isinstance(row, dict)] if isinstance(rows, list) else []
+            questions = conversation.get('prior_questions', [])
+            dialogue['prior_questions'] = [safe_context_text(item, 300) for item in questions[-6:]
+                                          if isinstance(item, str)] if isinstance(questions, list) else []
+            # Never forward caller-provided inferred facts or consent. This demo
+            # service has no confirmed real actions, independent of navigation.
+            dialogue['operational_facts'] = _demo_operational_context()
         try:
             knowledge = context_loader(settings)
         except Exception:
@@ -241,7 +257,12 @@ def build_answerer(settings, *, opener=None, context_loader=None):
         if not isinstance(knowledge, dict) or knowledge.get('source') != 'database':
             _diagnostic('context_invalid')
             return 'faq_unavailable'
+        if clock() >= deadline:
+            _diagnostic('turn_budget_exhausted', knowledge=knowledge)
+            return 'faq_unavailable'
         try:
+            from demo_knowledge import select_demo_knowledge
+            knowledge = select_demo_knowledge(knowledge, question, dialogue)
             catalog = _evidence_catalog(knowledge)
         except (ValueError, TypeError):
             _diagnostic('context_invalid', knowledge=knowledge)
@@ -259,6 +280,10 @@ def build_answerer(settings, *, opener=None, context_loader=None):
                     'Este é um TESTE de conversa: nenhum perfil foi consultado, convite enviado, vínculo, cadastro ou acesso criado. '
                     'Não execute nem prometa executar ações, não peça formulário, dados pessoais, código ou atendimento humano. '
                     'Diferencie fatos gerais de condições específicas que precisam de confirmação. '
+                    'Use recent_dialogue e prior_questions para manter as necessidades e dúvidas deste atendimento, '
+                    'sem pedir novamente explicações já dadas. pending_clarification identifica uma pergunta de '
+                    'esclarecimento que você fez; sim, não ou ok devem ser interpretados só nesse contexto. '
+                    'Se a resposta curta continuar ambígua, esclareça, sem adivinhar nem oferecer aceite. '
                     'Use o histórico apenas para entender referências como isso, sim ou nesse caso; ele não é fonte de fatos. '
                     'Respostas anteriores da Bia também podem conter erros e não comprovam ações. '
                     'Use operational_context para distinguir fatos confirmados de navegação: nomes de etapas e simulações '
@@ -321,11 +346,14 @@ def build_answerer(settings, *, opener=None, context_loader=None):
                                      'evidence_sources': {ref: item['id'] for ref, item in catalog.items()}}, ensure_ascii=False),
                 'max_output_tokens': 1500, 'text': {'format': response_format}}
         def generate(request_body, *, can_rewrite):
+            remaining = deadline - clock()
+            if remaining <= 0:
+                return unavailable('turn_budget_exhausted')
             request = Request('https://api.openai.com/v1/responses', data=json.dumps(request_body).encode(), method='POST',
                               headers={'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'})
             http_status = None
             try:
-                with (opener or build_opener(NoRedirect())).open(request, timeout=12) as response:
+                with (opener or build_opener(NoRedirect())).open(request, timeout=min(12, remaining)) as response:
                     http_status = getattr(response, 'status', None)
                     raw = response.read(65537)
             except HTTPError as error:
@@ -338,6 +366,8 @@ def build_answerer(settings, *, opener=None, context_loader=None):
                 return unavailable('provider_timeout' if isinstance(error.reason, TimeoutError) else 'provider_transport')
             except Exception:
                 return unavailable('provider_transport')
+            if clock() >= deadline:
+                return unavailable('turn_budget_exhausted')
             if len(raw) > 65536:
                 return unavailable('provider_body_too_large', http_status=http_status)
             try:
@@ -426,9 +456,27 @@ def build_answerer(settings, *, opener=None, context_loader=None):
                 formatted = format_answer(text)
             except (ValueError, TypeError):
                 return unavailable('answer_format', **diagnostic)
+            candidate = {'answer': formatted, 'evidence': resolved_evidence,
+                         'knowledge_version': knowledge['knowledge_version']}
+            remaining = deadline - clock()
+            if remaining <= 0:
+                return unavailable('turn_budget_exhausted')
+            try:
+                if getattr(support_check, 'accepts_time_budget', False) is True:
+                    verdict = support_check(question, candidate, knowledge, dialogue, timeout=min(12, remaining))
+                else:
+                    verdict = support_check(question, candidate, knowledge, dialogue) if callable(support_check) else 'uncertain'
+            except Exception:
+                verdict = 'uncertain'
+            if clock() >= deadline:
+                return unavailable('turn_budget_exhausted')
+            if verdict != 'supported':
+                return unavailable('semantic_unsupported' if verdict == 'unsupported' else 'semantic_uncertain', **diagnostic)
+            clarification = clarification_question(formatted)
+            if clarification:
+                candidate['clarification_question'] = safe_context_text(clarification, 240)
             _diagnostic('answer_accepted', knowledge=knowledge, **diagnostic)
-            return {'answer': formatted, 'evidence': resolved_evidence,
-                    'knowledge_version': knowledge['knowledge_version']}
+            return candidate
 
         return generate(body, can_rewrite=True)
     answer.accepts_dialogue_context = True
@@ -464,6 +512,8 @@ def build_smoke_verifier(settings, *, opener=None, context_loader=None):
                     or not isinstance(answer.get('answer'), str) or not 1 <= len(answer['answer']) <= 900
                     or not isinstance(answer.get('evidence'), list) or not 1 <= len(answer['evidence']) <= 6):
                 return 'uncertain'
+            from demo_knowledge import select_demo_knowledge
+            snapshot = select_demo_knowledge(snapshot, question)
             catalog = _evidence_catalog(snapshot)
             sources = {item['id']: item['quote'] for item in catalog.values()}
             seen = set()

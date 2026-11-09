@@ -12,18 +12,18 @@ TEMPLATES = {
                         {'faq_terms': 'Regras e saída', 'faq_invite': 'Convite e aceite', 'back': 'Ver tópicos'}),
     'faq_more': ('Qual assunto te interessa? 💬\n\nVocê também pode escrever sua dúvida.',
                  {'topic_lives': 'Lives e conteúdo', 'topic_club': 'Amplify Club', 'back': 'Ver tópicos'}),
-    'profile': ('Que legal! Vamos começar 🚀\n\nMe manda seu *@ de creator no TikTok* para seguirmos com seu agenciamento.',
+    'profile': ('Que legal! Vamos começar 🚀\n\nMe manda seu *@ de creator no TikTok* para conhecer as próximas etapas. Aqui, não consulto nem agencio seu perfil.',
                 {'question': 'Tenho dúvidas'}),
-    'member': ('Que bom te ver por aqui de novo! 👋\n\nComo posso te ajudar? Neste teste, não vou consultar seu cadastro.',
+    'member': ('Que bom te ver por aqui de novo! 👋\n\nComo posso te ajudar? Por aqui, não vou consultar seu cadastro.',
                {'question': 'Tenho uma dúvida', 'join': 'Ver o agenciamento'}),
-    'conditions': ('Recebi seu perfil! ✅\n\nVamos simular as próximas etapas. As condições reais ainda precisam ser confirmadas; este teste não representa aceite comercial.',
-                   {'continue_test': 'Seguir no teste', 'question': 'Tenho uma dúvida'}),
-    'invite': ('Convite de demonstração preparado 📨\n\nQuer simular o aceite para ver como a confirmação aparece?',
-               {'accept_demo': 'Simular aceite', 'decline': 'Agora não', 'question': 'Tenho uma dúvida'}),
-    'confirmed': ('Teste concluído! 🎉\n\nO aceite e o vínculo foram simulados. Seu perfil real não foi consultado nem agenciado.',
+    'conditions': ('Obrigada! ✅\n\nSeu perfil não foi consultado. Posso mostrar as próximas etapas, sem aceite comercial. As condições reais ainda precisam ser confirmadas.',
+                   {'continue_test': 'Ver próxima etapa', 'question': 'Tenho uma dúvida'}),
+    'invite': ('Veja como seria a etapa de aceite 📨\n\nNenhum convite real foi enviado. Quer ver a confirmação ilustrativa, sem criar vínculo?',
+               {'accept_demo': 'Ver confirmação', 'decline': 'Agora não', 'question': 'Tenho uma dúvida'}),
+    'confirmed': ('Pronto, você conheceu as etapas! 💙\n\nNão houve aceite comercial nem vínculo real. Seu perfil não foi consultado nem agenciado.',
                   {'question': 'Tenho uma dúvida', 'close': 'Encerrar atendimento'}),
-    'paused': ('Tudo bem 😊\n\nO convite de teste ficou pausado. Quer retomar ou encerrar por agora?',
-               {'resume': 'Retomar teste', 'close': 'Encerrar atendimento'}),
+    'paused': ('Tudo bem 😊\n\nPodemos deixar as próximas etapas para depois. Quer retomar a explicação ou encerrar por agora?',
+               {'resume': 'Retomar explicação', 'close': 'Encerrar atendimento'}),
     'faq': ('Claro! Me conta sua dúvida por aqui 💬',
             {'back': 'Ver tópicos'}),
     'faq_agency': ('A Amplify é uma agência e comunidade para creators do TikTok Shop ✨ Você pode tirar suas dúvidas antes de decidir se quer se agenciar.',
@@ -32,9 +32,9 @@ TEMPLATES = {
     # read on 2026-11-05. Availability is conditional, not a general entitlement.
     'faq_benefits': ('A parceria pode incluir 🌟\n\n- *Treinamentos*\n- *Suporte*\n- *Comunidade no Circle*\n- *Oportunidades de campanhas*\n\nOs benefícios variam conforme sua categoria e cada ação, sujeitos à disponibilidade e às condições da parceria.',
                      {'join': 'Quero me agenciar', 'question': 'Tenho outra dúvida'}),
-    'faq_terms': ('As condições reais ainda precisam ser confirmadas 📋 Não tenho detalhes confirmados sobre comissão, prazo ou exclusividade para te passar neste teste.',
+    'faq_terms': ('As condições reais ainda precisam ser confirmadas 📋 Não tenho detalhes confirmados sobre comissão, prazo ou exclusividade para te passar agora.',
                   {'join': 'Quero me agenciar', 'question': 'Tenho outra dúvida'}),
-    'faq_invite': ('Aqui, nenhum convite real é enviado 📨 O aceite e o vínculo são simulados, sem agenciar seu perfil.',
+    'faq_invite': ('Aqui, nenhum convite real é enviado 📨 Você pode conhecer as etapas de aceite, sem agenciar seu perfil nem criar vínculo.',
                    {'join': 'Quero me agenciar', 'question': 'Tenho outra dúvida'}),
     'faq_unknown': ('Não tenho essa informação confirmada 🔎\n\nVocê pode escolher outro tema ou perguntar de outro jeito.',
                     {'question': 'Tenho outra dúvida', 'join': 'Quero me agenciar'}),
@@ -52,6 +52,9 @@ def safe_context_text(value, limit=900):
     if not isinstance(value, str):
         return ''
     value = re.sub(r'[A-Za-z0-9_.+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|@[A-Za-z0-9_.]+|https?://\S+|\+?\d[\d ()-]{9,}\d', '[dado removido]', value)
+    value = re.sub(r'(?i)\b(?:meu nome [ée]|me chamo)\s+[^,.;!?\n]+', '[dado removido]', value)
+    value = re.sub(r'\b\d{3}\.\d{3}\.\d{3}-\d{2}\b|\b\d{8,}\b', '[dado removido]', value)
+    value = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', value)
     return value[:limit]
 
 TRANSITIONS = {'join': 'profile', 'know': 'about', 'member': 'member', 'question': 'about',
@@ -175,7 +178,7 @@ def question_step(text):
 
 
 def decision(step, text, *, correlated, opening_choices, question_answerer=None, resume_step=None,
-             last_question=None, current_choices=None):
+             last_question=None, current_choices=None, pending_clarification=''):
     choices = current_choices if current_choices is not None else (opening_choices if step == 'opening' else TEMPLATES[step][1])
     action = next((action for action, title in choices.items() if text == title), None) if correlated else None
     # Old buttons must not restart the introduction after deployment.
@@ -191,8 +194,10 @@ def decision(step, text, *, correlated, opening_choices, question_answerer=None,
             target = 'profile'
         return {'action': action, 'step': target, 'effects': []}
     # An acknowledgment is not a request to start or resume collecting data.
-    if step in KNOWLEDGE_STEPS and isinstance(text, str) and text.strip().casefold() in {'sim', 'ok', 'entendi', 'continuar', 'continue'}:
-        return {'action': 'back', 'step': 'about', 'effects': []}
+    if (not action and step != 'closed' and isinstance(text, str)
+            and text.strip().casefold().rstrip('.!') in {'sim', 'ok', 'entendi', 'continuar', 'continue', 'certo', 'obrigado', 'obrigada'}
+            and not pending_clarification):
+        return {'action': 'acknowledge', 'step': step, 'effects': [], 'no_op': True}
     target = TRANSITIONS[action] if action else question_step(text)
     # A bare menu label must not bypass reply correlation. Free questions never
     # execute transitions or authorize simulated acceptance, even if AI errs.

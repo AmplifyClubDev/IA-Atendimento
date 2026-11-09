@@ -1,3 +1,4 @@
+# Structural tests isolate generation; semantic gating has dedicated integration coverage.
 """Opt-in AI smoke checks: synthetic model IO, durable claims, no message transport."""
 import io
 import json
@@ -174,7 +175,7 @@ class SmokeCases(unittest.TestCase):
         opener = Mock()
         opener.open.side_effect = lambda *args, **kwargs: io.BytesIO(json.dumps(response).encode())
         self.answerer = build_answerer({'ai_enabled': True, 'openai_api_key': 'synthetic', 'ai_model': 'test'},
-                                      opener=opener, context_loader=lambda _: knowledge)
+                                      opener=opener, context_loader=lambda _: knowledge, semantic_verifier=lambda *_: 'supported')
         self.run_check()
         self.assertEqual(opener.open.call_count, len(SMOKE_QUESTIONS))
         for call in opener.open.call_args_list:
