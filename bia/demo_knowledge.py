@@ -49,7 +49,7 @@ BUNDLES = (
      ('funcionamento', 'custos', 'ja_tem_agencia')),
     (('custo', 'taxa', 'mensalidade', 'comissao', 'comissoes', 'porcentagem', 'percentual',
       'pago', 'pagar', 'custa', 'cobram', 'cobranca', 'super afiliado', 'indicacao', 'remuneracao',
-      'mentoria', 'squad elite'),
+      'mentoria', 'squad elite', 'gratis', 'gratuito', 'gratuita', 'gerenciamento', 'por cento'),
      ('custos', 'funcionamento', 'amplify_doc_programs', 'amplify_doc_categories',
       'amplify_doc_monthly_journey', 'garantias')),
     (('live', 'lives', 'ao vivo', 'obrigatorio', 'obrigada', 'obrigado'),

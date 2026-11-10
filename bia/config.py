@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 
 PROJECT_REF = 'divlvdmsqbwplervsqwu'
 DEMO_CONTEXT_VERSION = 'amplify_doc_20261106_v1'
-DEMO_CONTEXT_VERSIONS = frozenset({DEMO_CONTEXT_VERSION, 'amplify_circle_20261106_v2', 'amplify_circle_20261106_v3'})
+DEMO_CONTEXT_VERSIONS = frozenset({DEMO_CONTEXT_VERSION, 'amplify_circle_20261106_v2', 'amplify_circle_20261106_v3', 'amplify_costs_20261110_v4'})
 
 
 def demo_context_issue(settings):

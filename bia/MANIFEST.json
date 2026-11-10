@@ -1,5 +1,5 @@
 {
-  "release": "bia-mind-consolidation-20261109-ensaio",
+  "release": "bia-current-costs-20261110-ensaio",
   "source_count": 43,
   "files": [
     {
@@ -19,8 +19,8 @@
     },
     {
       "path": "config.py",
-      "bytes": 14583,
-      "sha256": "accb74fc10085b81803745e16857e02399cf009cec9945739f4e99c25001ea1e"
+      "bytes": 14612,
+      "sha256": "3716d927f324554614ffd8b9c3dea24b7ffd4948cd6c6b55be1548a93acf9260"
     },
     {
       "path": "context_ia.py",
@@ -64,8 +64,8 @@
     },
     {
       "path": "demo_answers.py",
-      "bytes": 38163,
-      "sha256": "06db5cd2d9d176f96dbff12d217a28b277f727408bca3ca8d4d1343d85f22a59"
+      "bytes": 40477,
+      "sha256": "9a97b1747f8d6d0dce0b8dd473df8d2bdc42203da5f62d21cab94fefc6e16ec3"
     },
     {
       "path": "demo_flow.py",
@@ -79,8 +79,8 @@
     },
     {
       "path": "demo_knowledge.py",
-      "bytes": 12820,
-      "sha256": "5e14dbccaadf6be7d5388194a831536922b3724b2d151af3939b3a10bc511c5a"
+      "bytes": 12884,
+      "sha256": "533d3f4e009386d069837209869be68444af60f178554e708a3cd8b456f4a8c5"
     },
     {
       "path": "demo_router.py",
@@ -89,8 +89,8 @@
     },
     {
       "path": "demo_support.py",
-      "bytes": 9011,
-      "sha256": "9f87374ce04907b09bab98575a924f4bb95ec1ae83f823a82bc473718d3b52b7"
+      "bytes": 9712,
+      "sha256": "5566023954b22737322f29030ec1fb0f705041d1893dbe1845bef249b551ce02"
     },
     {
       "path": "engine.py",
@@ -225,8 +225,8 @@
     "comparison_branch": "fix/bia-51-followup",
     "comparison_commit": "b01dd6bbb99910a4a7bad54a802e56e1aca875ab",
     "sanitized": true,
-    "change": "Ensaio-only: whole-card knowledge selection, bounded delivered dialogue memory, contextual clarification and fail-closed semantic review.",
+    "change": "Ensaio-only: current 10% management fee source, no prior or retroactive fees, direct lead copy with one guarded rewrite.",
     "router_parent_commit": "2190b692cbdb11bd4a5e413dded904e15ff704ca",
-    "baseline_commit": "3bd9f6dfaee71f8e07022347e24f9fbe922cb431"
+    "baseline_commit": "e190261fd4b5f564188ea7a28c9bc0a5e8d1b351"
   }
 }
