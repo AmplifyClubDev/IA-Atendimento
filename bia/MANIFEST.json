@@ -1,5 +1,5 @@
 {
-  "release": "bia-current-costs-20261110-ensaio",
+  "release": "bia-stability-20261110",
   "source_count": 43,
   "files": [
     {
@@ -29,8 +29,8 @@
     },
     {
       "path": "contracts.py",
-      "bytes": 6673,
-      "sha256": "8370cd4d1bf46c2189fe1a1ad07ad16f22647ff86046ebd8e7e6648d43ef948d"
+      "bytes": 7785,
+      "sha256": "c260d413b00ecea327270d7466f63e4dc727dc45e9575974c83f441c7babbd79"
     },
     {
       "path": "conversao.py",
@@ -159,8 +159,8 @@
     },
     {
       "path": "real_operations.py",
-      "bytes": 30402,
-      "sha256": "b1b5b413575fa8dabc8b9d50e7e893121bfad927de4f2db1bbd8994bc6c5f192"
+      "bytes": 31243,
+      "sha256": "6ded72f8c43b86ea0401b77c0d1caf47eb4e77a1cc22c767d2850262e88f89b7"
     },
     {
       "path": "receipt_grounding.py",
@@ -199,8 +199,8 @@
     },
     {
       "path": "server.py",
-      "bytes": 96327,
-      "sha256": "fbc468f8e629fe7981048e3d5157b4c072481a1c6adc7dfa2bc4ccad09109e91"
+      "bytes": 100476,
+      "sha256": "35c1bbc728f8d0a39f214f433322992047aeeeb668dddf1eff9a22542a7ec5d4"
     },
     {
       "path": "smtp.py",
@@ -209,8 +209,8 @@
     },
     {
       "path": "transport.py",
-      "bytes": 26148,
-      "sha256": "ede5bc2c867771c634ce0646e9bbb0f667e3dd41d36aa313051cc273c687eb3f"
+      "bytes": 26813,
+      "sha256": "9a711a73e3b161fd87fab17aec13163b21e60e4aa032d2645e5b2093581416e3"
     },
     {
       "path": "verify_private.py",
@@ -225,8 +225,8 @@
     "comparison_branch": "fix/bia-51-followup",
     "comparison_commit": "b01dd6bbb99910a4a7bad54a802e56e1aca875ab",
     "sanitized": true,
-    "change": "Ensaio-only: current 10% management fee source, no prior or retroactive fees, direct lead copy with one guarded rewrite.",
+    "change": "Guarded image-only guidance for verified real traffic and isolated Ensaio follow-up scheduling; no invitation replay.",
     "router_parent_commit": "2190b692cbdb11bd4a5e413dded904e15ff704ca",
-    "baseline_commit": "e190261fd4b5f564188ea7a28c9bc0a5e8d1b351"
+    "baseline_commit": "991606a7c5e0344cf7b20a1646ada130de2ac41d"
   }
 }

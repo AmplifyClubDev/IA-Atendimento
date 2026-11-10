@@ -19,7 +19,7 @@ from flask import Flask, jsonify, request
 import engine
 from answers import answer_question
 from guided_ai import plan_turn
-from contracts import allow_inbound, inbound_key, same_phone, normalize_phone, pilot_phone
+from contracts import allow_inbound, allow_image_inbound, IMAGE_ONLY_REPLY, inbound_key, same_phone, normalize_phone, pilot_phone
 from repository import Repository
 from transport import ChatwootTransport, ChatwootProgress
 from real_operations import RealExecutor, build_jobs, business_key, chatwoot_control_guard, policy_for
@@ -92,6 +92,12 @@ def normalize_chatwoot(payload):
         "message_type": payload.get("message_type"), "private": payload.get("private"), "text": payload.get("content"),
         "created_at": observed_timestamp(payload.get("created_at")),
     }
+    attachments = payload.get("attachments")
+    # Retain only bounded provider image IDs, never URLs, bytes or inferred text.
+    if (isinstance(attachments, list) and 1 <= len(attachments) <= 4
+            and all(isinstance(item, dict) and item.get('file_type') == 'image'
+                    and _positive_id(item.get('id')) for item in attachments)):
+        event['image_attachment_ids'] = [_positive_id(item['id']) for item in attachments]
     event['source_ref'] = inbound_key(event)
     return event
 
@@ -946,13 +952,7 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
 
     if demo_router and settings.get('demo_followup_enabled') is True:
         from demo_followup import tick_all
-        prior_followup_tick = executor.followup_tick
-        def combined_followup_tick():
-            demo_results = tick_all(demo_router)
-            if callable(prior_followup_tick):
-                prior_followup_tick()
-            return {'demo': demo_results}
-        executor.followup_tick = combined_followup_tick
+        executor.demo_followup_tick = lambda: tick_all(demo_router)
         app.extensions['v5_demo_followup_tick'] = lambda: tick_all(demo_router)
 
     def inactivity_notice(state):
@@ -1433,6 +1433,63 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
         except Exception:
             return jsonify(status='demo_control_unconfirmed'), 409
 
+    def process_image_inbound(event):
+        """Reply once to verified captionless images, without business effects."""
+        key, conv = inbound_key(event), conversation_key(event)
+
+        def image_control():
+            if production_blocked(settings, event=event):
+                return False
+            live = repository.load_session(conv)
+            if (live.get('human_control') or live.get('opt_out')
+                    or _mapping(live.get('cycle')).get('opt_out')
+                    or reply_fence.reset_waiting(live, event)):
+                return False
+            return chatwoot_control_guard(transport, gate, event, image_only=True).get('allowed') is True
+
+        try:
+            if not allow_image_inbound(gate, event) or not image_control():
+                return dict(accepted=False, status='image_ignored'), 202
+            digest = hashlib.sha256(json.dumps(event, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+            reservation, ticket = reply_fence.admit(event, lambda: repository.reserve_event(
+                key, conv, digest, source_at=event.get('created_at')))
+            if not reservation['reserved']:
+                return dict(accepted=not reservation['conflict'], duplicate=True,
+                            status='event_conflict' if reservation['conflict'] else reservation['status']), 200
+        except Exception:
+            return dict(accepted=False, status='operational_state_unavailable'), 503
+        with reply_fence.turn(event, ticket):
+            with lock_for(conv):
+                try:
+                    state = repository.load_session(conv)
+                    latest = reply_fence.processed(state, event)
+                    stale = bool(latest and int(latest.rsplit(':', 1)[-1]) > int(event['message_id']))
+                    current = not stale and reply_fence.current(event) and image_control()
+                    state.setdefault('processed_inbound', []).append(key)
+                    reply_fence.keep_latest_cursor(state, event)
+                    # Preserve all cycle facts/consents/effects. The new cursor
+                    # invalidates old follow-up sources until a real text arrives.
+                    body = {'text': IMAGE_ONLY_REPLY, 'buttons': []} if current else None
+                    outbox_key = key + ':image-guidance'
+                    repository.prepare_reply(key, conv, state, outbox_key, body)
+                    final = 'completed'
+                    if body:
+                        receipt = transport.send_reply(event, IMAGE_ONLY_REPLY, [], outbox_key,
+                            image_only=True, before_write=lambda: reply_fence.current(event) and image_control())
+                        receipt = receipt if isinstance(receipt, dict) else {}
+                        status = receipt.get('status', 'outcome_unknown')
+                        status = status if status in {'accepted', 'failed', 'outcome_unknown'} else 'outcome_unknown'
+                        safe = {name: receipt[name] for name in ('status', 'message_id', 'reason')
+                                if isinstance(receipt.get(name), str)}
+                        repository.finish_outbox(outbox_key, status, safe)
+                        final = 'completed' if status == 'accepted' else status
+                    repository.finish_event(key, final)
+                    return dict(accepted=True, duplicate=False, status=final), 200
+                except Exception:
+                    # Persist uncertainty and never retry an unconfirmed send.
+                    repository.finish_event(key, 'outcome_unknown')
+                    return dict(accepted=True, duplicate=False, status='outcome_unknown'), 202
+
     @app.post("/webhook/chatwoot")
     def webhook():
         if not authorized():
@@ -1447,6 +1504,9 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
         # to the production allowlist, and never bypass the global enabled flag.
         if event and gate.get('enabled') is True and demo_router and demo_router.claims(event):
             body, code = handle_demo(event, payload)
+            return jsonify(**body), code
+        if event and allow_image_inbound(gate, event):
+            body, code = process_image_inbound(event)
             return jsonify(**body), code
         if not event or not allow_inbound(gate, event):
             return jsonify(accepted=False, status="ignored"), 202

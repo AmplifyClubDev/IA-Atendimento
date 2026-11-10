@@ -13,7 +13,7 @@ from urllib.error import HTTPError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from contracts import allow_inbound, normalize_phone, phone_matches, pilot_phone
+from contracts import allow_inbound, allow_image_inbound, IMAGE_ONLY_REPLY, normalize_phone, phone_matches, pilot_phone
 
 
 _PROGRESS_PHASES = {
@@ -339,8 +339,10 @@ class ChatwootTransport:
             return {"status": "outcome_unknown", "reason": "stage_write_unconfirmed"}
         return {"status": "outcome_unknown", "reason": "stage_job_enqueued"}
 
-    def send_reply(self, event, text, buttons, idempotency_key, *, before_write=None):
-        if not allow_inbound(self.gate, event):
+    def send_reply(self, event, text, buttons, idempotency_key, *, before_write=None, image_only=False):
+        allowed = (allow_image_inbound(self.gate, event) and text == IMAGE_ONLY_REPLY and not buttons
+                   if image_only is True else allow_inbound(self.gate, event))
+        if not allowed:
             return {"status": "failed", "reason": "outside_pilot"}
         if not self.ready():
             return {"status": "failed", "reason": "transport_not_configured"}

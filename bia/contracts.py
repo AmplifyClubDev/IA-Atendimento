@@ -122,7 +122,7 @@ def inbound_key(event: dict) -> str | None:
     return f"{provider}:{account}:{message}"
 
 
-def allow_inbound(config: dict, event: dict) -> bool:
+def _allow_inbound_identity(config: dict, event: dict) -> bool:
     """Authorize exactly one configured phone/account/inbox; empty means off.
 
     No default account, inbox, phone or enabled flag is inferred. A valid phone
@@ -151,6 +151,29 @@ def allow_inbound(config: dict, event: dict) -> bool:
         and inbox == _identifier(event.get("inbox_id"))
         and pilot_phone(config, event.get("sender_phone")) is not None
         and _identifier(event.get("conversation_id"))
-        and isinstance(event.get("text"), str)
-        and 0 < len(event["text"].strip()) <= 4000
     )
+
+
+def allow_inbound(config: dict, event: dict) -> bool:
+    """Original text contract; media never becomes a text/business event."""
+    return bool(_allow_inbound_identity(config, event)
+                and isinstance(event.get("text"), str)
+                and 0 < len(event["text"].strip()) <= 4000)
+
+
+IMAGE_ONLY_REPLY = ("Não consigo ler imagens por aqui. Envie somente o @ ou o link "
+                    "do seu perfil do TikTok, por favor.")
+
+
+def allow_image_inbound(config: dict, event: dict) -> bool:
+    """Narrow reply-only path for a normalized incoming image without caption."""
+    if not _allow_inbound_identity(config, event) or not _identifier(event.get("contact_id")):
+        return False
+    text = event.get("text")
+    if text is not None and (not isinstance(text, str) or text.strip() or len(text) > 4000):
+        return False
+    images = event.get("image_attachment_ids")
+    return bool(isinstance(images, list) and 1 <= len(images) <= 4
+                and all(isinstance(item, str) and _identifier(item) == item for item in images)
+                and len(set(images)) == len(images)
+                and isinstance(event.get("created_at"), str))

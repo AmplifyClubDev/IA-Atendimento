@@ -17,7 +17,7 @@ from uuid import UUID
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from contracts import allow_inbound, inbound_key, phone_matches, pilot_phone
+from contracts import allow_inbound, allow_image_inbound, inbound_key, phone_matches, pilot_phone
 from demo_router import production_blocked, excluded_conversations
 
 
@@ -121,9 +121,10 @@ def automation_assignee_ids():
     return frozenset(part.strip() for part in raw.split(',') if part.strip().isdigit())
 
 
-def chatwoot_control_guard(transport, gate, event):
+def chatwoot_control_guard(transport, gate, event, *, image_only=False):
     """Read recipient/control state. Unknown ownership never grants authority."""
-    if not allow_inbound(gate, event):
+    allowed = allow_image_inbound(gate, event) if image_only is True else allow_inbound(gate, event)
+    if not allowed:
         return {'allowed': False, 'reason': 'outside_pilot'}
     try:
         detail = transport.http(method='GET', url=transport._conversation_url(event),
@@ -187,6 +188,7 @@ class RealExecutor:
         self.sessions_checked_at = None
         self.retention_cleanup = None
         self.followup_tick = None
+        self.demo_followup_tick = None
         self.followup_status = None
         self.retention_status = {'enabled': settings.get('retention_enabled') is True, 'status': 'not_run'}
 
@@ -449,9 +451,19 @@ class RealExecutor:
                     outcome = self.tick()
                     if outcome.get('status') == 'idle':
                         self.maintain_retention()
-                        if callable(self.followup_tick):
-                            self.followup_tick()
-                    if outcome.get('status') in {'completed', 'polling'}:
+                    # Ensaio timers must not wait for an empty real-job queue.
+                    # Real follow-up routines retain their existing idle-only cadence.
+                    demo_failed = False
+                    if (outcome.get('status') != 'disabled' and not self.stop_event.is_set()
+                            and callable(self.demo_followup_tick)):
+                        try:
+                            self.demo_followup_tick()
+                        except Exception:
+                            demo_failed = True
+                            self.last_error = 'demo_followup_step_unconfirmed'
+                    if outcome.get('status') == 'idle' and callable(self.followup_tick):
+                        self.followup_tick()
+                    if outcome.get('status') in {'completed', 'polling'} and not demo_failed:
                         self.last_error = None
                 except Exception:
                     self.last_error = 'worker_step_unconfirmed'
