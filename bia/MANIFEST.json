@@ -179,8 +179,8 @@
     },
     {
       "path": "real_operations.py",
-      "bytes": 30966,
-      "sha256": "60a7a4ea9812debb0031d607ecce388fc9af239aaf2dad0a78031f29c00e3b8e"
+      "bytes": 33789,
+      "sha256": "e21bce8278a7de4035285caebd946c95fb65d5850fa7971eed2ba7776c36cfe9"
     },
     {
       "path": "receipt_grounding.py",
@@ -214,8 +214,8 @@
     },
     {
       "path": "retomada.py",
-      "bytes": 39498,
-      "sha256": "b53c61079fd6b6a4c6ba8ed4088562d42c6d2ad2e035396e3316ec8ce3204efc"
+      "bytes": 39539,
+      "sha256": "b781e111f43761f096cd2252904bad576495940917ff0e8a9e8ac78cd0a3215c"
     },
     {
       "path": "server.py",

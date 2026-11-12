@@ -50,7 +50,7 @@ REASONS = frozenset({
     'atendimento_fechado', 'fase_sem_lembrete', 'mensagem_mais_nova', 'pausa_ou_saida', 'nenhuma_etapa_vencida',
     'fora_do_horario', 'intervalo_minimo', 'ficha_ilegivel', 'cadastro_confirmado', 'mudou_no_chatwoot',
     'lembrete_ja_reservado', 'sem_pendencia', 'ponte_fora', 'origem_nao_confirmada', 'resposta_ja_aceita',
-    'consulta_ja_na_fila_da_mensagem',
+    'consulta_ja_na_fila_da_mensagem', 'demo_contact_excluded_from_production',
 })
 ERROR_PREFIX = 'erro_envio:'
 

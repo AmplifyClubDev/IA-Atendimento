@@ -180,6 +180,9 @@ class RealExecutor:
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.stop_event, self.wake_event = threading.Event(), threading.Event()
         self.thread = None
+        self.probe_thread = None
+        self.worker_step = 'not_started'
+        self.worker_step_started_at = None
         self.last_guard = 'not_checked'
         self.last_error = None
         # Release 43: called when a result could not be applied, so the lead hears something honest.
@@ -202,6 +205,8 @@ class RealExecutor:
     def status(self):
         checked = _clock(self.sessions_checked_at)
         fresh = bool(checked and 0 <= (self.clock() - checked).total_seconds() <= 60)
+        step_at = _clock(self.worker_step_started_at)
+        step_age = max(0, int((self.clock() - step_at).total_seconds())) if step_at else None
         return {'mode': self.settings.get('tiktok_mode', 'simulated'),
                 **({'relationship_check_in_form': True}
                    if self.settings.get('relationship_check_in_form') is True else {}),
@@ -209,6 +214,8 @@ class RealExecutor:
                 'worker_running': bool(self.thread and self.thread.is_alive()),
                 'core_configured': self.configured(), 'control': self.last_guard,
                 'last_error': self.last_error,
+                'worker_step': self.worker_step, 'worker_step_elapsed_seconds': step_age,
+                'session_probe_running': bool(self.probe_thread and self.probe_thread.is_alive()),
                 'retention': dict(self.retention_status),
                 'followup': self.followup_status() if callable(self.followup_status) else {'enabled': False, 'configured': False},
                 'sessions': {'checked_at': self.sessions_checked_at, 'fresh': fresh,
@@ -415,7 +422,8 @@ class RealExecutor:
             return {'status': 'polling' if poll else 'completed'}
 
     def start(self):
-        if self.thread and self.thread.is_alive():
+        if ((self.thread and self.thread.is_alive())
+                or (self.probe_thread and self.probe_thread.is_alive())):
             return False
         if (self.settings.get('tiktok_mode') != 'real' or self.settings.get('real_worker_enabled') is not True
                 or not self.configured()):
@@ -438,22 +446,60 @@ class RealExecutor:
             self.last_error = 'worker_already_owned'
             return False
         self._ownership_file = handle
+        self.stop_event.clear()
         recovered = self.repository.recover_real_jobs(_stamp(self.clock()))
         if isinstance(recovered, dict) and any(recovered.values()):
             logging.getLogger(__name__).warning('real_job_recovery %s', json.dumps(recovered, sort_keys=True))
+        # Provider jobs can legitimately wait up to135s. Session proof has a
+        # separate read-only cadence; no second job/write executor is created.
+        self.probe_thread = threading.Thread(target=self._probe_loop, name='v5-session-probes', daemon=True)
         self.thread = threading.Thread(target=self._run, name='v5-real-operations', daemon=True)
-        self.thread.start()
+        try:
+            self.probe_thread.start()
+            self.thread.start()
+        except Exception:
+            self.stop_event.set()
+            if self.probe_thread.is_alive():
+                self.probe_thread.join()
+            self._ownership_file.close()
+            self._ownership_file = None
+            self.last_error = 'worker_start_unconfirmed'
+            return False
         return True
 
+    def _probe_loop(self):
+        """Authenticated GET probes only; never claims jobs or changes receipts.
+
+        A full three-role probe has a bounded12s per role.15s cadence leaves
+        headroom inside the unchanged60s TTL, independently of a slow job.
+        Worker step/age remain visible so freshness cannot hide job starvation.
+        """
+        while not self.stop_event.is_set():
+            try:
+                checked = _clock(self.sessions_checked_at)
+                if not checked or (self.clock() - checked).total_seconds() >= 15:
+                    self.probe_sessions()
+            except Exception:
+                # Do not fabricate a proof or extend its timestamp on failure.
+                pass
+            self.stop_event.wait(1)
+
     def _run(self):
+        def step(name):
+            self.worker_step = name
+            self.worker_step_started_at = _stamp(self.clock())
         try:
             while not self.stop_event.is_set():
                 try:
                     checked = _clock(self.sessions_checked_at)
-                    if not checked or (self.clock() - checked).total_seconds() >= 30:
+                    if (not (getattr(self, 'probe_thread', None) and self.probe_thread.is_alive())
+                            and (not checked or (self.clock() - checked).total_seconds() >= 30)):
+                        step('session_probe')
                         self.probe_sessions()
+                    step('real_job')
                     outcome = self.tick()
                     if outcome.get('status') == 'idle':
+                        step('retention')
                         self.maintain_retention()
                     # Ensaio timers must not wait for an empty real-job queue.
                     # Real follow-up routines retain their existing idle-only cadence.
@@ -461,19 +507,29 @@ class RealExecutor:
                     if (outcome.get('status') != 'disabled' and not self.stop_event.is_set()
                             and callable(self.demo_followup_tick)):
                         try:
+                            step('demo_followup')
                             self.demo_followup_tick()
                         except Exception:
                             demo_failed = True
                             self.last_error = 'demo_followup_step_unconfirmed'
                     if outcome.get('status') == 'idle' and callable(self.followup_tick):
+                        step('followup')
                         self.followup_tick()
                     if outcome.get('status') in {'completed', 'polling'} and not demo_failed:
                         self.last_error = None
                 except Exception:
                     self.last_error = 'worker_step_unconfirmed'
+                step('idle')
                 self.wake_event.wait(2)
                 self.wake_event.clear()
         finally:
+            step('stopped')
+            self.stop_event.set()
+            probe = getattr(self, 'probe_thread', None)
+            # Keep ownership until the read-only sibling has stopped. A dead
+            # executor must not leave orphan probes or permit a second owner.
+            if probe and probe.is_alive() and probe is not threading.current_thread():
+                probe.join()
             if self._ownership_file:
                 self._ownership_file.close()
                 self._ownership_file = None
