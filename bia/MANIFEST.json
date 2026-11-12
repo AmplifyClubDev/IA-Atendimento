@@ -144,8 +144,8 @@
     },
     {
       "path": "lead_validation.py",
-      "bytes": 7009,
-      "sha256": "8796d9beef886f94c8dd55f46b3e22458359fac8b54d702bc14805201b5debe7"
+      "bytes": 7267,
+      "sha256": "eeca83456a609b73736eeb649081903c2ced4ff4b6e8562582a54de65f39834a"
     },
     {
       "path": "nome_contextual.py",
@@ -184,8 +184,8 @@
     },
     {
       "path": "receipt_grounding.py",
-      "bytes": 11753,
-      "sha256": "317a220a91ce3c3e30090d7497607c97b6d619e1d1787649cd1947a32ba6a308"
+      "bytes": 12837,
+      "sha256": "97909aab18291d9840c31a7a3921c9a821022d48e045008e7fe8912b8c101af0"
     },
     {
       "path": "reconferencia.py",

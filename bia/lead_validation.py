@@ -21,6 +21,9 @@ QUESTIONS = {
 def parse_gmv(text):
     """BRL cents. Reject ranges, comparisons, foreign currency and ambiguous prose."""
     value = ''.join(c for c in unicodedata.normalize('NFD', text.lower().strip()) if not unicodedata.combining(c))
+    # Explicit no-sales declarations, not guesses from being new or wanting to learn.
+    if re.fullmatch(r'(?:ainda nao vendi|nao vendi nada|nunca vendi|nao fiz nenhuma venda|nenhuma venda|zero)(?:[.!]?(?: quero aprender)?)?[.!]?', value):
+        return 0
     value = re.sub(r'^(?:fiz|vendi|meu gmv foi|meu gmv e|foi|cerca de|aproximadamente)\s+', '', value)
     match = re.fullmatch(r'(?:r\$\s*)?(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:,\d{1,2})?|\d+\.\d{1,2})\s*(k|mil|milhao|milhoes)?(?:\s*(?:reais|brl))?', value)
     if not match:

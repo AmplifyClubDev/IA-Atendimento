@@ -47,6 +47,14 @@ def approved_cost_reply(text, plan, policy):
     """
     if not isinstance(text, str):
         return None
+    after_term = bool(re.search(r'(?:depois|apos|após|passad[oa]s?|termin\w*|acabar|fim).*?(?:2|dois)\s+meses|(?:2|dois)\s+meses.*?(?:depois|termin\w*|acabar)', text, re.I))
+    if after_term:
+        from real_journey import policy_valid
+        if not policy_valid(policy):
+            return 'As condições precisam estar confirmadas antes de autorizar um convite.'
+        return ('O prazo informado para esta parceria é de ' + policy['duration_label'] + '. '
+                'Ainda não tenho uma regra confirmada sobre renovação ou condições depois desse período. '
+                'Esse ponto precisa ser esclarecido com um especialista da Amplify antes de você aceitar.')
     duration_question = (bool(re.search(r'contrato|parceria|agenciamento', text, re.I))
                          and bool(re.search(r'prazo|dura|tempo|quantos? meses|quanto tempo', text, re.I)))
     if not (_cost_question(text, {}) or duration_question or re.search(
@@ -150,6 +158,9 @@ def _relationship_status(state, now):
     record = (cycle.get('real_operations') or {}).get('invite') or {}
     if record.get('status') == 'pending_verification' and (record.get('evidence') or {}).get('create_accepted') is True:
         return 'Seu convite foi enviado ao TikTok. 😊\n\n' + _ACCEPT_GUIDE
+    if record.get('status') == 'failed' and (record.get('evidence') or {}).get('create_accepted') is False:
+        return ('A tentativa de envio falhou, então ainda não tenho confirmação do convite. '
+                'Não vou pedir que você aceite um convite sem confirmação. O time precisa conferir o motivo antes de um novo envio.')
     if record:
         # Release 38 approved text: say where to look instead of only denying.
         return ('Ainda não tenho confirmação do TikTok de que o seu convite chegou 😕\n\n'
@@ -183,6 +194,9 @@ def ground_reply(lead_text, reply, plan, state, *, policy=None, now=None):
     if not isinstance(state, dict) or not isinstance(state.get('cycle'), dict):
         return '' if _subjects(reply) else reply
     lead_text = lead_text if isinstance(lead_text, str) else ''
+    approved_cost = approved_cost_reply(lead_text, plan, policy)
+    if approved_cost is not None and not _subjects(lead_text):
+        return approved_cost
     asked = _subjects(lead_text)
     subjects = _subjects(reply)
     if plan.get('intent') in {'question', 'clarify'}:
@@ -205,7 +219,8 @@ def ground_reply(lead_text, reply, plan, state, *, policy=None, now=None):
     if subjects & {'invite', 'relationship'}:
         status = _relationship_status(state, now)
         if (re.search(r'\bonde\b|\bcomo\b', lead_text, re.I) and re.search(r'aceit|convite|parcer', lead_text, re.I)
-                and 'Parcerias' not in status and (cycle.get('facts') or {}).get('tiktok_declarado')):
+                and 'Parcerias' not in status and (cycle.get('facts') or {}).get('tiktok_declarado')
+                and not (((cycle.get('real_operations') or {}).get('invite') or {}).get('status') == 'failed')):
             parts.append(_ACCEPT_GUIDE)
         parts.append(status)
     if subjects & {'registration', 'access'}:

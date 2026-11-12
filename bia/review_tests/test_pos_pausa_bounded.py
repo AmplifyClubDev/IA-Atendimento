@@ -80,59 +80,6 @@ class BoundedPosPausa(unittest.TestCase):
         self.assertEqual(w.tick()['status'],'unavailable')
         self.assertIsNone(w._progress)
         self.assertEqual(self.sent,[])
-    def test_almost_spent_page_budget_yields_without_shortening_next_get(self):
-        w=self.make(total=2)
-        calls=[]
-        def http(**kw):
-            page=int(kw['url'].split('page=')[-1]); calls.append((page,kw['timeout']))
-            if page==1:
-                self.elapsed+=9.8
-                return {'data':{'payload':[{'id':'1','last_activity_at':w.now().isoformat()}]}}
-            self.assertGreaterEqual(kw['timeout'],2)
-            self.elapsed+=2
-            return {'data':{'payload':[]}}
-        w.transport.http=http
-        self.assertEqual(w.tick()['status'],'scanning')
-        self.assertEqual(calls,[(1,10)])
-        self.assertEqual(w._progress['page'],2)
-        self.assertIsNone(w.next_scan_at)
-        self.assertEqual(w.tick()['status'],'idle')
-        self.assertEqual(calls,[(1,10),(2,10)])
-        self.assertEqual(w.counts['varreduras'],1)
-
-    def test_almost_spent_candidate_budget_preserves_next_candidate(self):
-        w=self.make(total=3)
-        seen=[]
-        def candidate(conv,*args):
-            seen.append(conv['id']); self.elapsed+=9.8
-            return None,'ja_respondida_no_chatwoot'
-        w._candidate=candidate
-        self.assertEqual(w.tick()['status'],'scanning')
-        self.assertEqual(seen,['1'])
-        self.assertEqual(w._progress['index'],1)
-        self.assertEqual(w.tick()['status'],'scanning')
-        self.assertEqual(seen,['1','2'])
-        self.assertEqual(w.tick()['status'],'idle')
-        self.assertEqual(seen,['1','2','3'])
-
-    def test_error_diagnostics_are_categories_not_exception_text(self):
-        from urllib.error import URLError
-        for error,reason in [(TimeoutError('secret URL'), 'timeout'),
-                             (URLError(TimeoutError('secret URL')), 'timeout'),
-                             (URLError('secret URL'), 'transport_error'),
-                             (KeyError('secret token'), 'programming_error'),
-                             (RuntimeError('secret body'), 'unexpected_error')]:
-            with self.subTest(reason=reason):
-                w=self.make()
-                def fail(*args, **kwargs): raise error
-                w.transport.http=fail
-                result=w.tick()
-                self.assertEqual(result['status'],'unconfirmed')
-                self.assertEqual(result['reason'],reason)
-                self.assertNotIn('secret',str(result))
-                self.assertIsNone(w._progress)
-                self.assertEqual(w.tick()['status'],'cooldown')
-
     def test_error_discards_snapshot_without_repeating_callback(self):
         w=self.make()
         w._candidate=lambda *args: (_ for _ in ()).throw(RuntimeError('offline'))

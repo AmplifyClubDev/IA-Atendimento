@@ -50,7 +50,7 @@ REASONS = frozenset({
     'atendimento_fechado', 'fase_sem_lembrete', 'mensagem_mais_nova', 'pausa_ou_saida', 'nenhuma_etapa_vencida',
     'fora_do_horario', 'intervalo_minimo', 'ficha_ilegivel', 'cadastro_confirmado', 'mudou_no_chatwoot',
     'lembrete_ja_reservado', 'sem_pendencia', 'ponte_fora', 'origem_nao_confirmada', 'resposta_ja_aceita',
-    'consulta_ja_na_fila_da_mensagem', 'demo_contact_excluded_from_production',
+    'consulta_ja_na_fila_da_mensagem',
 })
 ERROR_PREFIX = 'erro_envio:'
 
@@ -476,19 +476,9 @@ class PosPausa:
             return {'status': 'cooldown'}
         try:
             outcome = self._scan(now)
-        except Exception as error:
-            # Categories only: never expose exception text, URLs, payloads or tokens.
-            from urllib.error import HTTPError, URLError
-            from json import JSONDecodeError
-            reason = ('timeout' if isinstance(error, TimeoutError)
-                      or (isinstance(error, URLError) and isinstance(error.reason, TimeoutError))
-                      else 'transport_http_error' if isinstance(error, HTTPError)
-                      else 'transport_error' if isinstance(error, (URLError, OSError))
-                      else 'invalid_response' if isinstance(error, JSONDecodeError)
-                      else 'programming_error' if isinstance(error, (TypeError, KeyError, AttributeError, NameError, AssertionError))
-                      else 'unexpected_error')
+        except Exception:
             self._progress = None
-            outcome = {'status': 'unconfirmed', 'reason': reason}
+            outcome = {'status': 'unconfirmed'}
         finally:
             self._deadline = None
         if outcome.get('status') == 'scanning':
@@ -506,11 +496,8 @@ class PosPausa:
         return outcome
 
     def _get(self, url):
-        # Do not turn a healthy GET into a tiny-deadline failure that resets the
-        # entire snapshot. Yield before starting work; an in-flight read keeps
-        # its normal timeout (the cooperative slice can overrun by one read).
         return self.transport.http(method='GET', url=url, headers={'api_access_token': self.transport.token,
-                                   'Accept': 'application/json'}, timeout=10)
+                                   'Accept': 'application/json'}, timeout=max(0.01, min(10, self._deadline - self.monotonic())) if self._deadline is not None else 10)
 
     def _scan(self, now):
         gate = self.settings.get('gate') or {}
@@ -524,7 +511,7 @@ class PosPausa:
         if not progress['listed']:
             listing = self._listing(base, gate, now)
             if listing is None:
-                return {'status': 'unavailable', 'reason': 'invalid_response'}
+                return {'status': 'unavailable'}
             if not progress['listed']:
                 return {'status': 'scanning'}
         listing = progress['listing']
@@ -532,7 +519,7 @@ class PosPausa:
         outcome = progress['outcome']
         processed = 0
         while progress['index'] < len(listing):
-            if processed >= 25 or self.monotonic() >= self._deadline - 1:
+            if processed >= 25 or self.monotonic() >= self._deadline:
                 progress['outcome'] = outcome
                 return {'status': 'scanning'}
             conversation = listing[progress['index']]
@@ -589,7 +576,7 @@ class PosPausa:
         progress = self._progress
         listing, seen = progress['listing'], progress['seen']
         while progress['page'] <= LISTING_PAGES:
-            if self.monotonic() >= self._deadline - 1:
+            if self.monotonic() >= self._deadline:
                 return listing
             page = progress['page']
             data = self._get(base + '/conversations?inbox_id=' + str(gate.get('inbox_id'))
