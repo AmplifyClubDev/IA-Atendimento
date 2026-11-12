@@ -476,9 +476,19 @@ class PosPausa:
             return {'status': 'cooldown'}
         try:
             outcome = self._scan(now)
-        except Exception:
+        except Exception as error:
+            # Categories only: never expose exception text, URLs, payloads or tokens.
+            from urllib.error import HTTPError, URLError
+            from json import JSONDecodeError
+            reason = ('timeout' if isinstance(error, TimeoutError)
+                      or (isinstance(error, URLError) and isinstance(error.reason, TimeoutError))
+                      else 'transport_http_error' if isinstance(error, HTTPError)
+                      else 'transport_error' if isinstance(error, (URLError, OSError))
+                      else 'invalid_response' if isinstance(error, JSONDecodeError)
+                      else 'programming_error' if isinstance(error, (TypeError, KeyError, AttributeError, NameError, AssertionError))
+                      else 'unexpected_error')
             self._progress = None
-            outcome = {'status': 'unconfirmed'}
+            outcome = {'status': 'unconfirmed', 'reason': reason}
         finally:
             self._deadline = None
         if outcome.get('status') == 'scanning':
@@ -496,8 +506,11 @@ class PosPausa:
         return outcome
 
     def _get(self, url):
+        # Do not turn a healthy GET into a tiny-deadline failure that resets the
+        # entire snapshot. Yield before starting work; an in-flight read keeps
+        # its normal timeout (the cooperative slice can overrun by one read).
         return self.transport.http(method='GET', url=url, headers={'api_access_token': self.transport.token,
-                                   'Accept': 'application/json'}, timeout=max(0.01, min(10, self._deadline - self.monotonic())) if self._deadline is not None else 10)
+                                   'Accept': 'application/json'}, timeout=10)
 
     def _scan(self, now):
         gate = self.settings.get('gate') or {}
@@ -511,7 +524,7 @@ class PosPausa:
         if not progress['listed']:
             listing = self._listing(base, gate, now)
             if listing is None:
-                return {'status': 'unavailable'}
+                return {'status': 'unavailable', 'reason': 'invalid_response'}
             if not progress['listed']:
                 return {'status': 'scanning'}
         listing = progress['listing']
@@ -519,7 +532,7 @@ class PosPausa:
         outcome = progress['outcome']
         processed = 0
         while progress['index'] < len(listing):
-            if processed >= 25 or self.monotonic() >= self._deadline:
+            if processed >= 25 or self.monotonic() >= self._deadline - 1:
                 progress['outcome'] = outcome
                 return {'status': 'scanning'}
             conversation = listing[progress['index']]
@@ -576,7 +589,7 @@ class PosPausa:
         progress = self._progress
         listing, seen = progress['listing'], progress['seen']
         while progress['page'] <= LISTING_PAGES:
-            if self.monotonic() >= self._deadline:
+            if self.monotonic() >= self._deadline - 1:
                 return listing
             page = progress['page']
             data = self._get(base + '/conversations?inbox_id=' + str(gate.get('inbox_id'))

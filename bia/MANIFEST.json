@@ -214,8 +214,8 @@
     },
     {
       "path": "retomada.py",
-      "bytes": 38484,
-      "sha256": "0744344807d18cc457918f0e758053fc69374af4ac08bc42b1b9511b05fa9a7f"
+      "bytes": 39498,
+      "sha256": "b53c61079fd6b6a4c6ba8ed4088562d42c6d2ad2e035396e3316ec8ce3204efc"
     },
     {
       "path": "server.py",
