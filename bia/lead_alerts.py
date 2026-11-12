@@ -98,6 +98,10 @@ def probe(settings, *, http=None):
         info = (http or _http)(method='GET',
             url='https://slack.com/api/conversations.info?' + urlencode({'channel': channel}),
             headers={'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json; charset=utf-8'})
+        if isinstance(info, dict) and info.get('ok') is not True:
+            error = info.get('error')
+            safe = {'missing_scope', 'not_in_channel', 'channel_not_found', 'invalid_auth', 'token_revoked', 'account_inactive', 'ratelimited'}
+            return {'configured': True, 'verified': False, 'reason': 'slack_' + (error if error in safe else 'api_error'), 'channel_name': None}
         target = info.get('channel') if isinstance(info, dict) else None
         verified = (info.get('ok') is True and isinstance(target, dict)
                     and target.get('id') == channel and target.get('name') in CHANNEL_NAMES
