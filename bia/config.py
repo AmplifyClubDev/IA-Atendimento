@@ -49,6 +49,8 @@ def load_settings(environ=None):
                  'account_id': get('CHATWOOT_ACCOUNT_ID'), 'inbox_id': get('CHATWOOT_INBOX_ID'), 'phone': phone},
         'pilot_scope': pilot_scope.load_scope(values), 'test_phone': phone, 'state_dir': get('V5_STATE_DIR', '/data'),
         'demo_enabled': get('V5_DEMO_ROUTER_ENABLED').lower() == 'true',
+        'demo_real_enabled': get('V5_DEMO_REAL_ENABLED').lower() == 'true',
+        'demo_real_test_phone': get('V5_DEMO_REAL_TEST_PHONE'),
         'demo_conversation_rollover_enabled': get('V5_DEMO_CONVERSATION_ROLLOVER_ENABLED').lower() == 'true',
         # Keep this exact: whitespace or an unknown version must fail closed.
         'demo_context_version': str(values.get('V5_DEMO_CONTEXT_VERSION', '')),

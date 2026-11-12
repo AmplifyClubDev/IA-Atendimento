@@ -657,6 +657,9 @@ class DemoRouter:
         return self._start(request_id)
 
     def _start(self, request_id, *, reset_event=None, entry_intent=None, entry_text=''):
+        bridge = getattr(self.store, 'real_bridge', None)
+        if bridge is not None and bridge.enrolled(self.scope):
+            return {'status': 'demo_real_already_active', 'repeat_allowed': False}
         if not isinstance(request_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,80}', request_id):
             raise ValueError('demo_start_request_id_required')
         owner = getattr(self, 'contact_owner', None)
@@ -883,6 +886,11 @@ class DemoRouter:
                                           (self.scope.slot, event_key, fingerprint, json.dumps(result)))
                     return result, 202
                 if decision:
+                    bridge = getattr(self.store, 'real_bridge', None)
+                    if bridge is not None and decision.get('action') in {'join', 'profile_received'}:
+                        result = bridge.dispatch(self, event, begin=True)
+                        if result is not None:
+                            return result
                     key = demo_flow.new_key(run, decision['step'])
                     grounded = decision.get('grounded')
                     payload = message_payload(key, continuation_enabled=True,
@@ -1026,6 +1034,11 @@ class DemoRouter:
             raise ValueError('demo_event_outside_scope')
         if not self.scope.accepts(event):
             return {'accepted': False, 'status': 'demo_identity_rejected'}, 202
+        bridge = getattr(self.store, 'real_bridge', None)
+        if bridge is not None:
+            result = bridge.dispatch(self, event)
+            if result is not None:
+                return result
         if self.followup_enabled:
             from demo_followup import cancel_for_inbound
             cancel_for_inbound(self, event)

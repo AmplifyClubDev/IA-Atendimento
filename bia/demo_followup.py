@@ -44,6 +44,9 @@ def cancel_for_inbound(router, event):
 
 
 def tick(router):
+    bridge = getattr(router.store, 'real_bridge', None)
+    if bridge is not None and bridge.enrolled(router.scope):
+        return {'status': 'real_handoff_active'}
     from demo_router import clock, DemoScope, DemoWhatsAppGateway
     if not router.followup_enabled or not router.continuation_enabled or not isinstance(router.scope, DemoScope):
         return {'status': 'disabled'}

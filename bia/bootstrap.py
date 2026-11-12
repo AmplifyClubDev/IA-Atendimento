@@ -14,6 +14,8 @@ def create_app(settings=None):
     app.extensions['v5_real_executor'].retention_cleanup = app.extensions['v5_data_gateway'].cleanup_retention
     app.extensions['v5_email_sender'] = SmtpSender(settings)
     register_forms(app, settings, app.extensions['v5_repository'])
+    from demo_real_bridge import install as install_demo_real
+    install_demo_real(app, settings)
     if settings.get('form_public_url'):
         import json
         with app.app_context():

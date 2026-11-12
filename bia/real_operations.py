@@ -47,7 +47,8 @@ def policy_for(settings):
         commission = float(settings.get('tiktok_invite_commission', ''))
     except (TypeError, ValueError):
         commission = None
-    return {'approved': settings.get('tiktok_policy_approved') is True,
+    return {**({'require_explicit_consent': True} if settings.get('tiktok_require_explicit_consent') is True else {}),
+            'approved': settings.get('tiktok_policy_approved') is True,
             'commission': commission if commission is not None and math.isfinite(commission) else None,
             'commission_unit': settings.get('tiktok_commission_unit'),
             'duration_fixed_months': 2 if str(settings.get('tiktok_duration_fixed_months')) == '2' else None,

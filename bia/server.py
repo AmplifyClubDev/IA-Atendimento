@@ -1166,6 +1166,10 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
             missing.append('real_worker_not_running')
         if _get(settings, 'tiktok_mode') == 'real' and not tiktok['sessions']['ready']:
             missing.append('real_tiktok_sessions_unverified')
+        real_bridge = app.extensions.get('v5_demo_real_bridge')
+        demo_real = real_bridge.status() if real_bridge is not None else {'enabled': False}
+        if demo_real.get('enabled') and demo_real.get('ready') is not True:
+            missing.append('demo_real_not_ready')
         context_info = None
         if _get(settings, 'context_db_enabled', False) is True:
             try:
@@ -1176,7 +1180,7 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
             except Exception:
                 missing.append('context_ia_unavailable')
         return jsonify(ready=not missing, issues=sorted(set(missing)), context_ia=context_info,
-                       tiktok=tiktok), 503 if missing else 200
+                       tiktok=tiktok, demo_real=demo_real), 503 if missing else 200
 
     def process_inbound(event, resumed=None):
         """One admitted lead message; the webhook and the post-pause catch-up share it."""

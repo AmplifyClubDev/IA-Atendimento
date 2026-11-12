@@ -175,7 +175,7 @@ def _auto_invite_allowed(state, policy):
     cycle = state.get('cycle') or {}
     facts = cycle.get('facts') or {}
     offer = cycle.get('invite_offer') or {}
-    return (AUTO_INVITE and policy_valid(policy) and facts.get('consentimento_convite') is not False
+    return (AUTO_INVITE and not policy.get('require_explicit_consent') and policy_valid(policy) and facts.get('consentimento_convite') is not False
             and not state.get('opt_out') and not cycle.get('opt_out') and not state.get('human_control')
             and not cycle.get('qualification_paused') and not cycle.get('pending_profile_changes')
             and bool(facts.get('tiktok_declarado')) and offer.get('creator') == facts.get('tiktok_declarado')
