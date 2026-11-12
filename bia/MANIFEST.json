@@ -19,8 +19,8 @@
     },
     {
       "path": "config.py",
-      "bytes": 14631,
-      "sha256": "c2f0e96a6923ffb0e688779ecf305ac270c170bd4d5d5dd70f2d9eeae0f3a602"
+      "bytes": 14762,
+      "sha256": "82557d825554bcfb8bd66f37d627e392a9560fe8ea64ef5924e79fb0a0ea418e"
     },
     {
       "path": "context_ia.py",
@@ -39,8 +39,8 @@
     },
     {
       "path": "conversation.py",
-      "bytes": 32756,
-      "sha256": "b2351633a4af62129bbbe0b0d745d58affc982213bd4e81a72ba674345f3193b"
+      "bytes": 33984,
+      "sha256": "8ca233d0feb2dbf729fc742d3e07bbb2f8905267737fae5221841b3052d53f3d"
     },
     {
       "path": "data/__init__.py",
@@ -84,8 +84,8 @@
     },
     {
       "path": "demo_real_bridge.py",
-      "bytes": 11176,
-      "sha256": "0ed4a6b09c9687f66fa70da8f09cf5806d7400fada2b635ddfe99d58ba9669f2"
+      "bytes": 11213,
+      "sha256": "1597db81bfbf4f84a5c90844f3aeec7a7575b200d715727a4cc846b62f5cea89"
     },
     {
       "path": "demo_router.py",
@@ -119,8 +119,8 @@
     },
     {
       "path": "gateway.py",
-      "bytes": 12637,
-      "sha256": "45c8d23ab7f83daf961b166815bf1ae02ed55de85ffa16c1775f41c9c04bdafa"
+      "bytes": 13283,
+      "sha256": "3d6cac253f33ff92e35dda0b16c5161a872257695aa9a973f610c0cea20a1d18"
     },
     {
       "path": "guided_ai.py",
@@ -169,8 +169,8 @@
     },
     {
       "path": "real_journey.py",
-      "bytes": 173370,
-      "sha256": "f29e7a2c580982518a7b3bd5645edb2c9dcfc27fe2639637faf31675e2387688"
+      "bytes": 174425,
+      "sha256": "99c08c93ce433b3a8ec6eefc7591fc79eb345fe6967300c18b112b6b24900e13"
     },
     {
       "path": "real_operations.py",
@@ -214,8 +214,8 @@
     },
     {
       "path": "server.py",
-      "bytes": 99733,
-      "sha256": "f9399478d460585fa114d6c5b1328e7849ce772c3dec087b93e99b379b20943b"
+      "bytes": 101057,
+      "sha256": "025fbc05b3d26790187445abd10e805dbacbb59fb0556f51a9bffa00186590a0"
     },
     {
       "path": "smtp.py",
@@ -224,8 +224,8 @@
     },
     {
       "path": "transport.py",
-      "bytes": 26394,
-      "sha256": "d5b721a53e667cea3234f029bce78888da558f7120f599eaaac8c1e7db8c82d5"
+      "bytes": 27362,
+      "sha256": "70b64f98a00634205f0545cd165ee5ce5ca6fb59efbd79e5545176d015885d1d"
     },
     {
       "path": "verify_private.py",

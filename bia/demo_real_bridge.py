@@ -21,7 +21,7 @@ def isolated_settings(settings, scopes):
     child.update(demo_enabled=False, demo_real_enabled=False,
         state_dir=str(Path(settings['state_dir']).resolve() / 'demo-real-test' / 'runtime'),
         followup_enabled=False, inactivity_close_enabled=False, retention_enabled=False,
-        tiktok_require_explicit_consent=True, qualification_enabled=True,
+        tiktok_require_explicit_consent=True, qualification_enabled=True, qualification_new_cycles_only=False,
         retomada_enabled=False, pos_pausa_enabled=False, reconferencia_enabled=False,
         initial_recheck_event_keys=[], initial_invite_recheck_event_keys=[])
     child['gate'] = {**settings['gate'], 'mode': 'lista', 'phone': scopes[0].phone,

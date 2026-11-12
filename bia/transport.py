@@ -78,6 +78,7 @@ class ChatwootProgress:
 
     def __init__(self, repository, gate, adapter=None):
         self.repository, self.gate, self.adapter = repository, dict(gate or {}), adapter
+        self.confirmed_sink = None
 
     def _live(self, event, state):
         key = f"chatwoot:{event['account_id']}:{event['conversation_id']}"
@@ -105,7 +106,21 @@ class ChatwootProgress:
     def sync(self, event, state, proof):
         """Project only an exact SQL-confirmed snapshot; visual failures stay local."""
         try:
-            return self._sync(event, state, proof)
+            result = self._sync(event, state, proof)
+            if result.get("status") in {"confirmed", "unchanged"} and callable(self.confirmed_sink):
+                # Only a fresh readback can be called a Chatwoot snapshot. Never
+                # persist a desired label or a stale local cache as confirmed.
+                confirmed = (state.get("chatwoot_progress") or {}).get("confirmed_labels")
+                if self._live(event, state) and confirmed and self._read(event) == confirmed:
+                    try:
+                        receipt = self.confirmed_sink(event, state, list(confirmed))
+                        result["persistence"] = receipt.get("status", "unavailable")
+                    except Exception:
+                        # Optional reporting projection must not interrupt service.
+                        result["persistence"] = "unconfirmed"
+                else:
+                    result["persistence"] = "unconfirmed"
+            return result
         except Exception:
             return {"status": "failed", "reason": "projection_unavailable"}
 

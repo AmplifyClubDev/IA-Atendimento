@@ -211,6 +211,17 @@ class Gateway:
             raise SubmissionUnknown('contact_creator_mismatch')
         return value
 
+    def register_chatwoot_labels(self, entrada):
+        """Persist one idempotent, readback-confirmed label snapshot."""
+        if not isinstance(entrada, dict):
+            raise SubmissionRejected('labels_payload_invalid')
+        value = self._rpc('registrar_etiquetas_chatwoot_v5', {'p_entrada': entrada})
+        if (not isinstance(value, dict) or value.get('status') not in {'recorded', 'replayed'}
+                or any(value.get(key) != entrada.get(key)
+                       for key in ('atendimento_id', 'revision', 'labels', 'signature'))):
+            raise SubmissionUnknown('labels_receipt_not_confirmed')
+        return value
+
     def cleanup_retention(self):
         """One bounded server-owned cleanup; never a browser or message path."""
         value = self._rpc('limpar_registros_v5', {'p_limite': 1000})

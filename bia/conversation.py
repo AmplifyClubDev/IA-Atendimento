@@ -371,11 +371,12 @@ def _restart_chat(state, cycle, at):
 
 
 def handle(session, text, assistant_callback=None, *, now=None, real_mode=False, operation_policy=None, source_event=None,
-           inactivity_notice=None, relationship_check_in_form=False, resumed=None, qualification_enabled=False):
+           inactivity_notice=None, relationship_check_in_form=False, resumed=None, qualification_enabled=False, qualification_new_cycles_only=False):
     if real_mode:
         from real_journey import handle_real
         return handle_real(session, text, assistant_callback, now=now, operation_policy=operation_policy,
                            source_event=source_event, inactivity_notice=inactivity_notice, qualification_enabled=qualification_enabled,
+                           qualification_new_cycles_only=qualification_new_cycles_only,
                            **({'relationship_check_in_form': True} if relationship_check_in_form is True else {}),
                            **({'resumed': resumed} if resumed is not None else {}))
     if not isinstance(text, str) or not 0 < len(text.strip()) <= 4000:
@@ -496,7 +497,7 @@ def handle(session, text, assistant_callback=None, *, now=None, real_mode=False,
 
 
 def handle_event(session, event, gate, assistant_callback=None, *, now=None, real_mode=False, operation_policy=None,
-                 inactivity_notice=None, relationship_check_in_form=False, resumed=None, qualification_enabled=False):
+                 inactivity_notice=None, relationship_check_in_form=False, resumed=None, qualification_enabled=False, qualification_new_cycles_only=False):
     if not allow_inbound(gate, event):
         return engine._result(deepcopy(session), accepted=False, duplicate=False, reason="outside_pilot")
     key = inbound_key(event)
@@ -506,6 +507,7 @@ def handle_event(session, event, gate, assistant_callback=None, *, now=None, rea
     turn_options = {'inactivity_notice': inactivity_notice} if inactivity_notice is not None else {}
     if qualification_enabled is True:
         turn_options['qualification_enabled'] = True
+        turn_options['qualification_new_cycles_only'] = qualification_new_cycles_only
     if relationship_check_in_form is True:
         turn_options['relationship_check_in_form'] = True
     if resumed is not None and real_mode:
@@ -532,10 +534,22 @@ def handle_event(session, event, gate, assistant_callback=None, *, now=None, rea
             observed={'at':origin_source['at'],'reference':reference}
         else:
             observed=None
-    if observed and "origem_declarada" in result.get("applied_claims", []):
+    # Prefilled ad declarations may return through the fixed greeting before
+    # applied_claims is emitted. Persist only a fresh, source-backed declaration,
+    # never an old fact carried from another cycle or an inferred channel.
+    previous_origin = (session.get("cycle") or {}).get("facts", {}).get("origem_declarada")
+    current_cycle = result["state"].get("cycle") or {}
+    prefilled_origin = (real_mode and previous_origin is None
+                        and current_cycle.get("facts", {}).get("origem_declarada") == "anuncio"
+                        and any(item.get("field") == "origem_declarada"
+                                and item.get("source") == "ad_prefilled_message"
+                                and item.get("at") == engine._stamp(at)
+                                for item in current_cycle.get("claim_provenance", [])
+                                if isinstance(item, dict)))
+    if observed and ("origem_declarada" in result.get("applied_claims", []) or prefilled_origin):
         value = result["state"]["cycle"]["facts"].get("origem_declarada")
         if value in {"anuncio", "indicacao", "outro"}:
-            observations.setdefault("origin", {**observed, "source": "declaracao_pessoa", "value": value})
+            observations.setdefault("origin", {**observed, "source": "ad_prefilled_message" if prefilled_origin else "declaracao_pessoa", "value": value})
     result["state"]["processed_inbound"].append(key)
     result.update(accepted=True, duplicate=False, inbound_key=key)
     return result

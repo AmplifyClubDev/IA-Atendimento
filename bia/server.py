@@ -246,6 +246,22 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
     # single-contact pilot keeps its exact conversation/contact pin.
     progress = (ChatwootProgress(repository, gate if gate.get("phones") else {**gate, "conversation_id": pilot_scope.conversation_id(), "contact_id": pilot_scope.contact_id()}, transport)
                 if contact_sync and _get(settings, "chatwoot_stages_enabled", False) is True else None)
+    def persist_chatwoot_labels(event, state, labels):
+        gateway = app.extensions.get("v5_data_gateway")
+        if not callable(getattr(gateway, "register_chatwoot_labels", None)):
+            return {"status": "unavailable"}
+        cycle = state.get("cycle") or {}
+        signature = hashlib.sha256(json.dumps(labels, ensure_ascii=False).encode()).hexdigest()
+        return gateway.register_chatwoot_labels({
+            "instancia": _get(settings, "instance_id"),
+            "account_id": str(event["account_id"]), "contact_id": str(event["contact_id"]),
+            "conversation_id": str(event["conversation_id"]),
+            "creator_id": state.get("creator_id"), "atendimento_id": cycle.get("id"),
+            "revision": state.get("revision"), "labels": labels, "signature": signature,
+            "observed_at": datetime.now(timezone.utc).isoformat()})
+
+    if progress is not None:
+        progress.confirmed_sink = persist_chatwoot_labels
     app.extensions["v5_chatwoot_progress"] = progress
 
     def send_current_reply(event, text, buttons, outbox_key, *, source=None, fenced=True):
@@ -379,7 +395,7 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
             for source, target in (("last_inbound_at", "ultima_mensagem_em"), ("expires_at", "expires_at")):
                 if cycle.get(source):
                     entrada[target] = cycle[source]
-            fields = {"interesse_agenciamento", "origem_declarada", "tiktok_declarado", "shop_ativo_declarado",
+            fields = {"interesse_agenciamento", "origem_declarada", "origem_canal_declarado", "tiktok_declarado", "shop_ativo_declarado",
                       "possui_agencia_declarada", "consentimento_ensaio", "aceite_no_ensaio",
                       "consentimento_convite", "aceite_declarado"}
             entrada["qualificacao"] = {name: value for name, value in _mapping(cycle.get("facts")).items()
@@ -1180,7 +1196,9 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
             except Exception:
                 missing.append('context_ia_unavailable')
         return jsonify(ready=not missing, issues=sorted(set(missing)), context_ia=context_info,
-                       tiktok=tiktok, demo_real=demo_real), 503 if missing else 200
+                       tiktok=tiktok, demo_real=demo_real,
+                       qualification={'enabled': settings.get('qualification_enabled') is True,
+                                      'new_cycles_only': settings.get('qualification_new_cycles_only') is True}), 503 if missing else 200
 
     def process_inbound(event, resumed=None):
         """One admitted lead message; the webhook and the post-pause catch-up share it."""
@@ -1302,7 +1320,8 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                         import conversation
                         turn_options = {'real_mode': _get(settings, 'tiktok_mode') == 'real',
                                         'operation_policy': policy_for(settings),
-                                        'qualification_enabled': settings.get('qualification_enabled') is True}
+                                        'qualification_enabled': settings.get('qualification_enabled') is True,
+                                        'qualification_new_cycles_only': settings.get('qualification_new_cycles_only') is True}
                         if turn_options['real_mode'] and settings.get('relationship_check_in_form') is True:
                             turn_options['relationship_check_in_form'] = True
                         if turn_options['real_mode'] and engine._normal(event.get('text', '')) in {'sim', 'nao'}:

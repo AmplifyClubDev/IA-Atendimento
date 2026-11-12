@@ -229,6 +229,17 @@ def auto_invite_effect(state, now, policy):
     at, cycle = engine._clock(now), state['cycle']
     before = deepcopy(cycle)
     _grant_auto_consent(cycle, at)
+    # A prior-cycle write must be reconciled before refreshing eligibility.
+    # Otherwise every expired precheck returns to consent_real indefinitely.
+    if _prior_invite_requires_reconciliation(state, _creator(cycle['facts'].get('tiktok_declarado'))):
+        check = _acceptance_check(state, at, 0, origin=engine._stamp(at))
+        if check:
+            cycle['prior_invite_check'] = {'at': engine._stamp(at), 'effect_id': check['id']}
+            cycle['phase'] = 'checking_acceptance'
+            state['revision'] += 1
+            return check
+        state['cycle'] = before
+        return None
     if precheck_proven(state, now=at):
         job = _effect(state, 'invite', at, policy=policy)
         if job:
@@ -1517,7 +1528,7 @@ def handle_real(session, text, assistant_callback=None, *, resumed=None, **optio
 
 
 def _handle_real_turn(session, text, assistant_callback=None, *, now=None, operation_policy=None, source_event=None,
-                      inactivity_notice=None, relationship_check_in_form=False, qualification_enabled=False):
+                      inactivity_notice=None, relationship_check_in_form=False, qualification_enabled=False, qualification_new_cycles_only=False):
     import conversation
     if not isinstance(text, str) or not 0 < len(text.strip()) <= 4000:
         raise ValueError("text must contain between 1 and 4000 characters")
@@ -1548,7 +1559,7 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
         fresh = True
     if fresh:
         cycle = engine._open(state, at)
-        cycle.update(mode="real", phase="intro")
+        cycle.update(mode="real", phase="intro", qualification_rollout=qualification_enabled is True)
     state["real_mode"] = True
     if relationship_check_in_form is True:
         cycle['relationship_check_in_form'] = True
@@ -1607,7 +1618,7 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
                     # uncertainty as a fence; read-only jobs can be cancelled.
                     effect["status"] = "outcome_unknown" if effect.get("operation") == "invite" else "cancelled"
             cycle = engine._open(state, at)
-            cycle.update(mode="real", phase="intro")
+            cycle.update(mode="real", phase="intro", qualification_rollout=qualification_enabled is True)
             state["history"][-1]["cycle_id"] = cycle["id"]
         cycle['funnel_after_reset'] = True
         return {**_finish(state, at, intro=True, reply=conversation._RESET_GREETING), "fixed_greeting": True}
@@ -1639,6 +1650,11 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
 
     if (cycle.get('bia_validation') or {}).get('existing_amplify_declared') is True:
         return _direct_form(state, at)
+
+    # Never insert new questions into a cycle that was already in progress
+    # when production qualification was activated. Resets open a new cycle.
+    if qualification_new_cycles_only is True:
+        qualification_enabled = qualification_enabled is True and cycle.get('qualification_rollout') is True
 
     if qualification_enabled is True:
         if normal == 'quero fazer parte':
