@@ -51,6 +51,8 @@ def load_settings(environ=None):
         'demo_enabled': get('V5_DEMO_ROUTER_ENABLED').lower() == 'true',
         'demo_real_enabled': get('V5_DEMO_REAL_ENABLED').lower() == 'true',
         'demo_real_test_phone': get('V5_DEMO_REAL_TEST_PHONE'),
+        'slack_bot_token': get('SLACK_BOT_TOKEN'),
+        'slack_gmv_channel_id': get('SLACK_GMV_CHANNEL_ID'),
         'demo_conversation_rollover_enabled': get('V5_DEMO_CONVERSATION_ROLLOVER_ENABLED').lower() == 'true',
         # Keep this exact: whitespace or an unknown version must fail closed.
         'demo_context_version': str(values.get('V5_DEMO_CONTEXT_VERSION', '')),

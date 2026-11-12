@@ -51,14 +51,16 @@ class Integration(unittest.TestCase):
                 self.assertEqual(response[0]['status'],'demo_real_active')
                 return ev
             send(101,'Quero fazer parte',demo_reply_to=store.current(SCOPE.slot)['parent_id'])
-            send(102,'Indicação')
-            send(103,'@alice')
+            send(103,'Não')
+            send(104,'Sim')
+            send(105,'49.999,99')
+            send(106,'@alice')
             for _ in range(4): executor.tick()
             state=repo.load_session('chatwoot:1:7')
             self.assertEqual(state['cycle']['facts']['tiktok_declarado'],'@alice')
             self.assertEqual(state['cycle']['phase'],'consent_real')
             self.assertEqual(posted,[]) # global AUTO_INVITE=True cannot bypass consent
-            consent=send(104,'Pode mandar')
+            consent=send(107,'Pode mandar')
             for _ in range(4): executor.tick()
             self.assertEqual(posted,['alice'])
             state=repo.load_session('chatwoot:1:7')
@@ -72,7 +74,7 @@ class Integration(unittest.TestCase):
                     self.assertEqual(response.status_code,303 if path=='/cadastro/'+token else 200,(path,response.get_data(as_text=True)))
                 self.assertEqual(http.get('/cadastro/api/contexto',headers={'Authorization':'Bearer '+'z'*43}).status_code,404)
             router.handle(consent)
-            send(105,'E agora?')
+            send(108,'E agora?')
             for _ in range(3):executor.tick()
             self.assertEqual(posted,['alice'])
             with bridge.runtime.extensions['v5_forms_store'].db() as db:

@@ -1301,7 +1301,8 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                     if conversational:
                         import conversation
                         turn_options = {'real_mode': _get(settings, 'tiktok_mode') == 'real',
-                                        'operation_policy': policy_for(settings)}
+                                        'operation_policy': policy_for(settings),
+                                        'qualification_enabled': settings.get('qualification_enabled') is True}
                         if turn_options['real_mode'] and settings.get('relationship_check_in_form') is True:
                             turn_options['relationship_check_in_form'] = True
                         if turn_options['real_mode'] and engine._normal(event.get('text', '')) in {'sim', 'nao'}:
@@ -1365,6 +1366,13 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                         except Exception:
                             # Optional reminder metadata must never reclassify an
                             # already accepted lead reply as an uncertain inbound.
+                            pass
+                    if settings.get('qualification_enabled') is True:
+                        try:
+                            from lead_alerts import dispatch
+                            dispatch(settings, repository, event, state)
+                            repository.save_session(conv, state)
+                        except Exception:
                             pass
                     if real_jobs:
                         executor.wake()

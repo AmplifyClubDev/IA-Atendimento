@@ -332,6 +332,9 @@ def _finish(state, at, *, reply=None, effects=None, status="real", intro=False, 
 
 def _effect(state, operation, at, *, policy=None, retry=False, list_proof=False):
     cycle, creator = state["cycle"], _creator(state["cycle"]["facts"].get("tiktok_declarado"))
+    from lead_validation import permitted as validation_permitted
+    if not validation_permitted(cycle):
+        return None
     if not creator or operation not in _OPERATIONS:
         return None
     for effect in state["effects"].values():
@@ -1514,7 +1517,7 @@ def handle_real(session, text, assistant_callback=None, *, resumed=None, **optio
 
 
 def _handle_real_turn(session, text, assistant_callback=None, *, now=None, operation_policy=None, source_event=None,
-                      inactivity_notice=None, relationship_check_in_form=False):
+                      inactivity_notice=None, relationship_check_in_form=False, qualification_enabled=False):
     import conversation
     if not isinstance(text, str) or not 0 < len(text.strip()) <= 4000:
         raise ValueError("text must contain between 1 and 4000 characters")
@@ -1622,6 +1625,33 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
             if effect.get("cycle_id") == cycle["id"] and effect.get("status") in {"pending", "running"}:
                 effect["status"] = "outcome_unknown" if effect.get('operation') == 'invite' else "cancelled"
         return _finish(state, at, reply="Tudo bem. Encerrei este atendimento, preservando o histórico. Quando quiser conversar de novo, pode me chamar.", buttons=[])
+    from lead_validation import stage as validation_stage, advance as validation_advance
+    if validation_stage(cycle) not in {None, 'complete'}:
+        response = validation_advance(cycle, text, at)
+        if response is not None:
+            question, choices = response
+            return _finish(state, at, reply=question, buttons=choices, exact=True)
+        if cycle['bia_validation'].get('existing_amplify_declared') is True:
+            return _direct_form(state, at)
+        cycle['phase'] = _qualification_phase(cycle)
+        jobs = _initial_checks(state, at)
+        return _finish(state, at, effects=jobs, exact=True)
+
+    if (cycle.get('bia_validation') or {}).get('existing_amplify_declared') is True:
+        return _direct_form(state, at)
+
+    if qualification_enabled is True:
+        if normal == 'quero fazer parte':
+            cycle['facts']['interesse_agenciamento'] = True
+        from lead_validation import begin as validation_begin
+        validation_question = validation_begin(cycle, at)
+        if validation_question is not None:
+            # Preserve an explicitly supplied profile, never promote bare prose.
+            if _creator(text.strip()) and not cycle['facts'].get('tiktok_declarado'):
+                cycle['facts']['tiktok_declarado'] = text.strip().lower()
+            question, choices = validation_question
+            return _finish(state, at, reply=question, buttons=choices, exact=True)
+
     prequalification = (cycle['phase'] in {'intro', 'origin', 'tiktok'}
                         and not _creator(cycle['facts'].get('tiktok_declarado')))
     soft_decline = (prequalification and '?' not in text
@@ -1977,6 +2007,12 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
         phase = _qualification_phase(cycle)
         if cycle["phase"] in {"intro", "origin", "tiktok", "shop", "agency"}:
             cycle["phase"] = phase
+    if qualification_enabled is True:
+        from lead_validation import begin as validation_begin
+        validation_question = validation_begin(cycle, at)
+        if validation_question is not None:
+            question, choices = validation_question
+            return _finish(state, at, reply=question, buttons=choices, exact=True)
     if cycle.get('form_entry_request') and (new_direct or 'tiktok_declarado' in applied):
         if _refresh_direct_request(state, source_event, at):
             return _direct_form(state, at)

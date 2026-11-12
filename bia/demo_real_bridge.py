@@ -21,7 +21,7 @@ def isolated_settings(settings, scopes):
     child.update(demo_enabled=False, demo_real_enabled=False,
         state_dir=str(Path(settings['state_dir']).resolve() / 'demo-real-test' / 'runtime'),
         followup_enabled=False, inactivity_close_enabled=False, retention_enabled=False,
-        tiktok_require_explicit_consent=True,
+        tiktok_require_explicit_consent=True, qualification_enabled=True,
         retomada_enabled=False, pos_pausa_enabled=False, reconferencia_enabled=False,
         initial_recheck_event_keys=[], initial_invite_recheck_event_keys=[])
     child['gate'] = {**settings['gate'], 'mode': 'lista', 'phone': scopes[0].phone,
@@ -35,6 +35,7 @@ class DemoRealBridge:
     def __init__(self, settings, scopes, directory, *, runtime_factory=None):
         self.settings, self.scopes = settings, tuple(scopes)
         self.allowed = {identity(scope) for scope in scopes}
+        self.alert_readiness = {'configured': False, 'verified': False, 'reason': 'not_checked'}
         self.lock = threading.RLock()
         directory = Path(directory).resolve()
         directory.mkdir(parents=True, exist_ok=True)
@@ -72,9 +73,12 @@ class DemoRealBridge:
         sessions_ready = (state.get('sessions') or {}).get('ready') is True
         return {'enabled': True, 'selected_count': len(self.allowed),
                 'worker_running': running, 'sessions_ready': sessions_ready,
-                'ready': running and sessions_ready}
+                'ready': running and sessions_ready, 'qualification_enabled': True,
+                'alerts': dict(self.alert_readiness)}
 
     def start(self):
+        from lead_alerts import probe
+        self.alert_readiness = probe(self.settings)
         executor = self.runtime.extensions['v5_real_executor']
         executor.probe_sessions()
         if not executor.start():

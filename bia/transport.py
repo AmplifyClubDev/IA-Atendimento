@@ -18,7 +18,7 @@ from contracts import allow_inbound, allow_image_inbound, IMAGE_ONLY_REPLY, norm
 
 _PROGRESS_PHASES = {
     "intro": "conhecer", "origin": "qualificação", "tiktok": "qualificação",
-    "shop": "qualificação", "agency": "qualificação", "consent": "validação",
+    "validation": "qualificação", "shop": "qualificação", "agency": "qualificação", "consent": "validação",
     "await_acceptance": "convite", "form": "cadastro",
     "checking": "validação", "checking_acceptance": "convite", "blocked": "validação",
     "consent_real": "convite", "inviting": "convite", "acesso": "cadastro",

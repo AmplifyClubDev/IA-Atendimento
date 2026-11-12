@@ -1,11 +1,11 @@
 {
   "release": "bia-stability-20261110",
-  "source_count": 44,
+  "source_count": 46,
   "files": [
     {
       "path": "Dockerfile",
-      "bytes": 995,
-      "sha256": "1f73bc24baa49fc357ecba5ca6dc3a3ad33712fb1a06b035cc59b28d3c9e0cb5"
+      "bytes": 1029,
+      "sha256": "c13a21563d2842223a8f4602c6f85e40b5358460c2c78d43ff4ea37bd93afbf2"
     },
     {
       "path": "answers.py",
@@ -19,8 +19,8 @@
     },
     {
       "path": "config.py",
-      "bytes": 14519,
-      "sha256": "100a1456537385a963664b0ddd15cee671568322a1dae3fbca3f72c57ee17495"
+      "bytes": 14631,
+      "sha256": "c2f0e96a6923ffb0e688779ecf305ac270c170bd4d5d5dd70f2d9eeae0f3a602"
     },
     {
       "path": "context_ia.py",
@@ -39,8 +39,8 @@
     },
     {
       "path": "conversation.py",
-      "bytes": 32562,
-      "sha256": "7508d58f2ea0f5f07ae1d9457ca594e2e7b60eb8988d342323a06449b64d4743"
+      "bytes": 32756,
+      "sha256": "b2351633a4af62129bbbe0b0d745d58affc982213bd4e81a72ba674345f3193b"
     },
     {
       "path": "data/__init__.py",
@@ -84,8 +84,8 @@
     },
     {
       "path": "demo_real_bridge.py",
-      "bytes": 10876,
-      "sha256": "ee61a45ca5c449190d246c08487b913b1eb7a5a2372a29e17d359c159766499a"
+      "bytes": 11176,
+      "sha256": "0ed4a6b09c9687f66fa70da8f09cf5806d7400fada2b635ddfe99d58ba9669f2"
     },
     {
       "path": "demo_router.py",
@@ -133,6 +133,16 @@
       "sha256": "a3050e2cd38a17eaa5d96c48ef72c80fad484f8c097d150f5b8bdfd73aeefced"
     },
     {
+      "path": "lead_alerts.py",
+      "bytes": 10085,
+      "sha256": "ea75701c6b0126ccf6b4176e3f0190f10e9d010f43096ad13bb89933d2b6b53e"
+    },
+    {
+      "path": "lead_validation.py",
+      "bytes": 7009,
+      "sha256": "8796d9beef886f94c8dd55f46b3e22458359fac8b54d702bc14805201b5debe7"
+    },
+    {
       "path": "nome_contextual.py",
       "bytes": 6138,
       "sha256": "5c8972325fdcb426234f8a423ac0146e615914c0fc5683a54d24f38cd5c8ff95"
@@ -159,13 +169,13 @@
     },
     {
       "path": "real_journey.py",
-      "bytes": 171437,
-      "sha256": "d42b2b4657d71e6c5598907f3c722385c0ce4c336fd5e4a5f695d62dfd19911b"
+      "bytes": 173370,
+      "sha256": "f29e7a2c580982518a7b3bd5645edb2c9dcfc27fe2639637faf31675e2387688"
     },
     {
       "path": "real_operations.py",
-      "bytes": 30827,
-      "sha256": "a8d253ae79eb4c4471082a449b36b6f5471d2dff4b71c1065e4034a00af2a71f"
+      "bytes": 30966,
+      "sha256": "e77299ca3bd3d4d9bfda1d33c7c6bab6e6777f61224d57d12c580cd434cabc99"
     },
     {
       "path": "receipt_grounding.py",
@@ -204,8 +214,8 @@
     },
     {
       "path": "server.py",
-      "bytes": 99248,
-      "sha256": "7c29ce0aa882567ff64565ac38e66659bdbbabb441539821f64a7dbc7431fae2"
+      "bytes": 99733,
+      "sha256": "f9399478d460585fa114d6c5b1328e7849ce772c3dec087b93e99b379b20943b"
     },
     {
       "path": "smtp.py",
@@ -214,8 +224,8 @@
     },
     {
       "path": "transport.py",
-      "bytes": 26813,
-      "sha256": "9a711a73e3b161fd87fab17aec13163b21e60e4aa032d2645e5b2093581416e3"
+      "bytes": 26394,
+      "sha256": "d5b721a53e667cea3234f029bce78888da558f7120f599eaaac8c1e7db8c82d5"
     },
     {
       "path": "verify_private.py",

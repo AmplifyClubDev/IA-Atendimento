@@ -277,6 +277,9 @@ class RealExecutor:
             return False
         if any(confirmed['result'].get(key) != proof.get(key) for key in ('creator_id', 'atendimento_id', 'event_id', 'revision')):
             return False
+        from lead_validation import permitted as validation_permitted
+        if not validation_permitted(cycle):
+            return False
         if job['operation'] == 'invite':
             from real_journey import policy_valid, precheck_proven, _policy_fingerprint
             policy, consent = policy_for(self.settings), cycle.get('invite_consent') or {}

@@ -371,11 +371,11 @@ def _restart_chat(state, cycle, at):
 
 
 def handle(session, text, assistant_callback=None, *, now=None, real_mode=False, operation_policy=None, source_event=None,
-           inactivity_notice=None, relationship_check_in_form=False, resumed=None):
+           inactivity_notice=None, relationship_check_in_form=False, resumed=None, qualification_enabled=False):
     if real_mode:
         from real_journey import handle_real
         return handle_real(session, text, assistant_callback, now=now, operation_policy=operation_policy,
-                           source_event=source_event, inactivity_notice=inactivity_notice,
+                           source_event=source_event, inactivity_notice=inactivity_notice, qualification_enabled=qualification_enabled,
                            **({'relationship_check_in_form': True} if relationship_check_in_form is True else {}),
                            **({'resumed': resumed} if resumed is not None else {}))
     if not isinstance(text, str) or not 0 < len(text.strip()) <= 4000:
@@ -496,7 +496,7 @@ def handle(session, text, assistant_callback=None, *, now=None, real_mode=False,
 
 
 def handle_event(session, event, gate, assistant_callback=None, *, now=None, real_mode=False, operation_policy=None,
-                 inactivity_notice=None, relationship_check_in_form=False, resumed=None):
+                 inactivity_notice=None, relationship_check_in_form=False, resumed=None, qualification_enabled=False):
     if not allow_inbound(gate, event):
         return engine._result(deepcopy(session), accepted=False, duplicate=False, reason="outside_pilot")
     key = inbound_key(event)
@@ -504,6 +504,8 @@ def handle_event(session, event, gate, assistant_callback=None, *, now=None, rea
         return engine._result(deepcopy(session), accepted=True, duplicate=True)
     at = engine._clock(now)
     turn_options = {'inactivity_notice': inactivity_notice} if inactivity_notice is not None else {}
+    if qualification_enabled is True:
+        turn_options['qualification_enabled'] = True
     if relationship_check_in_form is True:
         turn_options['relationship_check_in_form'] = True
     if resumed is not None and real_mode:
