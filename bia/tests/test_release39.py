@@ -569,14 +569,16 @@ class ServerWiringTests(unittest.TestCase):
         executor = app.extensions['v5_real_executor']
         self.assertEqual(executor.followup_tick.__name__, 'conduct_tick')
         self.assertIn('retomada', executor.followup_status())
-        executor.followup_tick()
+        for _ in range(3):
+            executor.followup_tick()
         self.assertEqual(len(sent), 1)
         self.assertIn('Desculpa a demora', sent[0])
         self.assertIn('Me manda seu @ do TikTok', sent[0])
         self.assertEqual(repo.event('chatwoot:1:901')['status'], 'completed')
         self.assertTrue(repo.followup_source('chatwoot:1:40003'))
         app.extensions['v5_pos_pausa'].next_scan_at = None
-        executor.followup_tick()
+        for _ in range(3):
+            executor.followup_tick()
         self.assertEqual(len(sent), 1)  # já respondida: não repete
 
 

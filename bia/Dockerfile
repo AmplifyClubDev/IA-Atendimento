@@ -7,7 +7,7 @@ COPY answers.py bootstrap.py config.py contracts.py engine.py forms.py gateway.p
 COPY verify_private.py ./
 COPY pilot_scope.py conversao.py retomada.py reconferencia.py ./
 COPY demo_router.py demo_followup.py ./
-COPY demo_flow.py demo_real_bridge.py lead_validation.py lead_alerts.py ./
+COPY demo_flow.py demo_real_bridge.py lead_validation.py lead_alerts.py approved_experience.py ./
 COPY demo_answers.py demo_knowledge.py demo_support.py ./
 COPY recovery.py ./
 COPY forms_compat.py ./

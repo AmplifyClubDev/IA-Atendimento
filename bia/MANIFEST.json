@@ -1,16 +1,21 @@
 {
   "release": "bia-stability-20261110",
-  "source_count": 46,
+  "source_count": 47,
   "files": [
     {
       "path": "Dockerfile",
-      "bytes": 1029,
-      "sha256": "c13a21563d2842223a8f4602c6f85e40b5358460c2c78d43ff4ea37bd93afbf2"
+      "bytes": 1052,
+      "sha256": "f82c9d80eb989b5cb43c9e846a30ff1b45de365405b893f0583619c65714db93"
     },
     {
       "path": "answers.py",
       "bytes": 13823,
       "sha256": "3afc67b84cbae280e082c1f017b9cbed5001b7b8d1f2be7096a800ba3e6b1f93"
+    },
+    {
+      "path": "approved_experience.py",
+      "bytes": 1754,
+      "sha256": "4665ca971560489deb252a34c31fba18e3a220ce0cf83ba8cf496791f646109a"
     },
     {
       "path": "bootstrap.py",
@@ -19,8 +24,8 @@
     },
     {
       "path": "config.py",
-      "bytes": 14762,
-      "sha256": "82557d825554bcfb8bd66f37d627e392a9560fe8ea64ef5924e79fb0a0ea418e"
+      "bytes": 14858,
+      "sha256": "f33e749265f86e4b87d3634e5ac183966842c87047889644732afbf69fc17cb3"
     },
     {
       "path": "context_ia.py",
@@ -39,8 +44,8 @@
     },
     {
       "path": "conversation.py",
-      "bytes": 33984,
-      "sha256": "8ca233d0feb2dbf729fc742d3e07bbb2f8905267737fae5221841b3052d53f3d"
+      "bytes": 34214,
+      "sha256": "89cc1aaffe39fea0d1c6b7a509fc3c839478f20c5d2f43f41ed3cc4c7417efdd"
     },
     {
       "path": "data/__init__.py",
@@ -169,13 +174,13 @@
     },
     {
       "path": "real_journey.py",
-      "bytes": 174425,
-      "sha256": "99c08c93ce433b3a8ec6eefc7591fc79eb345fe6967300c18b112b6b24900e13"
+      "bytes": 179584,
+      "sha256": "7eb7d0ae2ae3d4fa8a2b7ea9587929d094e2bf1b16cbe92e6300462b8280eff6"
     },
     {
       "path": "real_operations.py",
       "bytes": 30966,
-      "sha256": "e77299ca3bd3d4d9bfda1d33c7c6bab6e6777f61224d57d12c580cd434cabc99"
+      "sha256": "60a7a4ea9812debb0031d607ecce388fc9af239aaf2dad0a78031f29c00e3b8e"
     },
     {
       "path": "receipt_grounding.py",
@@ -184,8 +189,8 @@
     },
     {
       "path": "reconferencia.py",
-      "bytes": 7584,
-      "sha256": "0e8664470bbbd81d14c321cb35075e9ec99702e09181df83115ada62f8066af3"
+      "bytes": 8519,
+      "sha256": "0959004fc93aac3970b752e3f5d9c8112ab4df3836452da3c066bb4fa28d7204"
     },
     {
       "path": "recovery.py",
@@ -209,13 +214,13 @@
     },
     {
       "path": "retomada.py",
-      "bytes": 35969,
-      "sha256": "96aa00c6cdc758715cf8793ba013e8a95c7dff096ed3534c960f838788b7acfe"
+      "bytes": 38484,
+      "sha256": "0744344807d18cc457918f0e758053fc69374af4ac08bc42b1b9511b05fa9a7f"
     },
     {
       "path": "server.py",
-      "bytes": 101057,
-      "sha256": "025fbc05b3d26790187445abd10e805dbacbb59fb0556f51a9bffa00186590a0"
+      "bytes": 101711,
+      "sha256": "649f7a7ed4d10d0b848025ea9c7ff9663b1c311cb3ad0c85bea2d9cf0e235b1d"
     },
     {
       "path": "smtp.py",

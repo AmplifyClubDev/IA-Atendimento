@@ -10,6 +10,7 @@ Atendimentos parados na 39 não têm a marca: o motivo vem do registro do
 trabalho de consulta. Perfil inelegível nunca é reconferido.
 """
 from datetime import datetime, timedelta, timezone
+import time
 
 from followup import clock
 from retomada import enabled as _enabled
@@ -83,6 +84,8 @@ class Reconferencia:
         self.now = now or (lambda: datetime.now(timezone.utc))
         self.next_scan_at = None
         self.last = {'status': 'not_run'}
+        self._progress = None
+        self.monotonic = time.monotonic
 
     def status(self):
         return {'enabled': enabled(self.settings), **self.last}
@@ -93,16 +96,30 @@ class Reconferencia:
             return {'status': 'disabled'}
         if self.next_scan_at and now < self.next_scan_at:
             return {'status': 'cooldown'}
-        self.next_scan_at = now + timedelta(seconds=SCAN_SECONDS)
         from retomada import DECISOES, send_error
-        DECISOES.start('reconferencia')
+        started = self.monotonic()
         try:
-            rows = candidates(self.repository, now, self.policy())
+            if self._progress is None:
+                self._progress = {'rows': iter(candidates(self.repository, now, self.policy())),
+                                  'looked': set(), 'outcome': {'status': 'idle'}}
+                DECISOES.start('reconferencia')
+            rows = self._progress['rows']
             # Cada ponte é lida na hora (GET /bridge/ready), nunca de um resultado guardado, e só se alguém espera por ela.
             ready = {}
-            outcome = {'status': 'idle'}
-            looked = set()
-            for row in rows:
+            outcome = self._progress['outcome']
+            looked = self._progress['looked']
+            processed = 0
+            while True:
+                if processed >= 25 or (processed and self.monotonic() - started >= 10):
+                    self._progress['outcome'] = outcome
+                    self.last = {'status': 'scanning', 'at': now.isoformat(),
+                                 'puladas_por_motivo': DECISOES.finish('reconferencia')}
+                    return dict(self.last)
+                try:
+                    row = next(rows)
+                except StopIteration:
+                    break
+                processed += 1
                 if production_blocked(self.settings, conversation_key=row['conversation']):
                     continue
                 conv = row['conversation'].rsplit(':', 1)[-1]
@@ -131,6 +148,8 @@ class Reconferencia:
                     DECISOES.record('reconferencia', conv.rsplit(':', 1)[-1], 'sem_pendencia', now)
         except Exception:
             outcome = {'status': 'unconfirmed'}
+        self._progress = None
+        self.next_scan_at = clock(self.now()) + timedelta(seconds=SCAN_SECONDS)
         outcome['puladas_por_motivo'] = DECISOES.finish('reconferencia')
         self.last = {**outcome, 'at': now.isoformat()}
         return outcome

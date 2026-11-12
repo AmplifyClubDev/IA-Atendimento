@@ -450,7 +450,7 @@ class RealExecutor:
             while not self.stop_event.is_set():
                 try:
                     checked = _clock(self.sessions_checked_at)
-                    if not checked or (self.clock() - checked).total_seconds() >= 60:
+                    if not checked or (self.clock() - checked).total_seconds() >= 30:
                         self.probe_sessions()
                     outcome = self.tick()
                     if outcome.get('status') == 'idle':

@@ -958,10 +958,14 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
     if (conduct_enabled(settings, 'retomada_enabled') or conduct_enabled(settings, 'pos_pausa_enabled')
             or recheck_enabled(settings)):
         # Release 39 replaces the single-chat 5+5 reminder for every pilot chat.
+        conduct_callbacks = (reconferencia.tick, pos_pausa.tick, retomada.tick)
+        conduct_cursor = 0
         def conduct_tick():
-            reconferencia.tick()
-            pos_pausa.tick()
-            return retomada.tick()
+            # One bounded maintenance slice, then return to the real-job worker.
+            nonlocal conduct_cursor
+            callback = conduct_callbacks[conduct_cursor]
+            conduct_cursor = (conduct_cursor + 1) % len(conduct_callbacks)
+            return callback()
         executor.followup_tick = conduct_tick
         executor.followup_status = lambda: {**followup.status(), 'retomada': retomada.status(),
                                             'pos_pausa': pos_pausa.status(), 'reconferencia': reconferencia.status()}
@@ -1197,6 +1201,7 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                 missing.append('context_ia_unavailable')
         return jsonify(ready=not missing, issues=sorted(set(missing)), context_ia=context_info,
                        tiktok=tiktok, demo_real=demo_real,
+                       approved_experience={'enabled': settings.get('approved_experience_enabled') is True, 'new_cycles_only': True},
                        qualification={'enabled': settings.get('qualification_enabled') is True,
                                       'new_cycles_only': settings.get('qualification_new_cycles_only') is True}), 503 if missing else 200
 
@@ -1320,6 +1325,7 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                         import conversation
                         turn_options = {'real_mode': _get(settings, 'tiktok_mode') == 'real',
                                         'operation_policy': policy_for(settings),
+                                        'approved_experience_enabled': settings.get('approved_experience_enabled') is True,
                                         'qualification_enabled': settings.get('qualification_enabled') is True,
                                         'qualification_new_cycles_only': settings.get('qualification_new_cycles_only') is True}
                         if turn_options['real_mode'] and settings.get('relationship_check_in_form') is True:
@@ -1386,7 +1392,8 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                             # Optional reminder metadata must never reclassify an
                             # already accepted lead reply as an uncertain inbound.
                             pass
-                    if settings.get('qualification_enabled') is True:
+                    if (settings.get('qualification_enabled') is True
+                            or (state.get('cycle') or {}).get('experience_version') == 'bia-approved-v1'):
                         try:
                             from lead_alerts import dispatch
                             dispatch(settings, repository, event, state)

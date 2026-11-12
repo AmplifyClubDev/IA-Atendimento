@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import re
 import threading
+import time
 
 from contracts import allow_inbound, inbound_key, pilot_phone
 from followup import clock
@@ -225,6 +226,9 @@ class Retomada:
         self.policy = policy or (lambda: None)
         self.next_scan_at = None
         self.registration_reads = {}
+        self._pending = None
+        self._scan_sent = 0
+        self.monotonic = time.monotonic
         self.last = {'status': 'not_run'}
 
     def status(self):
@@ -236,18 +240,36 @@ class Retomada:
             return {'status': 'disabled'}
         if self.next_scan_at and now < self.next_scan_at:
             return {'status': 'cooldown'}
-        self.next_scan_at = now + timedelta(seconds=SCAN_SECONDS)
-        sent = 0
-        DECISOES.start('retomada')
-        for conv in self.repository.followup_conversations():
+        # A bounded resumable scan yields to real bridge jobs and readiness probes.
+        # Never hold a conversation lock across yields; reload/recheck every item.
+        if self._pending is None:
+            self._pending = iter(self.repository.followup_conversations())
+            self._scan_sent = 0
+            DECISOES.start('retomada')
+        started = self.monotonic()
+        processed = 0
+        complete = False
+        while processed < 25 and (processed == 0 or self.monotonic() - started < 10):
             try:
-                outcome = self._conversation(conv, now)
+                conv = next(self._pending)
+            except StopIteration:
+                complete = True
+                break
+            processed += 1
+            try:
+                outcome = self._conversation(conv, clock(self.now()))
             except Exception as error:
                 outcome = {'status': 'unconfirmed', 'motivo': send_error(type(error).__name__)}
-            sent += outcome.get('status') == 'accepted'
+            self._scan_sent += outcome.get('status') == 'accepted'
             DECISOES.record('retomada', conv.rsplit(':', 1)[-1], outcome.get('motivo') or send_error(outcome.get('status')),
                             now, **({'etapa': outcome['step']} if outcome.get('step') else {}))
-        self.last = {'status': 'completed', 'at': now.isoformat(), 'sent': sent,
+        if complete:
+            self._pending = None
+            self.next_scan_at = clock(self.now()) + timedelta(seconds=SCAN_SECONDS)
+        else:
+            self.next_scan_at = None
+        self.last = {'status': 'completed' if complete else 'scanning', 'at': now.isoformat(),
+                     'sent': self._scan_sent, 'processed_in_batch': processed,
                      'puladas_por_motivo': DECISOES.finish('retomada')}
         return dict(self.last)
 
@@ -429,6 +451,10 @@ class PosPausa:
         self.guard, self.process = guard, process
         self.now = now or (lambda: datetime.now(timezone.utc))
         self.next_scan_at = None
+        self._progress = None
+        self._deadline = None
+        from time import monotonic
+        self.monotonic = monotonic
         self.last = {'status': 'not_run'}
         # Release 44: as mensagens já entregues nesta execução (a nova tentativa ou a 1ª resposta) nunca voltam;
         # entre reinícios, a marca 'reprocessed' do atendimento faz o mesmo.
@@ -448,12 +474,19 @@ class PosPausa:
             return {'status': 'disabled'}
         if self.next_scan_at and now < self.next_scan_at:
             return {'status': 'cooldown'}
-        self.next_scan_at = now + timedelta(seconds=SCAN_SECONDS)
-        self.counts['varreduras'] += 1
         try:
             outcome = self._scan(now)
         except Exception:
+            self._progress = None
             outcome = {'status': 'unconfirmed'}
+        finally:
+            self._deadline = None
+        if outcome.get('status') == 'scanning':
+            self.last = {**outcome, 'at': now.isoformat()}
+            return outcome
+        self._progress = None
+        self.next_scan_at = clock(self.now()) + timedelta(seconds=SCAN_SECONDS)
+        self.counts['varreduras'] += 1
         if outcome.get('status') == 'resumed' and outcome.get('result') in {'completed', 'accepted'}:
             # Release 46: "respondidas" conta toda resposta (a Cristiane, reprocessada, ficou de fora na 45).
             self.counts['respondidas'] += 1
@@ -464,18 +497,34 @@ class PosPausa:
 
     def _get(self, url):
         return self.transport.http(method='GET', url=url, headers={'api_access_token': self.transport.token,
-                                   'Accept': 'application/json'}, timeout=10)
+                                   'Accept': 'application/json'}, timeout=max(0.01, min(10, self._deadline - self.monotonic())) if self._deadline is not None else 10)
 
     def _scan(self, now):
         gate = self.settings.get('gate') or {}
         base = self.transport.base_url + '/api/v1/accounts/' + str(gate.get('account_id'))
-        listing = self._listing(base, gate, now)
-        if listing is None:
-            return {'status': 'unavailable'}
+        self._deadline = self.monotonic() + 10
+        if self._progress is None:
+            self._progress = {'listing': [], 'seen': set(), 'page': 1, 'listed': False,
+                              'index': 0, 'outcome': {'status': 'idle'}}
+            self.decisions.start('pos_pausa')
+        progress = self._progress
+        if not progress['listed']:
+            listing = self._listing(base, gate, now)
+            if listing is None:
+                return {'status': 'unavailable'}
+            if not progress['listed']:
+                return {'status': 'scanning'}
+        listing = progress['listing']
         decisions = self.decisions
-        decisions.start('pos_pausa')
-        outcome = {'status': 'idle'}
-        for conversation in listing:
+        outcome = progress['outcome']
+        processed = 0
+        while progress['index'] < len(listing):
+            if processed >= 25 or self.monotonic() >= self._deadline:
+                progress['outcome'] = outcome
+                return {'status': 'scanning'}
+            conversation = listing[progress['index']]
+            progress['index'] += 1
+            processed += 1
             conv = str((conversation or {}).get('id', '?')) if isinstance(conversation, dict) else '?'
             if outcome['status'] == 'resumed':
                 # One lead per scan keeps each catch-up reply supervised by the next.
@@ -523,23 +572,31 @@ class PosPausa:
         return outcome
 
     def _listing(self, base, gate, now):
-        """Private incident details omitted from this review baseline."""
-        listing, seen = [], set()
-        for page in range(1, LISTING_PAGES + 1):
+        """Build a private snapshot incrementally; never expose partial pages as a scan."""
+        progress = self._progress
+        listing, seen = progress['listing'], progress['seen']
+        while progress['page'] <= LISTING_PAGES:
+            if self.monotonic() >= self._deadline:
+                return listing
+            page = progress['page']
             data = self._get(base + '/conversations?inbox_id=' + str(gate.get('inbox_id'))
                              + '&status=open&assignee_type=all&sort_by=last_activity_at_desc&page=' + str(page))
             payload = ((data or {}).get('data') or {}).get('payload') if isinstance(data, dict) else None
             if not isinstance(payload, list):
-                return listing if page > 1 else None
+                return None
             fresh = [item for item in payload if isinstance(item, dict) and item.get('id') not in seen]
+            progress['page'] += 1
             if not fresh:
+                progress['listed'] = True
                 break
             seen.update(item.get('id') for item in fresh)
             listing.extend(fresh)
             activity = [clock(item.get('last_activity_at')) for item in fresh]
             if all(at and now - at > CATCH_UP_MAX_AGE for at in activity):
-                # A página inteira é mais antiga que a janela: as próximas também são.
+                progress['listed'] = True
                 break
+        if progress['page'] > LISTING_PAGES:
+            progress['listed'] = True
         return listing
 
     def _candidate(self, conversation, now, base):

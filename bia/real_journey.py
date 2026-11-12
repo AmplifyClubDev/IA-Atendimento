@@ -331,12 +331,15 @@ def _finish(state, at, *, reply=None, effects=None, status="real", intro=False, 
                    else ["Anúncio", "Indicação", "Outra origem"] if cycle["phase"] == "origin" and text.endswith(PROMPTS["origin"])
                    else list(conversao.CONSENT_BUTTONS) if cycle["phase"] == "consent_real" and cycle.get("invite_offer")
                    else ["Verificar aceite"] if cycle["phase"] == "await_acceptance" else [])
+    if cycle.get('experience_version') == 'bia-approved-v1':
+        text = text.replace(_INTRO_ACTION, 'Se quiser começar, toque em *Quero fazer parte* 😊')
+        buttons = ['Quero fazer parte' if label == 'Quero me agenciar' else label for label in buttons]
     text, buttons = _form_button_once(cycle, text, buttons, force=force_form_button)
     if cycle.get('phase') in {'intro', 'origin', 'tiktok'} and not _creator(cycle['facts'].get('tiktok_declarado')):
         cycle['arroba_pedido'] = text in {_HANDLE_UNKNOWN, conversao.HANDLE_HELP} or bool(re.search(
             r'(?:qual.{0,15}@|(?:me manda|me envie|me manda seu|me informe).{0,20}@)', text, re.I))
     # Release 42: os textos aprovados saem como estão (o filtro tiraria o 2º emoji do parágrafo).
-    transition = engine._finish_reply(state, text if exact else conversation._light_format(text), buttons, at, effects)
+    transition = engine._finish_reply(state, text if exact or cycle.get('experience_version') == 'bia-approved-v1' else conversation._light_format(text), buttons, at, effects)
     transition["planner_status"] = status
     return transition
 
@@ -1165,7 +1168,7 @@ def _step_reply(answer, prompt):
     return (answer + '\n\n' if answer else '') + prompt
 
 
-def _question_reply(text, plan, cycle, policy=None, *, state=None, now=None):
+def _question_reply(text, plan, cycle, policy=None, *, state=None, now=None, allow_local=True):
     import conversation
     from receipt_grounding import approved_cost_reply, approved_educational_reply, ground_reply
     proposal = plan if isinstance(plan, dict) else {}
@@ -1194,8 +1197,8 @@ def _question_reply(text, plan, cycle, policy=None, *, state=None, now=None):
     if re.search(r'\bcampanhas?\b', asked) and not re.search(r'\bamostra', asked):
 
         text, asked = 'Benefícios', 'beneficios'
-    local = (_local_topic_answer(text) if unavailable or asked in conversation._TOPIC_TEXT or '?' in text
-             or re.search(r'\b(?:beneficio|beneficios|comissao|como funciona|lives?|custa|taxa)\b', asked) else None)
+    local = (_local_topic_answer(text) if allow_local and (unavailable or asked in conversation._TOPIC_TEXT or '?' in text
+             or re.search(r'\b(?:beneficio|beneficios|comissao|como funciona|lives?|custa|taxa)\b', asked)) else None)
     if local:
         # Release 41: o botão "Como funciona?" da primeira resposta nunca volta como "não consegui consultar".
         candidates.append((local, True, True))
@@ -1465,7 +1468,7 @@ def _sell_intro(result, policy):
     cycle = state.get('cycle') or {}
     fixed = result.pop('fixed_greeting', False)
     if (cycle.get('status') != 'open' or cycle.get('phase') != 'intro' or not reply or fixed
-            or cycle.get('qualification_paused')
+            or cycle.get('qualification_paused') or cycle.get('experience_version') == 'bia-approved-v1'
             or (cycle.get('facts') or {}).get('interesse_agenciamento') is not True
             or _creator((cycle.get('facts') or {}).get('tiktok_declarado'))):
         # O "resetar" de teste e a volta de um atendimento encerrado mantêm a saudação fixa.
@@ -1528,7 +1531,7 @@ def handle_real(session, text, assistant_callback=None, *, resumed=None, **optio
 
 
 def _handle_real_turn(session, text, assistant_callback=None, *, now=None, operation_policy=None, source_event=None,
-                      inactivity_notice=None, relationship_check_in_form=False, qualification_enabled=False, qualification_new_cycles_only=False):
+                      inactivity_notice=None, relationship_check_in_form=False, qualification_enabled=False, qualification_new_cycles_only=False, approved_experience_enabled=False):
     import conversation
     if not isinstance(text, str) or not 0 < len(text.strip()) <= 4000:
         raise ValueError("text must contain between 1 and 4000 characters")
@@ -1559,7 +1562,11 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
         fresh = True
     if fresh:
         cycle = engine._open(state, at)
-        cycle.update(mode="real", phase="intro", qualification_rollout=qualification_enabled is True)
+        cycle.update(mode="real", phase="intro", qualification_rollout=(qualification_enabled or approved_experience_enabled) is True)
+        if approved_experience_enabled is True:
+            cycle['experience_version'] = 'bia-approved-v1'
+    if cycle.get('experience_version') == 'bia-approved-v1':
+        qualification_enabled = True
     state["real_mode"] = True
     if relationship_check_in_form is True:
         cycle['relationship_check_in_form'] = True
@@ -1586,6 +1593,9 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
     if inactivity_return:
         # This is a new atendimento, not an answer to a question from the
         # inactive cycle. Old facts/proofs remain archived for audit/fences.
+        if cycle.get('experience_version') == 'bia-approved-v1':
+            from approved_experience import OPENING, CHOICES
+            return {**_finish(state, at, reply=OPENING, buttons=CHOICES, exact=True), 'fixed_greeting': True}
         return {**_finish(state, at, intro=True, reply=conversation._RESET_GREETING), "fixed_greeting": True}
     if normal in {'sim', 'nao'} and isinstance(inactivity_notice, dict):
         # The server projects the LAST accepted Bia turn from durable outbox
@@ -1618,9 +1628,14 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
                     # uncertainty as a fence; read-only jobs can be cancelled.
                     effect["status"] = "outcome_unknown" if effect.get("operation") == "invite" else "cancelled"
             cycle = engine._open(state, at)
-            cycle.update(mode="real", phase="intro", qualification_rollout=qualification_enabled is True)
+            cycle.update(mode="real", phase="intro", qualification_rollout=(qualification_enabled or approved_experience_enabled) is True)
+            if approved_experience_enabled is True:
+                cycle['experience_version'] = 'bia-approved-v1'
             state["history"][-1]["cycle_id"] = cycle["id"]
         cycle['funnel_after_reset'] = True
+        if cycle.get('experience_version') == 'bia-approved-v1':
+            from approved_experience import OPENING, CHOICES
+            return {**_finish(state, at, reply=OPENING, buttons=CHOICES, exact=True), 'fixed_greeting': True}
         return {**_finish(state, at, intro=True, reply=conversation._RESET_GREETING), "fixed_greeting": True}
     if not_interested(text):
 
@@ -1636,9 +1651,61 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
             if effect.get("cycle_id") == cycle["id"] and effect.get("status") in {"pending", "running"}:
                 effect["status"] = "outcome_unknown" if effect.get('operation') == 'invite' else "cancelled"
         return _finish(state, at, reply="Tudo bem. Encerrei este atendimento, preservando o histórico. Quando quiser conversar de novo, pode me chamar.", buttons=[])
+    # Adopt presentation only; provider effects stay in the real state machine.
+    if cycle.get('experience_version') == 'bia-approved-v1':
+        from approved_experience import OPENING, CHOICES, MENUS, TOPICS
+        from lead_validation import stage as current_validation_stage
+        prejoin = (cycle['phase'] == 'intro' and not cycle['facts'].get('interesse_agenciamento'))
+        greeting_text = re.sub(r'[^a-z0-9 ]', ' ', normal)
+        greeting_text = ' '.join(greeting_text.split())
+        greeting = bool(re.fullmatch(r'(?:(?:oi|ola|bom dia|boa tarde|boa noite)(?: tudo bem)?(?: eu)?(?: quero conhecer voces| queria conversar| vim pelo anuncio| vi o anuncio)?|tudo bem)', greeting_text))
+        if prejoin and (greeting or normal == 'menu' or (fresh and _AD_MESSAGE.search(normal))):
+            return {**_finish(state, at, reply=OPENING, buttons=CHOICES, exact=True), 'fixed_greeting': True}
+        # Navigation never changes a qualification answer or operational phase.
+        if normal in MENUS:
+            message, buttons = MENUS[normal]
+            return {**_finish(state, at, reply=message, buttons=buttons, exact=True), 'fixed_greeting': True}
+        if normal in TOPICS:
+            question = TOPICS[normal]
+            context = {'phase': cycle['phase'], 'facts': deepcopy(cycle['facts']),
+                       'history': deepcopy([item for item in state['history'] if item['cycle_id'] == cycle['id']]),
+                       'cycle': {key: cycle[key] for key in ('id', 'number', 'status', 'expires_at', 'opened_at') if key in cycle},
+                       'real_mode': True, 'simulation_only': False, 'current_question': '',
+                       'allowed_claim_fields': [], 'allowed_actions': ['question', 'clarify', 'converse'],
+                       'can_confirm_external_events': False}
+            if policy_valid(operation_policy):
+                context['commercial_policy'] = {key: operation_policy[key] for key in
+                    ('commission', 'commission_unit', 'duration_fixed_months', 'duration_label', 'version')}
+            try:
+                proposal = assistant_callback(question, context) if callable(assistant_callback) else None
+            except Exception:
+                proposal = None
+            answer = _question_reply(question, proposal, cycle, operation_policy, state=state, now=at, allow_local=False)
+            answer = answer or 'Não consegui consultar essa informação agora. Sua etapa está preservada. Você pode tentar a pergunta novamente. 🔎'
+            pending = current_validation_stage(cycle)
+            if pending and pending != 'complete':
+                from lead_validation import QUESTIONS
+                prompt, buttons = QUESTIONS[pending]
+                answer += '\n\n' + prompt
+            else:
+                buttons = ['Quero fazer parte', 'Ver tópicos'] if prejoin else ['Ver tópicos']
+            return {**_finish(state, at, reply=answer, buttons=buttons, exact=True), 'fixed_greeting': True}
+        if prejoin and normal == 'ja sou amplify':
+            from lead_validation import begin, advance
+            cycle['facts']['interesse_agenciamento'] = True
+            begin(cycle, at)
+            response = advance(cycle, 'Já sou Amplify', at)
+            if response is not None:
+                return _finish(state, at, reply=response[0], buttons=response[1], exact=True)
+            return _direct_form(state, at)
+
     from lead_validation import stage as validation_stage, advance as validation_advance
     if validation_stage(cycle) not in {None, 'complete'}:
-        response = validation_advance(cycle, text, at)
+        validation_text = text
+        if (cycle.get('experience_version') == 'bia-approved-v1' and validation_stage(cycle) == 'existing_profile'
+                and not re.fullmatch(r'[A-ZÀ-Ý][a-zà-ÿ]+', text.strip())):
+            validation_text = _bare_handle(text) or text
+        response = validation_advance(cycle, validation_text, at)
         if response is not None:
             question, choices = response
             return _finish(state, at, reply=question, buttons=choices, exact=True)
@@ -1984,7 +2051,8 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
     claims = _extract_claims(text, answered_phase, plan,requested_name=requested_name)
     # Release 39: the @ sent in answer to a retomada/resume ask is the lead's own
     # opt-in. A capitalized single word looks like a name, not a handle.
-    handle_requested = (cycle.get('arroba_pedido') is True and answered_phase in {'intro', 'origin'}
+    handle_requested = ((cycle.get('arroba_pedido') is True and answered_phase in {'intro', 'origin'}
+                        or answered_phase == 'tiktok' and cycle.get('experience_version') == 'bia-approved-v1')
                         and not _creator(cycle['facts'].get('tiktok_declarado')))
     if handle_requested and 'tiktok_declarado' not in claims and not re.fullmatch(r'[A-ZÀ-Ý][a-zà-ÿ]+', text.strip()):
         bare = _bare_handle(text)
