@@ -469,6 +469,11 @@ class PlaywrightClient:
             return "pending_verification", False, evidence, "invitation_reconciliation_required"
         if code in (400, 401, 403, 404) and data.get("ok") is False:
             return "failed", False, evidence, "invitation_rejected"
+        if (exact and code == 422 and data.get("ok") is False and not create_accepted
+                and evidence.get("upstream_code") == "16004004"
+                and ((isinstance(create, dict) and create.get("ok") is False)
+                     or receipt.get("status") == "create_rejected")):
+            return "failed", False, evidence, "creator_binding_not_permitted"
         if code == 422 and data.get("ok") is False and isinstance(create, dict) and create.get("ok") is False:
             return "failed", False, evidence, "invitation_rejected"
         return "outcome_unknown", False, evidence, "invitation_result_unconfirmed"

@@ -158,6 +158,10 @@ def _relationship_status(state, now):
     record = (cycle.get('real_operations') or {}).get('invite') or {}
     if record.get('status') == 'pending_verification' and (record.get('evidence') or {}).get('create_accepted') is True:
         return 'Seu convite foi enviado ao TikTok. 😊\n\n' + _ACCEPT_GUIDE
+    if (record.get('status') == 'failed'
+            and record.get('reason') == 'creator_binding_not_permitted'):
+        return ('O TikTok informou que este perfil ainda não tem permissão para se vincular a uma agência. '
+                'Esse requisito precisa ser verificado antes de continuar o agenciamento.')
     if record.get('status') == 'failed' and (record.get('evidence') or {}).get('create_accepted') is False:
         return ('A tentativa de envio falhou, então ainda não tenho confirmação do convite. '
                 'Não vou pedir que você aceite um convite sem confirmação. O time precisa conferir o motivo antes de um novo envio.')

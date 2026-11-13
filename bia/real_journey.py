@@ -2781,6 +2781,10 @@ def resolve_tiktok_result(session, effect_id, result, *, now=None, operation_pol
         effect["result_receipt"] = deepcopy(record)
     effects, reply = [], ""
     retry = cycle.get("invite_retry") or {}
+    if operation == "invite" and status == "failed" and result.get("reason") == "creator_binding_not_permitted":
+        cycle.update(phase="blocked", block_reason="creator_binding_not_permitted")
+        cycle["team_alert"] = {"at": engine._stamp(at), "reason": "creator_binding_not_permitted"}
+        return _finish(state, at, reply="O TikTok informou que este perfil ainda não tem permissão para se vincular a uma agência. Esse requisito precisa ser verificado antes de continuar o agenciamento.", buttons=[])
     if form_mode and operation == 'relationship' and source in AGENCY_SOURCES:
         return _settle_agency_read(state, at, effect, result, operation_policy)
     if form_mode and operation == 'precheck' and source == 'invite_list_proof':

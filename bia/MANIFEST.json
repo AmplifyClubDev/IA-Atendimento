@@ -169,13 +169,13 @@
     },
     {
       "path": "playwright_client.py",
-      "bytes": 30981,
-      "sha256": "7bfd3365ddff0eebceccb3212e0b355d94f176ba1c32eaa29b74b2037f608d16"
+      "bytes": 31357,
+      "sha256": "5823fcab056cde3452215ec3d5502ec2b68ef163b4dc665247551450d520dff6"
     },
     {
       "path": "real_journey.py",
-      "bytes": 179415,
-      "sha256": "8514e956621894bfde66c2ca533f1ef32ff114d0be671255b98acdfce30bb8ff"
+      "bytes": 179932,
+      "sha256": "96db2b3bb44620c406404b9aa24bfb5fab4be31ed4531f622743ab42cf1062fd"
     },
     {
       "path": "real_operations.py",
@@ -184,8 +184,8 @@
     },
     {
       "path": "receipt_grounding.py",
-      "bytes": 12837,
-      "sha256": "97909aab18291d9840c31a7a3921c9a821022d48e045008e7fe8912b8c101af0"
+      "bytes": 13156,
+      "sha256": "b58f52dd76fcb812da89618447555a6f358733716786de4cff8c52bd21abcf25"
     },
     {
       "path": "reconferencia.py",
