@@ -174,8 +174,8 @@
     },
     {
       "path": "real_journey.py",
-      "bytes": 180448,
-      "sha256": "818804d8f4b60ad8d7685768230e3026d5c8ffa8f63cc4da0e056695e038e56c"
+      "bytes": 181849,
+      "sha256": "3f45c320a65bf8348206dc3e7c51bc9073d6966b7666d051a1999c5a0af12561"
     },
     {
       "path": "real_operations.py",
@@ -229,8 +229,8 @@
     },
     {
       "path": "transport.py",
-      "bytes": 27362,
-      "sha256": "70b64f98a00634205f0545cd165ee5ce5ca6fb59efbd79e5545176d015885d1d"
+      "bytes": 32747,
+      "sha256": "73f9a9e9cbd9758543ddfdcc6a1007804c6e1ac76675a7ff118b0599e1eda791"
     },
     {
       "path": "verify_private.py",
@@ -244,8 +244,8 @@
     },
     {
       "path": "tutorial_videos.py",
-      "bytes": 630,
-      "sha256": "5e349d58f9747ebdda94d9a30cb1e7af069ad1737396ef33b85c382a70c22e31"
+      "bytes": 2148,
+      "sha256": "c79eb88ba97bcb22a6739ce8e8293316155e6f947aeb19a7be161d7fb07e6ef4"
     }
   ],
   "provenance": {

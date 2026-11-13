@@ -1174,6 +1174,31 @@ def _step_reply(answer, prompt):
     return (answer + '\n\n' if answer else '') + prompt
 
 
+def _faq_has_answer(text):
+    """Reject only empty/social-only answers; never relax receipt grounding.
+
+    A filtered model answer may retain its closing while losing every fact.
+    Such a candidate must not prevent trying the approved-context fallback.
+    This conservative gate is not proof of factual correctness.
+    """
+    if not isinstance(text, str):
+        return False
+    social = (
+        r'(?:oi|ola|claro|certo|entendi|perfeito|combinado|obrigad[oa]|tudo bem)',
+        r'(?:se |quando )?(?:voce )?(?:quiser|precisar)(?: saber mais| de mais informacoes)?'
+        r'(?: ou avancar)?[, ]*(?:e )?(?:so |basta )?(?:me )?'
+        r'(?:avisar|chamar|perguntar|falar)(?: por aqui| aqui)?',
+        r'(?:estou|to|fico) (?:a disposicao|por aqui)(?: para ajudar| pra ajudar)?',
+        r'(?:posso|como posso) (?:te )?ajudar(?: em algo mais)?',
+        r'(?:quer|deseja|gostaria de) (?:saber mais|continuar|avancar)',
+    )
+    for sentence in re.split(r'[.!?\n]+', text):
+        normal = re.sub(r'[^a-z0-9 ,]', '', engine._normal(sentence)).strip(' ,')
+        if normal and not any(re.fullmatch(pattern, normal) for pattern in social):
+            return True
+    return False
+
+
 def _question_reply(text, plan, cycle, policy=None, *, state=None, now=None, allow_local=True):
     import conversation
     from receipt_grounding import approved_cost_reply, approved_educational_reply, ground_reply
@@ -1240,6 +1265,10 @@ def _question_reply(text, plan, cycle, policy=None, *, state=None, now=None, all
         normalized = engine._normal(candidate)
         if not grounded and (re.search(r'\b(?:convite|vinculo|cadastro|acesso)\b.{0,35}\b(?:confirmad|concluid|enviad|liberad|aprovad)', normalized)
                 or re.search(r'\bvoce\b.{0,20}\b(?:esta|foi)\b.{0,15}\bagenciad', normalized)):
+            continue
+        informative = (conversation._before_interest_reply(candidate)
+                       if cycle.get('phase') == 'intro' else candidate)
+        if not _faq_has_answer(informative):
             continue
         reply, backend_answer = candidate, from_context
         faq_action = (from_context and (not canonical or candidate == educational_reply)

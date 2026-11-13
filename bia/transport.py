@@ -8,7 +8,7 @@ import re
 import pilot_scope
 from copy import deepcopy
 from datetime import datetime
-from uuid import UUID
+from uuid import UUID, uuid4
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -235,8 +235,10 @@ class _NoRedirect(HTTPRedirectHandler):
         return None
 
 
-def _http(*, method, url, headers, json_body=None, timeout=15):
-    encoded = json.dumps(json_body, ensure_ascii=False).encode() if json_body is not None else None
+def _http(*, method, url, headers, json_body=None, raw_body=None, timeout=15):
+    if json_body is not None and raw_body is not None:
+        raise ValueError("ambiguous_body")
+    encoded = raw_body if raw_body is not None else (json.dumps(json_body, ensure_ascii=False).encode() if json_body is not None else None)
     request = Request(url, data=encoded, headers=headers, method=method)
     with build_opener(_NoRedirect()).open(request, timeout=timeout) as response:
         data = response.read(1_000_001)
@@ -248,6 +250,43 @@ def _http(*, method, url, headers, json_body=None, timeout=15):
     return payload
 
 
+def _download_tutorial(asset):
+    """Public GET only, no credentials/redirects; hard bounds and exact byte hash."""
+    from tutorial_videos import ASSETS
+    known = ASSETS.get(asset.get('url'))
+    if not known or any(asset.get(k) != known[k] for k in ('key', 'filename', 'size', 'sha256')):
+        raise ValueError('unknown_tutorial')
+    request = Request(asset['url'], headers={'Accept': 'video/mp4'}, method='GET')
+    with build_opener(_NoRedirect()).open(request, timeout=15) as response:
+        if response.status != 200 or response.headers.get_content_type() != 'video/mp4':
+            raise ValueError('invalid_tutorial_response')
+        data = response.read(asset['size'] + 1)
+    if len(data) != asset['size'] or hashlib.sha256(data).hexdigest() != asset['sha256']:
+        raise ValueError('tutorial_integrity_failed')
+    return data
+
+
+def _video_multipart(asset, data, key):
+    boundary = 'amplify-' + uuid4().hex
+    fields = {'content': asset['caption'], 'message_type': 'outgoing', 'private': 'false',
+              'content_type': 'text', 'content_attributes[amplify_actor]': 'v5_rehearsal',
+              'content_attributes[amplify_idempotency_key]': key,
+              'content_attributes[amplify_tutorial]': asset['key']}
+    chunks = []
+    for name, value in fields.items():
+        chunks.append(('--' + boundary + '\r\nContent-Disposition: form-data; name="' + name
+                       + '"\r\n\r\n' + value + '\r\n').encode('utf-8'))
+    chunks += [('--' + boundary + '\r\nContent-Disposition: form-data; name="attachments[]"; filename="'
+                + asset['filename'] + '"\r\nContent-Type: video/mp4\r\n\r\n').encode(), data,
+               ('\r\n--' + boundary + '--\r\n').encode()]
+    return b''.join(chunks), 'multipart/form-data; boundary=' + boundary
+
+
+def _has_video_attachment(message):
+    return any(isinstance(item, dict) and item.get('file_type') == 'video' and _id(item.get('id'))
+               for item in (message.get('attachments') or []))
+
+
 def _id(value):
     return str(value) if type(value) in {str, int} and re.fullmatch(r"[1-9][0-9]{0,19}", str(value)) else None
 
@@ -256,7 +295,7 @@ class ChatwootTransport:
     progress_owned_merge = True
     supports_reply_fencing = True
 
-    def __init__(self, base_url, token, gate, http=None, interactive=True, cloud=None):
+    def __init__(self, base_url, token, gate, http=None, interactive=True, cloud=None, media_fetch=None):
         self.base_url = str(base_url or "").rstrip("/")
         # Optional WhatsApp Cloud API access, used only for the form URL button.
         cloud = cloud if isinstance(cloud, dict) else {}
@@ -265,6 +304,7 @@ class ChatwootTransport:
         self.token = str(token or "")
         self.gate = dict(gate or {})
         self.http = http or _http
+        self.media_fetch = media_fetch or _download_tutorial
         self.interactive = interactive is True
 
     def ready(self):
@@ -371,6 +411,14 @@ class ChatwootTransport:
         except Exception:
             return {"status": "failed", "reason": "recipient_unverified"}
 
+        from tutorial_videos import select_attachment
+        try:
+            video = select_attachment(text, buttons)
+        except ValueError:
+            return {"status": "failed", "reason": "tutorial_selection_invalid"}
+        if video:
+            return self._send_tutorial(event, video, idempotency_key, before_write)
+
         # Chatwoot renders up to three items as reply buttons; four to ten
         # items use WhatsApp's list picker. Values remain the full declaration.
         choices = [value.strip() for value in (buttons or [])[:10]
@@ -416,6 +464,47 @@ class ChatwootTransport:
             return {"status": "outcome_unknown", "reason": "missing_message_receipt"}
         return {"status": "accepted", "message_id": _id(reply["id"])}
 
+    def _send_tutorial(self, event, asset, key, before_write):
+        """One Chatwoot POST with caption+MP4, under the existing durable outbox key.
+
+        Never switch to a text link or Cloud API on failure: an ambiguous write
+        must stay ambiguous, not duplicate a possibly accepted video.
+        """
+        try:
+            data = self.media_fetch(asset)
+            # Defense in depth even when a custom fetcher is provided.
+            if (not isinstance(data, bytes) or len(data) != asset['size']
+                    or hashlib.sha256(data).hexdigest() != asset['sha256']):
+                return {"status": "failed", "reason": "tutorial_integrity_failed"}
+            raw, content_type = _video_multipart(asset, data, key)
+        except Exception:
+            return {"status": "failed", "reason": "tutorial_unavailable"}
+        try:
+            # Download can take time: recheck the recipient/window and cancellation
+            # immediately before the single side-effecting call.
+            if not self._read_target(event):
+                return {"status": "failed", "reason": "recipient_mismatch_or_window_closed"}
+            if before_write is not None and before_write() is not True:
+                return {"status": "failed", "reason": "send_cancelled_before_post"}
+        except Exception:
+            return {"status": "failed", "reason": "send_cancelled_before_post"}
+        try:
+            reply = self.http(method='POST', url=self._conversation_url(event) + '/messages',
+                headers={'api_access_token': self.token, 'Content-Type': content_type, 'Idempotency-Key': key},
+                raw_body=raw, timeout=30)
+        except HTTPError as exc:
+            failed = 400 <= exc.code < 500 and exc.code != 408
+            exc.close()
+            return {'status': 'failed' if failed else 'outcome_unknown', 'reason': 'tutorial_post_unconfirmed'}
+        except Exception:
+            return {'status': 'outcome_unknown', 'reason': 'tutorial_post_unconfirmed'}
+        if not isinstance(reply, dict) or not _id(reply.get('id')) or not _has_video_attachment(reply):
+            return {'status': 'outcome_unknown', 'reason': 'tutorial_receipt_missing'}
+        if reply.get('status') == 'failed':
+            return {'status': 'failed', 'reason': 'tutorial_channel_rejected'}
+        # Accepted means queued by Chatwoot, never proof of WhatsApp delivery.
+        return {'status': 'accepted', 'message_id': _id(reply['id']), 'media_type': 'video'}
+
     def _form_button(self, text):
         from real_journey import PUBLIC_FORM_URL
         if not self.cloud or PUBLIC_FORM_URL not in text:
@@ -460,6 +549,11 @@ class ChatwootTransport:
             for message in data.get("payload", []):
                 attributes = message.get("content_attributes") or {}
                 if attributes.get("amplify_idempotency_key") == idempotency_key and _id(message.get("id")):
+                    if attributes.get('amplify_tutorial'):
+                        if message.get('status') == 'failed':
+                            return {'status': 'failed', 'reason': 'tutorial_channel_rejected'}
+                        if not _has_video_attachment(message):
+                            continue
                     return {"status": "accepted", "message_id": _id(message["id"])}
         except Exception:
             pass
