@@ -1,6 +1,6 @@
 """Retomada de quem parou de responder e de quem ficou sem resposta (release 39).
 
-Retomada: 15 min, 2 h e 23h30 depois da última mensagem do lead (dentro da
+Retomada: 10 min e 20 min depois da última mensagem do lead (dentro da
 janela de 24 h do WhatsApp), uma vez cada, sempre com uma ação concreta. Nunca
 logo depois de uma resposta da Bia, nunca com operação pendente ou incerta,
 nunca sob controle humano/manutenção, e para quando o lead encerra.
@@ -21,8 +21,8 @@ from contracts import allow_inbound, inbound_key, pilot_phone
 from followup import clock
 from demo_router import production_blocked, excluded_conversations
 
-STEPS = ((1, timedelta(minutes=15)), (2, timedelta(hours=2)), (3, timedelta(hours=23, minutes=30)))
-LINKED_STEPS = ((1, timedelta(hours=2)), (2, timedelta(hours=23, minutes=30)))
+STEPS = ((1, timedelta(minutes=10)), (2, timedelta(minutes=20)))
+LINKED_STEPS = STEPS
 MIN_GAP = timedelta(minutes=10)
 WAITING = frozenset({'intro', 'origin', 'tiktok', 'shop', 'agency', 'consent_real', 'await_acceptance', 'form',
                      # Release 51: 'blocked' só para quem precisa ativar o TikTok Shop (message decide).
@@ -50,7 +50,7 @@ REASONS = frozenset({
     'atendimento_fechado', 'fase_sem_lembrete', 'mensagem_mais_nova', 'pausa_ou_saida', 'nenhuma_etapa_vencida',
     'fora_do_horario', 'intervalo_minimo', 'ficha_ilegivel', 'cadastro_confirmado', 'mudou_no_chatwoot',
     'lembrete_ja_reservado', 'sem_pendencia', 'ponte_fora', 'origem_nao_confirmada', 'resposta_ja_aceita',
-    'consulta_ja_na_fila_da_mensagem',
+    'consulta_ja_na_fila_da_mensagem', 'demo_contact_excluded_from_production',
 })
 ERROR_PREFIX = 'erro_envio:'
 
@@ -137,12 +137,12 @@ def enabled(settings, name):
 
 
 def steps_for(state):
-    """Vínculo confirmado sem cadastro: 2 h e 23h30 (a janela do WhatsApp não permite 72 h)."""
+    """No máximo duas retomadas por pausa, também após o vínculo confirmado."""
     from real_journey import _linked
     return LINKED_STEPS if _linked((state.get('cycle') or {})) else STEPS
 
 
-def message(state, step, policy):
+def _message(state, step, policy):
     """O lembrete da etapa atual, sempre com uma ação concreta e um ângulo novo; None se não couber."""
     import conversao
     from real_journey import PUBLIC_FORM_URL, _first_name, _invite_known, _linked, _policy_fingerprint, policy_valid
@@ -150,8 +150,15 @@ def message(state, step, policy):
     facts, phase = cycle.get('facts') or {}, cycle.get('phase')
     if state.get('cadastro_situacao') == 'confirmado' or cycle.get('acesso_liberado'):
         return None
+    # Stay on the active qualification question, never jump ahead to the @.
+    from lead_validation import stage as validation_stage, QUESTIONS
+    current_stage = validation_stage(cycle)
+    if current_stage == 'specialist':
+        return None
+    if current_stage in QUESTIONS:
+        return QUESTIONS[current_stage]
     name = _first_name(cycle)
-    hello = 'Oi' + (', ' + name if name else '') + '! '
+    hello = ''
     if phase == 'blocked':
 
         # (ponte, convite em conferência) dependem do sistema, não do lead: sem lembrete.
@@ -179,6 +186,21 @@ def message(state, step, policy):
         text, buttons = conversao.intro_reminder(step)
         return hello + text, buttons
     return None
+
+
+def message(state, step, policy):
+    """At most two continuation messages, never another opening greeting."""
+    if step not in {1, 2}:
+        return None
+    result = _message(state, step, policy)
+    if result is None:
+        return None
+    text, buttons = result
+    text = re.sub(r'^Oi(?:, [^!\n]+)?!\s*', '', text)
+    if step == 2:
+        text = text.split('\n\nSe preferir parar por aqui')[0]
+        text += '\n\nVou encerrar este atendimento por agora. Quando quiser continuar, é só me chamar. 💙'
+    return text, buttons
 
 
 def reminder_base(state, last_inbound):
@@ -393,7 +415,12 @@ class Retomada:
                     if not (live['cycle'].get('facts') or {}).get('tiktok_declarado'):
                         # The lead may answer this ask with the bare @.
                         live['cycle']['arroba_pedido'] = True
+                    if step == 2:
+                        # Preserve all facts/effects/receipts for reconciliation on return.
+                        live['cycle'].update(status='closed', reason='inactivity_timeout', closed_at=now.isoformat())
                     self.repository.save_session(conv, live)
+                    if step == 2 and callable(self.on_stopped):
+                        self.on_stopped(event, live, now)
             return {'status': status, 'step': step,
                     'motivo': 'lembrete_enviado' if status == 'accepted' else send_error(safe.get('reason') or status)}
 
@@ -476,9 +503,19 @@ class PosPausa:
             return {'status': 'cooldown'}
         try:
             outcome = self._scan(now)
-        except Exception:
+        except Exception as error:
+            # Categories only: never expose exception text, URLs, payloads or tokens.
+            from urllib.error import HTTPError, URLError
+            from json import JSONDecodeError
+            reason = ('timeout' if isinstance(error, TimeoutError)
+                      or (isinstance(error, URLError) and isinstance(error.reason, TimeoutError))
+                      else 'transport_http_error' if isinstance(error, HTTPError)
+                      else 'transport_error' if isinstance(error, (URLError, OSError))
+                      else 'invalid_response' if isinstance(error, JSONDecodeError)
+                      else 'programming_error' if isinstance(error, (TypeError, KeyError, AttributeError, NameError, AssertionError))
+                      else 'unexpected_error')
             self._progress = None
-            outcome = {'status': 'unconfirmed'}
+            outcome = {'status': 'unconfirmed', 'reason': reason}
         finally:
             self._deadline = None
         if outcome.get('status') == 'scanning':
@@ -496,8 +533,11 @@ class PosPausa:
         return outcome
 
     def _get(self, url):
+        # Do not turn a healthy GET into a tiny-deadline failure that resets the
+        # entire snapshot. Yield before starting work; an in-flight read keeps
+        # its normal timeout (the cooperative slice can overrun by one read).
         return self.transport.http(method='GET', url=url, headers={'api_access_token': self.transport.token,
-                                   'Accept': 'application/json'}, timeout=max(0.01, min(10, self._deadline - self.monotonic())) if self._deadline is not None else 10)
+                                   'Accept': 'application/json'}, timeout=10)
 
     def _scan(self, now):
         gate = self.settings.get('gate') or {}
@@ -511,7 +551,7 @@ class PosPausa:
         if not progress['listed']:
             listing = self._listing(base, gate, now)
             if listing is None:
-                return {'status': 'unavailable'}
+                return {'status': 'unavailable', 'reason': 'invalid_response'}
             if not progress['listed']:
                 return {'status': 'scanning'}
         listing = progress['listing']
@@ -519,7 +559,7 @@ class PosPausa:
         outcome = progress['outcome']
         processed = 0
         while progress['index'] < len(listing):
-            if processed >= 25 or self.monotonic() >= self._deadline:
+            if processed >= 25 or self.monotonic() >= self._deadline - 1:
                 progress['outcome'] = outcome
                 return {'status': 'scanning'}
             conversation = listing[progress['index']]
@@ -576,7 +616,7 @@ class PosPausa:
         progress = self._progress
         listing, seen = progress['listing'], progress['seen']
         while progress['page'] <= LISTING_PAGES:
-            if self.monotonic() >= self._deadline:
+            if self.monotonic() >= self._deadline - 1:
                 return listing
             page = progress['page']
             data = self._get(base + '/conversations?inbox_id=' + str(gate.get('inbox_id'))

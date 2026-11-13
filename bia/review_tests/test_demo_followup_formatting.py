@@ -11,12 +11,12 @@ import test_demo_resolution_receipt as receipt_fixtures
 class FollowupFormatting(unittest.TestCase):
     def test_warning_has_three_short_paragraphs_and_preserves_original_words(self):
         original = ('Ainda estou por aqui 😊 Quer continuar de onde paramos? '
-                    'Se não houver resposta em mais 5 minutos, encerro este atendimento por agora.')
+                    'Se não houver resposta em mais 10 minutos, encerro este atendimento por agora.')
         paragraphs = demo_followup.PAYLOAD['content'].split('\n\n')
         self.assertEqual(paragraphs, [
             'Ainda estou por aqui 😊',
             'Quer continuar de onde paramos?',
-            'Se não houver resposta em mais 5 minutos, encerro este atendimento por agora.'])
+            'Se não houver resposta em mais 10 minutos, encerro este atendimento por agora.'])
         self.assertEqual(' '.join(paragraphs), original)
 
     def test_closure_separates_thanks_and_preserves_original_words(self):

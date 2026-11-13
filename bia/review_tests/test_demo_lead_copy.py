@@ -16,7 +16,7 @@ class LeadCopy(unittest.TestCase):
         texts=[demo_followup.PAYLOAD['content'],demo_followup.CLOSE_PAYLOAD['content'],demo_flow.TEMPLATES['closed'][0]]
         for text in texts:
             self.assertNotRegex(text.casefold(),r'test|reset|simula|ensaio')
-        self.assertIn('mais 5 minutos',texts[0])
+        self.assertIn('mais 10 minutos',texts[0])
         self.assertEqual(texts[1], 'Como não tivemos resposta, encerrei este atendimento por agora.\n\nObrigada pela conversa! 💙')
         self.assertEqual(demo_flow.TEMPLATES['closed'][1], {})
         for _, menu in demo_flow.TEMPLATES.values():

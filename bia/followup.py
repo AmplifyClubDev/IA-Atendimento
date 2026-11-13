@@ -93,12 +93,12 @@ class Followup:
 
     def status(self):
         baseline = clock(self.settings.get('followup_start_at'))
-        return {'enabled': self.settings.get('followup_enabled') is True,
+        return {'enabled': self.settings.get('followup_enabled') is True and self.settings.get('retomada_enabled') is not True,
                 'configured': configured(self.settings), 'status': self.last_status,
-                'delay_seconds': 300 if str(self.settings.get('followup_delay_seconds')) == '300' else None,
+                'delay_seconds': 600 if str(self.settings.get('followup_delay_seconds')) == '300' else None,
                 'start_at': baseline.isoformat() if baseline else None, 'last_tick_at': self.last_tick_at,
                 'inactivity_close_enabled': self.settings.get('inactivity_close_enabled') is True,
-                'inactivity_close_delay_seconds': 300 if str(self.settings.get('inactivity_close_delay_seconds')) == '300' else None,
+                'inactivity_close_delay_seconds': 600 if str(self.settings.get('inactivity_close_delay_seconds')) == '300' else None,
                 'inactivity_callback_configured': callable(self.close_for_inactivity),
                 'last_stage': self.last_stage, 'close_due_at': self.close_due_at}
 
@@ -120,7 +120,7 @@ class Followup:
                 or str(event.get('conversation_id')) != pilot_scope.conversation_id(self.scope) or inbound_key(event) != source.get('event_key')
                 or not processed or processed[-1] != source.get('event_key')
                 or not all((created, expires, last, baseline)) or not baseline < created <= last <= now
-                or not timedelta(seconds=300) <= now-created < timedelta(hours=24) or now >= expires
+                or not timedelta(seconds=600) <= now-created < timedelta(hours=24) or now >= expires
                 or state.get('human_control') or cycle.get('qualification_paused') or cycle.get('pending_profile_changes')
                 or state.get('cadastro_situacao') == 'confirmado' or cycle.get('opt_out') or state.get('opt_out')):
             return False
@@ -201,6 +201,9 @@ class Followup:
         return outcome
 
     def _tick(self):
+        # One owner per real conversation: never combine pilot and global nudges.
+        if self.settings.get("retomada_enabled") is True:
+            return {"status": "disabled", "reason": "retomada_owner"}
         if production_blocked(self.settings, conversation_key=self.conversation):
             return {'status': 'blocked', 'reason': 'demo_contact_excluded_from_production'}
         if self.settings.get('inactivity_close_enabled') is True:
@@ -223,7 +226,7 @@ class Followup:
                 if not delivery.get('last_accepted_reply') or delivery.get('latest_attempt_status') != 'accepted':
                     return {'status': 'blocked'}
                 last_reply_at = clock(delivery['last_accepted_reply'].get('at'))
-                if not last_reply_at or not timedelta(seconds=300) <= now-last_reply_at:
+                if not last_reply_at or not timedelta(seconds=600) <= now-last_reply_at:
                     # A slow provider may have just produced the real answer;
                     # never follow that fresh reply with an immediate nudge.
                     return {'status': 'idle'}
@@ -302,7 +305,7 @@ class Followup:
                 and isinstance(control, dict) and control.get('allowed') is True
                 and self._source_unchanged(source['event'], state, contact_verified=True)
                 and (warning is None or self._accepted(warning[0], source)
-                     and current-clock(warning[1]['accepted_at']) >= timedelta(seconds=300)))
+                     and current-clock(warning[1]['accepted_at']) >= timedelta(seconds=600)))
         try:
             receipt = self.transport.send_reply(source['event'], text, buttons, key, before_write=before_write)
         except Exception:
@@ -371,7 +374,7 @@ class Followup:
                 if warning_row:
                     if not warning:
                         return {'status': 'already_reserved', 'stage': 'warning'}
-                    due = clock(warning['accepted_at']) + timedelta(seconds=300)
+                    due = clock(warning['accepted_at']) + timedelta(seconds=600)
                     if now < due:
                         return {'status': 'awaiting_close', 'stage': 'warning', 'close_due_at': due.isoformat()}
                     text = ('Como não tivemos resposta, encerrei este atendimento por agora. '
@@ -383,11 +386,11 @@ class Followup:
                     delivery = self.repository.conversation_delivery_context(self.conversation, cycle['opened_at'])
                     last = delivery.get('last_accepted_reply') or {}
                     if (delivery.get('latest_attempt_status') != 'accepted' or not clock(last.get('at'))
-                            or now-clock(last['at']) < timedelta(seconds=300)):
+                            or now-clock(last['at']) < timedelta(seconds=600)):
                         return {'status': 'idle', 'stage': 'warning'}
                     topic = 'conhecendo a Amplify' if cycle.get('phase') == 'intro' else 'com seu atendimento'
                     text = (f'Vi que nossa conversa ficou pendente. 😊 Quer seguir {topic} ou prefere encerrar por agora? '
-                            'Se ficar sem resposta por mais 5 minutos, encerro este atendimento por enquanto.')
+                            'Se ficar sem resposta por mais 10 minutos, encerro este atendimento por enquanto.')
                     buttons = ['Seguir atendimento', 'Encerrar agora']
                     key, stage = warning_key, 'warning'
                 if self.next_probe_at and now < self.next_probe_at:

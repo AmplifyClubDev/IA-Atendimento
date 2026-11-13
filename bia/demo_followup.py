@@ -8,8 +8,14 @@ WAITING = frozenset({'opening', 'about', 'profile', 'member', 'conditions', 'inv
                      'faq_invite', 'faq_partnership', 'faq_more', 'faq_unknown'})
 PAYLOAD = {'content': 'Ainda estou por aqui 😊\n\n'
            'Quer continuar de onde paramos?\n\n'
-           'Se não houver resposta em mais 5 minutos, encerro este atendimento por agora.',
+           'Se não houver resposta em mais 10 minutos, encerro este atendimento por agora.',
            'message_type': 'outgoing', 'private': False, 'content_type': 'text'}
+
+
+def effective_due(row):
+    """Legacy persisted +5 minute deadline becomes +10 without new keys/replays."""
+    from demo_router import clock
+    return clock(row['due']) + timedelta(seconds=300)
 
 
 def arm(router, source_key):
@@ -59,7 +65,7 @@ def tick(router):
             return {'status': 'idle'}
         row = router.store.db.execute('SELECT * FROM demo_followups WHERE slot=? AND source_key=? AND status=?',
                 (router.scope.slot, state['outbox_key'], 'pending')).fetchone()
-        if not row or clock(router.now()) < clock(row['due']):
+        if not row or clock(router.now()) < effective_due(row):
             return {'status': 'idle'}
         if clock(router.now()) - clock(row['due']) >= timedelta(minutes=55):
             router.store.db.execute("UPDATE demo_followups SET status='expired' WHERE key=?", (row['key'],))
@@ -232,7 +238,7 @@ def tick_closure(router):
         return None
     row = router.store.db.execute('SELECT * FROM demo_closures WHERE slot=? AND source_key=? AND status=?',
                                   (router.scope.slot, state['outbox_key'], 'pending')).fetchone()
-    if not row or clock(router.now()) < clock(row['due']):
+    if not row or clock(router.now()) < effective_due(row):
         return None
     if clock(router.now()) - clock(row['due']) >= timedelta(minutes=55):
         router.store.db.execute("UPDATE demo_closures SET status='expired' WHERE key=?", (row['key'],))

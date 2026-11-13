@@ -20,9 +20,9 @@ class Reminders(unittest.TestCase):
         self.gateway.preflight = Mock(return_value={'after_message_id': self.state['parent_id']})
 
     def due(self):
-        self.at += timedelta(seconds=300)
+        self.at += timedelta(seconds=600)
 
-    def test_once_after_five_minutes_preserves_step_and_run(self):
+    def test_once_after_ten_minutes_preserves_step_and_run(self):
         self.assertEqual(tick(self.router)['status'], 'idle')
         self.due()
         self.assertEqual(tick(self.router)['status'], 'accepted')
@@ -95,7 +95,7 @@ class LiveGatewayReminders(unittest.TestCase):
                            continuation_enabled=True, followup_enabled=True)
         router.start('synthetic-live-followup')
         fake.messages.append({'id': '201', 'message_type': 'outgoing', 'private': False})
-        self.at += timedelta(seconds=300)
+        self.at += timedelta(seconds=600)
         return fake, router
 
     def test_live_exact_scope_approved_reminder_and_no_restart(self):

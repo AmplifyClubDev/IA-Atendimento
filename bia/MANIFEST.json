@@ -79,8 +79,8 @@
     },
     {
       "path": "demo_followup.py",
-      "bytes": 16375,
-      "sha256": "ea5e20d6f2ab3f1f2476a4a835020f627e4dfbdab75bbc0fe58b21c219e64510"
+      "bytes": 16576,
+      "sha256": "33bc5936d486630c92435cdc0ccd4d58633bd702aa896413e658f78e3a2a7aab"
     },
     {
       "path": "demo_knowledge.py",
@@ -109,8 +109,8 @@
     },
     {
       "path": "followup.py",
-      "bytes": 26759,
-      "sha256": "bd66bbf2e61af3efcf96c546c71c5d3f831c1ea75ca47bb2f805ee3005d3336d"
+      "bytes": 27024,
+      "sha256": "a2b435f65f60e2dc535e3d34029fa9ffef5e8003e37051833b8dc82ff1fddf44"
     },
     {
       "path": "forms.py",
@@ -214,8 +214,8 @@
     },
     {
       "path": "retomada.py",
-      "bytes": 39539,
-      "sha256": "b781e111f43761f096cd2252904bad576495940917ff0e8a9e8ac78cd0a3215c"
+      "bytes": 39919,
+      "sha256": "40b321402e1a01e4509be01bd77057c637f3088e8e23c8c3d7ddd44892d316a9"
     },
     {
       "path": "server.py",

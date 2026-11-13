@@ -23,11 +23,11 @@ class CloseCases(unittest.TestCase):
         self.gateway.preflight.return_value = {'after_message_id': row['warning_message_id']}
         return row
 
-    def test_five_plus_five_closes_once_preserving_history(self):
+    def test_ten_plus_ten_closes_once_preserving_history(self):
         self.warning()
         before = [self.store.db.execute('SELECT count(*) FROM '+t).fetchone()[0]
                   for t in ('demo_outbox','demo_events','demo_starts')]
-        self.at += timedelta(seconds=299)
+        self.at += timedelta(seconds=599)
         self.assertEqual(tick(self.router)['status'], 'idle')
         self.at += timedelta(seconds=1)
         self.assertEqual(tick(self.router), {'status':'closed','stage':'closure'})
@@ -138,9 +138,9 @@ class ProviderClose(unittest.TestCase):
         configure_context_payload(self.gateway,self.store,REVIEW_SCOPE)
         self.router=DemoRouter(REVIEW_SCOPE,self.store,self.gateway,now=lambda:self.at,continuation_enabled=True,followup_enabled=True)
         self.router.start('synthetic-close-start')
-        self.at+=timedelta(minutes=5)
+        self.at+=timedelta(minutes=10)
         self.assertEqual(tick(self.router)['status'],'accepted')
-        self.at+=timedelta(minutes=5)
+        self.at+=timedelta(minutes=10)
 
     def test_resolves_exact_conversation_with_explicit_status(self):
         self.assertEqual(tick(self.router)['status'],'closed')

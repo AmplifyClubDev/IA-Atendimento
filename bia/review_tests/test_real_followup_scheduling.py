@@ -89,7 +89,7 @@ class WorkerScheduling(unittest.TestCase):
         worker._run()
         worker.demo_followup_tick.assert_not_called()
 
-    def test_busy_queue_delivers_warning_at_300_and_closes_at_600_once(self):
+    def test_busy_queue_delivers_warning_at_600_and_closes_at_1200_once(self):
         started = self.at
         deliveries = []
         def callback():
@@ -100,8 +100,8 @@ class WorkerScheduling(unittest.TestCase):
             closure = self.store.db.execute('SELECT * FROM demo_closures').fetchone()
             if closure:
                 self.gateway.preflight.return_value = {'after_message_id': closure['warning_message_id']}
-        self.run_worker(['completed', 'polling'] * 156, callback)
-        self.assertEqual(deliveries, [300, 600])
+        self.run_worker(['completed', 'polling'] * 306, callback)
+        self.assertEqual(deliveries, [600, 1200])
         self.assertEqual(len(self.gateway.sent), 3)
         self.assertEqual(len(self.gateway.resolved), 1)
         self.assertEqual(self.store.current(self.router.scope.slot)['step'], 'closed')
