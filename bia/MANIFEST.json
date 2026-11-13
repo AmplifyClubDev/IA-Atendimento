@@ -39,8 +39,8 @@
     },
     {
       "path": "conversao.py",
-      "bytes": 12625,
-      "sha256": "1a69fe9912d724d35b00bb0a2612d4ac51131b8b1dddc2853474b26979a16e95"
+      "bytes": 12334,
+      "sha256": "dfc294bd72b225f3ad787b48d0b89a47c1e5692dbb645eb67d32c421ecd5029a"
     },
     {
       "path": "conversation.py",
@@ -214,8 +214,8 @@
     },
     {
       "path": "retomada.py",
-      "bytes": 39615,
-      "sha256": "5cf1129e95f5497b0fa06023563a225c1e9de52cfe30f8aed2f499f05c4e8c4a"
+      "bytes": 39919,
+      "sha256": "40b321402e1a01e4509be01bd77057c637f3088e8e23c8c3d7ddd44892d316a9"
     },
     {
       "path": "server.py",

@@ -142,8 +142,7 @@ def auto_invite(name, handle, policy):
             '• o seu conteúdo e as suas vendas continuam sendo seus\n'
             f'• a Amplify fica com {rate(policy)}% só da comissão que você ganhar (se não vender, não paga nada)\n'
             f'• prazo de {policy["duration_label"]}\n\n'
-            'Já tô enviando o convite da Amplify para o seu TikTok (' + handle + ') 🔎 Te aviso aqui assim que sair. '
-            'Você confere essas condições e aceita no próprio app.')
+            'Essas são as condições da parceria para o perfil ' + handle + '.')
 
 
 def consent_reminder(step, policy):
@@ -177,10 +176,3 @@ def registration_reminder(step, name, url):
     return (hello + 'Conseguiu concluir seu cadastro na Amplify? Se parou no código, confira o pedido mais recente '
             'no e-mail e no formulário, inclusive em Spam e Promoções. Se o e-mail já está confirmado, '
             'continue de onde parou pelo mesmo navegador. 😊\n' + url)
-
-# Tutorials supplied and authorized by Amplify; explicit help can be requested again.
-import tutorial_videos
-INVITE_WHERE = tutorial_videos.invitation_help(INVITE_WHERE)
-INVITE_STEPS = tutorial_videos.invitation_help(INVITE_STEPS)
-INVITE_IS_THERE = tutorial_videos.invitation_help(INVITE_IS_THERE)
-SHOP_STEPS = tutorial_videos.activation_help(SHOP_STEPS)
