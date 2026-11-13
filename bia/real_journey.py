@@ -2701,7 +2701,8 @@ def _settle_invite_code(state, at, effect, status, result, record, policy):
             cycle['invite_failed_retry'] = {'at': engine._stamp(at), 'reason': reason}
             check = _schedule_invite_retry(state, at, delay=INVITE_FAILED_RETRY_SECONDS)
             if check:
-                return _finish(state, at, reply=conversao.INVITE_RETRYING, effects=[check], buttons=[])
+                state["revision"] += 1
+                return engine._result(state, effects=[check], operation_settled=True)
         # 2ª falha: o atendimento fica em blocked e o vigia do Cadastro avisa a equipe em 30 min.
         cycle.update(phase='blocked', block_reason='invite_failed_twice')
         cycle['team_alert'] = {'at': engine._stamp(at), 'reason': 'invite_failed_twice', 'last_reason': reason}
@@ -2817,13 +2818,14 @@ def resolve_tiktok_result(session, effect_id, result, *, now=None, operation_pol
                     # Reenvio da reconferência: o lead já sabe que eu envio sozinha; a próxima mensagem é o resultado.
                     state["revision"] += 1
                     return engine._result(state, effects=[job], operation_settled=True)
-                return _finish(state, at, reply="Vou reenviar seu convite agora, conferindo antes para não duplicar. 🔎", effects=[job])
+                state["revision"] += 1
+                return engine._result(state, effects=[job], operation_settled=True)
     if (operation == "invite" and status in {"outcome_unknown", "verification_pending", "failed"}
             and _invite_retry_possible(state)):
         check = _schedule_invite_retry(state, at, delay=INVITE_RETRY_DELAY_SECONDS)
         if check:
-            return _finish(state, at, effects=[check],
-                           reply="O convite ainda não chegou ao TikTok. Vou tentar de novo em alguns minutos, sem duplicar o envio.")
+            state["revision"] += 1
+            return engine._result(state, effects=[check], operation_settled=True)
     if (operation == 'invite' and status in {'outcome_unknown', 'verification_pending', 'failed'}
             and result.get('reason') in BRIDGE_DOWN_REASONS and _invite_no_write(record)):
 
@@ -2891,7 +2893,7 @@ def resolve_tiktok_result(session, effect_id, result, *, now=None, operation_pol
         if handed_off is not None:
             return handed_off
         cycle['phase'] = 'blocked'
-        return _finish(state, at, reply='Ainda não há confirmação suficiente do envio. _Não vou repetir o convite._', buttons=[])
+        return _finish(state, at, reply='O envio do convite ainda não está confirmado.', buttons=[])
     if operation == "lookup":
         # Lookup enrichment cannot advance another operation's phase or claim
         # exact GMV without the provider's currency/period evidence.
@@ -2909,7 +2911,7 @@ def resolve_tiktok_result(session, effect_id, result, *, now=None, operation_pol
         reply = (conversao.SHOP_UNKNOWN if status == "verification_pending" and result.get("reason") == "shop_unknown" else
                  "A consulta precisa de uma verificação de segurança no TikTok. Vou aguardar essa verificação antes de avançar."
                  if status == "verification_pending" else
-                 "O TikTok ainda não confirmou o resultado. Vou manter esta etapa pendente e conferir o que aconteceu antes de tentar qualquer novo envio.")
+                 "O TikTok ainda não confirmou o resultado. Esta etapa está pendente.")
     elif operation == "precheck":
         if status == "eligible":
             relationship = cycle.get("real_operations", {}).get("relationship") or {}
