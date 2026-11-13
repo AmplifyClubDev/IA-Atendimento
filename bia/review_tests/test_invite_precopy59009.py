@@ -19,3 +19,9 @@ class PreInviteCopy(unittest.TestCase):
   self.assertEqual([e['operation'] for e in result['effects']],['invite'])
   self.assertEqual(result['state']['cycle']['phase'],'inviting')
   self.assertNotRegex(result['reply'].lower(),r'enviando|tentando|te aviso|foi enviado')
+ def test_tutorial_integration_preserved(self):
+  import tutorial_videos as v
+  for text in (conversao.INVITE_WHERE,conversao.INVITE_STEPS,conversao.INVITE_IS_THERE):
+   self.assertIn(v.ACCEPT_INVITE_URL,text)
+   self.assertEqual(v.select_attachment(text,[])['key'],'accept_invite')
+  self.assertIn(v.ACTIVATE_SHOP_URL,conversao.SHOP_STEPS)

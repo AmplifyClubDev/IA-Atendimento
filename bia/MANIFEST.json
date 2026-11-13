@@ -39,8 +39,8 @@
     },
     {
       "path": "conversao.py",
-      "bytes": 12334,
-      "sha256": "dfc294bd72b225f3ad787b48d0b89a47c1e5692dbb645eb67d32c421ecd5029a"
+      "bytes": 12512,
+      "sha256": "210a37996778b96a0e302dc699d4d7cd98eed2e7c3bb53e76bf1507359bc3991"
     },
     {
       "path": "conversation.py",
