@@ -179,7 +179,7 @@ class SmokeCases(unittest.TestCase):
         self.run_check()
         self.assertEqual(opener.open.call_count, len(SMOKE_QUESTIONS))
         for call in opener.open.call_args_list:
-            self.assertEqual(call.kwargs['timeout'], 12)
+            self.assertEqual(call.kwargs['timeout'], 18)
             body = json.loads(call.args[0].data)
             self.assertEqual(body['max_output_tokens'], 1500)
             self.assertFalse(body['store'])

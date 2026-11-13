@@ -42,7 +42,7 @@ personal data, generic engagement, or an operational claim.
     return question
 
 
-def build_semantic_verifier(settings, *, opener=None):
+def build_semantic_verifier(settings, *, opener=None, mode='demo'):
     """Return a synchronous single-attempt checker; uncertainty blocks delivery."""
     token, model = settings.get('openai_api_key'), settings.get('ai_model')
     if settings.get('ai_enabled') is not True or not isinstance(token, str) or not token or not isinstance(model, str) or not model:
@@ -50,7 +50,7 @@ def build_semantic_verifier(settings, *, opener=None):
 
     def verify(question, candidate, snapshot, dialogue, *, timeout=12):
         try:
-            from demo_answers import _evidence_catalog, _demo_operational_context
+            from answer_engine import _evidence_catalog, _operational_context
             from demo_flow import safe_context_text
             if (not isinstance(snapshot, dict) or snapshot.get('source') != 'database'
                     or not isinstance(candidate, dict) or candidate.get('knowledge_version') != snapshot.get('knowledge_version')
@@ -71,7 +71,7 @@ def build_semantic_verifier(settings, *, opener=None):
             review = {'question': safe_context_text(question, 500),
                       'answer': candidate['answer'], 'evidence': candidate['evidence'],
                       'sources': sources, 'conversation': dialogue,
-                      'operational_context': _demo_operational_context()}
+                      'operational_context': _operational_context(mode)}
             body = {'model': model, 'store': False, 'max_output_tokens': 1500,
                     'instructions': (
                         'Você é um revisor independente de suporte factual, não o autor da resposta. '

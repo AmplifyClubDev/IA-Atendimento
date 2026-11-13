@@ -178,12 +178,12 @@ class SemanticPipeline(unittest.TestCase):
         opener = Mock()
         def open_response(request, timeout):
             value = values.pop(0)
-            now[0] += 12.0 if values else 1.0
+            now[0] += min(12.0, timeout) if values else 1.0
             return response(value)
         opener.open.side_effect = open_response
         answerer = build_answerer(SETTINGS, opener=opener, context_loader=lambda _: context(), clock=lambda: now[0])
         self.assertIsInstance(answerer('Quais benefícios?'), dict)
-        self.assertEqual([call.kwargs['timeout'] for call in opener.open.call_args_list], [12, 12, 4.0])
+        self.assertEqual([call.kwargs['timeout'] for call in opener.open.call_args_list], [18.0, 10.0, 6.0])
 
     def test_late_supported_review_is_not_delivered(self):
         now = [0.0]

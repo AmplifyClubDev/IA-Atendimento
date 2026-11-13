@@ -48,6 +48,8 @@ def load_settings(environ=None):
         'gate': {'enabled': get('V5_ENABLED').lower() == 'true', 'provider': 'chatwoot',
                  'account_id': get('CHATWOOT_ACCOUNT_ID'), 'inbox_id': get('CHATWOOT_INBOX_ID'), 'phone': phone},
         'pilot_scope': pilot_scope.load_scope(values), 'test_phone': phone, 'state_dir': get('V5_STATE_DIR', '/data'),
+        'same_engine_enabled': get('V5_SAME_ENGINE_ENABLED').lower() == 'true',
+        'context_profile_id': get('V5_CONTEXT_PROFILE_ID') or 'amplify-v1',
         'approved_experience_enabled': get('V5_APPROVED_EXPERIENCE_ENABLED').lower() == 'true',
         'qualification_enabled': get('V5_QUALIFICATION_ENABLED').lower() == 'true',
         'qualification_new_cycles_only': True,

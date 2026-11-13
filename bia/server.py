@@ -231,6 +231,9 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
         transport = ProductionTransportFence(transport, demo_router.scope)
     answerer = answerer or answer_question
     planner = planner or plan_turn
+    if settings.get('same_engine_enabled') is True:
+        from real_answer_adapter import build_real_planner
+        planner = build_real_planner(settings, planner)
     locks, lock_guard = {}, threading.Lock()
     reply_fence = _InboundReplyFence()
 
@@ -1183,6 +1186,8 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
     @app.get("/ready")
     def ready():
         missing = issues()
+        if settings.get('same_engine_enabled') is True and not getattr(planner, 'shared_engine_available', False):
+            missing.append('shared_answer_engine_unavailable')
         tiktok = executor.status()
         if _get(settings, 'tiktok_mode') == 'real' and not tiktok['worker_running']:
             missing.append('real_worker_not_running')
@@ -1204,6 +1209,10 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
         return jsonify(ready=not missing, issues=sorted(set(missing)), context_ia=context_info,
                        tiktok=tiktok, demo_real=demo_real,
                        approved_experience={'enabled': settings.get('approved_experience_enabled') is True, 'new_cycles_only': True},
+                       answer_engine={'enabled': settings.get('same_engine_enabled') is True,
+                                      'version': 'shared-answer-v1' if settings.get('same_engine_enabled') is True else 'legacy',
+                                      'available': getattr(planner, 'shared_engine_available', False),
+                                      'profile_id': settings.get('context_profile_id', 'amplify-v1')},
                        qualification={'enabled': settings.get('qualification_enabled') is True,
                                       'new_cycles_only': settings.get('qualification_new_cycles_only') is True}), 503 if missing else 200
 
@@ -1328,6 +1337,7 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                         turn_options = {'real_mode': _get(settings, 'tiktok_mode') == 'real',
                                         'operation_policy': policy_for(settings),
                                         'approved_experience_enabled': settings.get('approved_experience_enabled') is True,
+                                        'same_engine_enabled': settings.get('same_engine_enabled') is True,
                                         'qualification_enabled': settings.get('qualification_enabled') is True,
                                         'qualification_new_cycles_only': settings.get('qualification_new_cycles_only') is True}
                         if turn_options['real_mode'] and settings.get('relationship_check_in_form') is True:

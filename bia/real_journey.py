@@ -321,6 +321,8 @@ def _finish(state, at, *, reply=None, effects=None, status="real", intro=False, 
         if handed_off is not None:
             return handed_off
     text = reply or _phase_prompt(cycle)
+    if cycle.get('answer_clarification') and cycle['answer_clarification'] not in text:
+        cycle.pop('answer_clarification', None)
     if (cycle.get('phase') == 'origin' and not cycle.get('name_asked') and text.endswith(PROMPTS['origin'])
             and not (cycle.get('facts') or {}).get('nome_declarado')):
         cycle['name_asked'] = True
@@ -342,7 +344,7 @@ def _finish(state, at, *, reply=None, effects=None, status="real", intro=False, 
         cycle['arroba_pedido'] = text in {_HANDLE_UNKNOWN, conversao.HANDLE_HELP} or bool(re.search(
             r'(?:qual.{0,15}@|(?:me manda|me envie|me manda seu|me informe).{0,20}@)', text, re.I))
     # Release 42: os textos aprovados saem como estão (o filtro tiraria o 2º emoji do parágrafo).
-    transition = engine._finish_reply(state, text if exact or cycle.get('experience_version') == 'bia-approved-v1' else conversation._light_format(text), buttons, at, effects)
+    transition = engine._finish_reply(state, text if exact or cycle.get('experience_version') == 'bia-approved-v1' or cycle.get('answer_engine_active') is True else conversation._light_format(text), buttons, at, effects)
     transition["planner_status"] = status
     return transition
 
@@ -763,7 +765,7 @@ def _form_after_invite(state, at):
 # declarado dispara a leitura do vínculo, o formulário sempre vem com o botão e
 # o botão sai uma vez por etapa. Nenhum caminho aqui envia ou repete convite.
 ACCEPTANCE_RECHECK_MINUTES = (5, 15, 60)
-_LINK_POINTER = 'no botão *Fazer cadastro* que te mandei acima.'
+_LINK_POINTER = 'pelo link de cadastro: ' + PUBLIC_FORM_URL
 
 
 def _invite_known(cycle):
@@ -825,8 +827,8 @@ def _form_button_once(cycle, text, buttons, *, force=False):
     stage = _form_stage(cycle)
     if PUBLIC_FORM_URL in text:
         if stage and cycle.get('form_button_stage') == stage and not force:
-            text = re.sub(r'por aqui:?\s*(?:😊\s*)?\n?' + re.escape(PUBLIC_FORM_URL), _LINK_POINTER, text)
-            return text.replace(PUBLIC_FORM_URL, _LINK_POINTER.rstrip('.')), buttons
+            text, replaced = re.subn(r'por aqui:?\s*(?:😊\s*)?\n?' + re.escape(PUBLIC_FORM_URL), _LINK_POINTER, text)
+            return (text if replaced else text.replace(PUBLIC_FORM_URL, _LINK_POINTER)), buttons
         cycle['form_button_stage'] = stage or 'direct'
         return text, []
     if (stage and re.search(r'\bformul[aá]rio\b', text, re.I)
@@ -1203,6 +1205,23 @@ def _question_reply(text, plan, cycle, policy=None, *, state=None, now=None, all
     import conversation
     from receipt_grounding import approved_cost_reply, approved_educational_reply, ground_reply
     proposal = plan if isinstance(plan, dict) else {}
+    from real_answer_adapter import shared_reply
+    shared = shared_reply(proposal, cycle, policy)
+    if cycle.get('answer_engine_active') is True and shared is None:
+        from real_answer_adapter import UNAVAILABLE
+        return UNAVAILABLE
+    if shared is not None:
+        from demo_support import clarification_question
+        from real_answer_adapter import ground_shared_operational_reply
+        shared = ground_shared_operational_reply(text, shared, state, now=now)
+        clarification = clarification_question(shared)
+        cycle['answer_engine_version'] = 'shared-answer-v1'
+        cycle['answer_evidence_profile'] = proposal['shared_answer'].get('profile_id')
+        if clarification:
+            cycle['answer_clarification'] = clarification
+        else:
+            cycle.pop('answer_clarification', None)
+        return shared
     cost_reply = approved_cost_reply(text, proposal, policy)
     educational_reply = approved_educational_reply(text, proposal)
     candidates = []
@@ -1504,6 +1523,7 @@ def _sell_intro(result, policy):
     fixed = result.pop('fixed_greeting', False)
     if (cycle.get('status') != 'open' or cycle.get('phase') != 'intro' or not reply or fixed
             or cycle.get('qualification_paused') or cycle.get('experience_version') == 'bia-approved-v1'
+            or cycle.get('answer_engine_active') is True
             or (cycle.get('facts') or {}).get('interesse_agenciamento') is not True
             or _creator((cycle.get('facts') or {}).get('tiktok_declarado'))):
         # O "resetar" de teste e a volta de um atendimento encerrado mantêm a saudação fixa.
@@ -1539,7 +1559,8 @@ def handle_real(session, text, assistant_callback=None, *, resumed=None, **optio
     the reply apologizes and picks up what the lead asked, never a bare greeting."""
     result = _handle_real_turn(session, text, assistant_callback, **options)
     _sell_intro(result, options.get('operation_policy'))
-    safe = lead_safe(result.get('reply'))
+    shared = (result['state'].get('cycle') or {}).get('answer_engine_active') is True
+    safe = result.get('reply') if shared else lead_safe(result.get('reply'))
     if safe != result.get('reply'):
         # Release 41: frase de controle interno nunca chega ao lead, venha do modelo ou do cartão.
         for item in reversed(result['state'].get('history') or []):
@@ -1566,7 +1587,7 @@ def handle_real(session, text, assistant_callback=None, *, resumed=None, **optio
 
 
 def _handle_real_turn(session, text, assistant_callback=None, *, now=None, operation_policy=None, source_event=None,
-                      inactivity_notice=None, relationship_check_in_form=False, qualification_enabled=False, qualification_new_cycles_only=False, approved_experience_enabled=False):
+                      inactivity_notice=None, relationship_check_in_form=False, qualification_enabled=False, qualification_new_cycles_only=False, approved_experience_enabled=False, same_engine_enabled=False):
     import conversation
     if not isinstance(text, str) or not 0 < len(text.strip()) <= 4000:
         raise ValueError("text must contain between 1 and 4000 characters")
@@ -1602,6 +1623,7 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
             cycle['experience_version'] = 'bia-approved-v1'
     if cycle.get('experience_version') == 'bia-approved-v1':
         qualification_enabled = True
+    cycle['answer_engine_active'] = same_engine_enabled is True
     state["real_mode"] = True
     if relationship_check_in_form is True:
         cycle['relationship_check_in_form'] = True
@@ -1718,6 +1740,8 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
             answer = _question_reply(question, proposal, cycle, operation_policy, state=state, now=at, allow_local=False)
             answer = answer or 'Não consegui consultar essa informação agora. Sua etapa está preservada. Você pode tentar a pergunta novamente. 🔎'
             pending = current_validation_stage(cycle)
+            if cycle.get('answer_clarification'):
+                return {**_finish(state, at, reply=answer, buttons=[], exact=True), 'fixed_greeting': True}
             if pending and pending != 'complete':
                 from lead_validation import QUESTIONS
                 prompt, buttons = QUESTIONS[pending]
@@ -1734,15 +1758,50 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
                 return _finish(state, at, reply=response[0], buttons=response[1], exact=True)
             return _direct_form(state, at)
 
+    # A yes/no to an engine clarification is NOT an answer to an older
+    # qualification or consent request. Preserve operational state and effects.
+    if cycle.get('answer_clarification'):
+        context = {'phase': cycle['phase'], 'facts': deepcopy(cycle['facts']),
+                   'history': deepcopy([item for item in state['history'] if item['cycle_id'] == cycle['id']]),
+                   'real_mode': True, 'current_question': cycle['answer_clarification'],
+                   'allowed_claim_fields': [], 'allowed_actions': ['question', 'clarify', 'converse']}
+        try:
+            proposal = assistant_callback(text, context) if callable(assistant_callback) else None
+        except Exception:
+            proposal = None
+        answer = _question_reply(text, proposal, cycle, operation_policy, state=state, now=at, allow_local=False)
+        return _finish(state, at, reply=answer or 'Pode explicar um pouco mais sua dúvida?', buttons=[], exact=True)
+
     from lead_validation import stage as validation_stage, advance as validation_advance
     if validation_stage(cycle) not in {None, 'complete'}:
         validation_text = text
         if (cycle.get('experience_version') == 'bia-approved-v1' and validation_stage(cycle) == 'existing_profile'
                 and not re.fullmatch(r'[A-ZÀ-Ý][a-zà-ÿ]+', text.strip())):
             validation_text = _bare_handle(text) or text
+        previous_stage = validation_stage(cycle)
         response = validation_advance(cycle, validation_text, at)
         if response is not None:
             question, choices = response
+            if same_engine_enabled is True and validation_stage(cycle) == previous_stage:
+                context = {'phase': cycle['phase'], 'facts': deepcopy(cycle['facts']),
+                           'history': deepcopy([item for item in state['history'] if item['cycle_id'] == cycle['id']]),
+                           'real_mode': True, 'current_question': question, 'allowed_claim_fields': [],
+                           'allowed_actions': ['question', 'clarify', 'converse']}
+                try:
+                    proposal = assistant_callback(text, context) if callable(assistant_callback) else None
+                except Exception:
+                    proposal = None
+                from real_answer_adapter import shared_reply, UNAVAILABLE
+                from demo_support import clarification_question
+                answer = _question_reply(text, proposal, cycle, operation_policy, state=state, now=at, allow_local=False) or UNAVAILABLE
+                clarification = clarification_question(answer)
+                cycle['answer_engine_version'] = 'shared-answer-v1'
+                cycle['answer_evidence_profile'] = 'amplify-v1'
+                if clarification:
+                    cycle['answer_clarification'] = clarification
+                    return _finish(state, at, reply=answer, buttons=[], exact=True)
+                cycle.pop('answer_clarification', None)
+                return _finish(state, at, reply=answer + '\n\n' + question, buttons=choices, exact=True)
             return _finish(state, at, reply=question, buttons=choices, exact=True)
         if cycle['bia_validation'].get('existing_amplify_declared') is True:
             return _direct_form(state, at)
@@ -2144,7 +2203,10 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
         cycle['origin_declaration']=_origin_source(state['history'][-1])
     if cycle['phase'] == 'consent_real' and not policy_valid(operation_policy):
         cycle.pop('invite_offer', None)
-    reply = _question_reply(text, plan, cycle, operation_policy,state=state,now=at)
+    reply = ('' if same_engine_enabled is True and (direct_input or scripted_input) else
+             _question_reply(text, plan, cycle, operation_policy,state=state,now=at))
+    if cycle.get('answer_clarification'):
+        return _finish(state, at, reply=reply, buttons=[], exact=True)
     if shop_unknown and cycle['phase'] == 'blocked' and not jobs:
         # Answer the FAQ, then retain the unresolved provider step. An unknown
         # Shop result is never an instruction to activate an inactive account.

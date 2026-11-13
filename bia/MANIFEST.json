@@ -1,11 +1,11 @@
 {
   "release": "bia-stability-20261110",
-  "source_count": 49,
+  "source_count": 52,
   "files": [
     {
       "path": "Dockerfile",
-      "bytes": 1098,
-      "sha256": "9ee7d9e6e598025b5c7948d36719941d41aed29db314c7fb553f187e2faef611"
+      "bytes": 1173,
+      "sha256": "39a297ca5674104a448e6e036fa0d60d5e2eacfd28d91507e30287ba3fee167f"
     },
     {
       "path": "answers.py",
@@ -24,8 +24,8 @@
     },
     {
       "path": "config.py",
-      "bytes": 14858,
-      "sha256": "f33e749265f86e4b87d3634e5ac183966842c87047889644732afbf69fc17cb3"
+      "bytes": 15014,
+      "sha256": "55e13786109f51e464ab023f96d32b7e2d354e449978eda22ced7f534a5a2982"
     },
     {
       "path": "context_ia.py",
@@ -44,8 +44,8 @@
     },
     {
       "path": "conversation.py",
-      "bytes": 34214,
-      "sha256": "89cc1aaffe39fea0d1c6b7a509fc3c839478f20c5d2f43f41ed3cc4c7417efdd"
+      "bytes": 34396,
+      "sha256": "2f57b1a93725f962d76a88e4f91986bcd9a75cd1d9704c374ac642055ad7cd08"
     },
     {
       "path": "data/__init__.py",
@@ -69,8 +69,8 @@
     },
     {
       "path": "demo_answers.py",
-      "bytes": 40477,
-      "sha256": "9a97b1747f8d6d0dce0b8dd473df8d2bdc42203da5f62d21cab94fefc6e16ec3"
+      "bytes": 149,
+      "sha256": "769895ad45111d463732c635eddf5a26a57d20d161f03bca65206e783e46d380"
     },
     {
       "path": "demo_flow.py",
@@ -99,8 +99,8 @@
     },
     {
       "path": "demo_support.py",
-      "bytes": 9712,
-      "sha256": "5566023954b22737322f29030ec1fb0f705041d1893dbe1845bef249b551ce02"
+      "bytes": 9720,
+      "sha256": "e0b3ddee1da8f5a361e20a9bcf3c97e0553003b49859099ec2285822338d6e87"
     },
     {
       "path": "engine.py",
@@ -144,8 +144,8 @@
     },
     {
       "path": "lead_validation.py",
-      "bytes": 7400,
-      "sha256": "933cc643dfa230b2db459abcb4b8bfbfe60ec481a9a1cc2af914c4df3629725f"
+      "bytes": 9470,
+      "sha256": "31de0a3f98f2ba597821537b2185d785b5fa5798ae05a1806e29e5ff73d6f665"
     },
     {
       "path": "nome_contextual.py",
@@ -174,8 +174,8 @@
     },
     {
       "path": "real_journey.py",
-      "bytes": 181849,
-      "sha256": "3f45c320a65bf8348206dc3e7c51bc9073d6966b7666d051a1999c5a0af12561"
+      "bytes": 186055,
+      "sha256": "c171a916c182d87e24b6b605d4aefa203eb4a5b57c310721fc2679a9b9638cad"
     },
     {
       "path": "real_operations.py",
@@ -219,8 +219,8 @@
     },
     {
       "path": "server.py",
-      "bytes": 101857,
-      "sha256": "ada13ca73fe23c3635a42fb97b20dc8e09a627fe19e238c821d073aac88ca741"
+      "bytes": 102740,
+      "sha256": "7f08ab4630c18a33aebb6704bed70450ef7bfc7e4659bb257d949ee12489ad6a"
     },
     {
       "path": "smtp.py",
@@ -246,6 +246,21 @@
       "path": "tutorial_videos.py",
       "bytes": 2148,
       "sha256": "c79eb88ba97bcb22a6739ce8e8293316155e6f947aeb19a7be161d7fb07e6ef4"
+    },
+    {
+      "path": "answer_engine.py",
+      "bytes": 34642,
+      "sha256": "8ece21ef1f086214e03e2c94d3b2e13d4bac4e6b1fe100195a15b8a08c76bcc8"
+    },
+    {
+      "path": "amplify_answer_profile.py",
+      "bytes": 11169,
+      "sha256": "d6bf829a2d71000818a01ccd019177a5d9e7964c372b3172e4e1cfbb21e9f8f6"
+    },
+    {
+      "path": "real_answer_adapter.py",
+      "bytes": 8589,
+      "sha256": "865219044b13b6468f3a7a937288a85b125bb08f03f5c5ff758e84593a53b01e"
     }
   ],
   "provenance": {
