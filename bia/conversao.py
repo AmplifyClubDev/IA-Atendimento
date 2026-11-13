@@ -177,3 +177,10 @@ def registration_reminder(step, name, url):
     return (hello + 'Conseguiu concluir seu cadastro na Amplify? Se parou no código, confira o pedido mais recente '
             'no e-mail e no formulário, inclusive em Spam e Promoções. Se o e-mail já está confirmado, '
             'continue de onde parou pelo mesmo navegador. 😊\n' + url)
+
+# Tutorials supplied and authorized by Amplify; explicit help can be requested again.
+import tutorial_videos
+INVITE_WHERE = tutorial_videos.invitation_help(INVITE_WHERE)
+INVITE_STEPS = tutorial_videos.invitation_help(INVITE_STEPS)
+INVITE_IS_THERE = tutorial_videos.invitation_help(INVITE_IS_THERE)
+SHOP_STEPS = tutorial_videos.activation_help(SHOP_STEPS)

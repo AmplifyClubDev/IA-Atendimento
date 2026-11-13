@@ -3,6 +3,7 @@ from decimal import Decimal, InvalidOperation
 import re
 import unicodedata
 import engine
+import tutorial_videos
 
 THRESHOLD_CENTS = 5_000_000
 QUESTIONS = {
@@ -16,6 +17,7 @@ QUESTIONS = {
     'choice': ('Você pode seguir o agenciamento por aqui com a Bia ou falar com um especialista da Amplify. Como prefere continuar?', ['Seguir com a Bia', 'Especialista']),
     'specialist': ('Sua preferência por um especialista da Amplify ficou registrada. O agenciamento automático está pausado. Se mudar de ideia, pode escolher continuar com a Bia.', ['Seguir com a Bia']),
 }
+QUESTIONS['activate'] = (tutorial_videos.activation_help(QUESTIONS['activate'][0]), QUESTIONS['activate'][1])
 
 
 def parse_gmv(text):

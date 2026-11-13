@@ -15,6 +15,7 @@ import re
 
 import conversao
 import engine
+import tutorial_videos
 
 
 # Navigation verified in TikTok Shop's Brazilian guidance; UI labels can change.
@@ -24,6 +25,8 @@ _ACCEPT_INVITE_GUIDE = (
     "Confira o percentual, o prazo e as autorizações; aceite somente se estiver de acordo.\n\n"
     "Depois de aceitar, me avise por aqui. Vou consultar o TikTok para confirmar se o vínculo foi efetivado. 😊"
 )
+
+_ACCEPT_INVITE_GUIDE = tutorial_videos.invitation_help(_ACCEPT_INVITE_GUIDE)
 
 PHASES = ("intro", "origin", "tiktok", "shop", "agency", "checking", "consent_real",
           "inviting", "await_acceptance", "checking_acceptance", "form", "blocked")
@@ -750,6 +753,9 @@ def _form_after_invite(state, at):
               'Seu perfil já tem um registro com a Amplify. 😊')
     reply = (notice + '\n\nAceite o convite no app do TikTok e depois faça seu cadastro por aqui:\n' + PUBLIC_FORM_URL +
              '\n\nNo formulário, informe seu @. Ele confere o agenciamento antes de liberar o cadastro.')
+    if status in {'sent', 'pending'} and not cycle.get('invite_tutorial_offered'):
+        reply = tutorial_videos.invitation_help(reply)
+        cycle['invite_tutorial_offered'] = True
     return _finish(state, at, reply=reply, effects=[], buttons=[])
 
 
@@ -1862,6 +1868,8 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
                 _consent_prompt(cycle, operation_policy) if cycle['phase'] == 'consent_real' else _phase_prompt(cycle))
         return _finish(state, at, reply='O cadastro é liberado depois que você aceita o convite da Amplify no TikTok. 😊\n\n' + step,
                        buttons=['Quero me agenciar'] if cycle['phase'] == 'intro' else None)
+    if invite_pending and re.search(r'\b(?:como (?:aceitar|aceito)|nao sei (?:como )?aceitar|(?:video|tutorial).{0,25}convite)\b', normal):
+        return _finish(state, at, reply=conversao.INVITE_WHERE, buttons=['Já aceitei'])
     if invite_pending and invite_missing(text):
         # Release 41: "Não apareceu o convite" é sobre o convite, não sobre o formulário (gabiosantana1, 30/10).
 

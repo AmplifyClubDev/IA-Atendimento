@@ -1,11 +1,11 @@
 {
   "release": "bia-stability-20261110",
-  "source_count": 48,
+  "source_count": 49,
   "files": [
     {
       "path": "Dockerfile",
-      "bytes": 1079,
-      "sha256": "316e13ce953e2a7e085a47845aa63272324bff7f315de1dee44da7a1a58d339a"
+      "bytes": 1098,
+      "sha256": "9ee7d9e6e598025b5c7948d36719941d41aed29db314c7fb553f187e2faef611"
     },
     {
       "path": "answers.py",
@@ -39,8 +39,8 @@
     },
     {
       "path": "conversao.py",
-      "bytes": 12448,
-      "sha256": "9a1b2f3452df8bdd9abc63f7a8710069177a69598f61cdfdc95db96f7946645c"
+      "bytes": 12625,
+      "sha256": "1a69fe9912d724d35b00bb0a2612d4ac51131b8b1dddc2853474b26979a16e95"
     },
     {
       "path": "conversation.py",
@@ -144,8 +144,8 @@
     },
     {
       "path": "lead_validation.py",
-      "bytes": 7267,
-      "sha256": "eeca83456a609b73736eeb649081903c2ced4ff4b6e8562582a54de65f39834a"
+      "bytes": 7400,
+      "sha256": "933cc643dfa230b2db459abcb4b8bfbfe60ec481a9a1cc2af914c4df3629725f"
     },
     {
       "path": "nome_contextual.py",
@@ -174,8 +174,8 @@
     },
     {
       "path": "real_journey.py",
-      "bytes": 179932,
-      "sha256": "96db2b3bb44620c406404b9aa24bfb5fab4be31ed4531f622743ab42cf1062fd"
+      "bytes": 180448,
+      "sha256": "818804d8f4b60ad8d7685768230e3026d5c8ffa8f63cc4da0e056695e038e56c"
     },
     {
       "path": "real_operations.py",
@@ -214,8 +214,8 @@
     },
     {
       "path": "retomada.py",
-      "bytes": 39919,
-      "sha256": "40b321402e1a01e4509be01bd77057c637f3088e8e23c8c3d7ddd44892d316a9"
+      "bytes": 39615,
+      "sha256": "5cf1129e95f5497b0fa06023563a225c1e9de52cfe30f8aed2f499f05c4e8c4a"
     },
     {
       "path": "server.py",
@@ -241,6 +241,11 @@
       "path": "operational_diagnostics.py",
       "bytes": 2050,
       "sha256": "0d707471551293cf636dc4ef9cb5eaa6a71d8818a8158a154ce7c268cf3bebc0"
+    },
+    {
+      "path": "tutorial_videos.py",
+      "bytes": 630,
+      "sha256": "5e349d58f9747ebdda94d9a30cb1e7af069ad1737396ef33b85c382a70c22e31"
     }
   ],
   "provenance": {
