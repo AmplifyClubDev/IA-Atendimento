@@ -6,7 +6,10 @@ from retomada import Retomada, STEPS, LINKED_STEPS, MIN_GAP, message, step_key
 class Followup55476(TestCase):
     def setUp(self):
         self.now=datetime(2026,11,13,15,tzinfo=timezone.utc)
-        self.state={'cycle':{'id':'cycle','phase':'await_acceptance','facts':{},'last_inbound_at':self.now.isoformat()}}
+        self.state={'cycle':{'id':'cycle','mode':'real','phase':'await_acceptance','facts':{'tiktok_declarado':'@synthetic'},'last_inbound_at':self.now.isoformat()}}
+        r={'status':'pending','confirmed':True,'creator':'@synthetic','cycle_id':'cycle','job_id':'proof','evidence':{'read':True},'observed_at':self.now.isoformat()}
+        self.state['cycle']['real_operations']={'relationship':r}
+        self.state['effects']={'proof':{'type':'tiktok_operation','operation':'relationship','status':'done','cycle_id':'cycle','creator':'@synthetic'}}
         self.source={'event_key':'chatwoot:1:1'}
         self.rows={}
         self.worker=Retomada.__new__(Retomada)
@@ -24,26 +27,28 @@ class Followup55476(TestCase):
         self.rows[step_key('cycle','chatwoot:1:1',2)]={'status':'completed'}
         self.assertIsNone(self.worker._due(self.state,self.source,self.now+timedelta(hours=23)))
     def test_no_repeated_greeting_closure_notice_only_second(self):
-        first=message(self.state,1,{})[0]; second=message(self.state,2,{})[0]
+        first=message(self.state,1,{},now=self.now)[0]; second=message(self.state,2,{},now=self.now)[0]
         self.assertFalse(first.startswith('Oi'));self.assertFalse(second.startswith('Oi'))
         self.assertNotIn('Vou encerrar',first);self.assertIn('Vou encerrar',second)
         self.assertNotEqual(first,second)
         self.assertIsNone(message(self.state,3,{}))
     def test_unknown_invitation_has_no_proactive_message(self):
         self.state['cycle']['phase']='blocked'
-        self.assertIsNone(message(self.state,1,{}))
+        self.assertIsNone(message(self.state,1,{},now=self.now))
     def test_qualification_follows_current_field(self):
         for stage,needle in [('agency','agenciado'),('shop','ativado'),('gmv','GMV')]:
             self.state['cycle'].update(phase='intro',bia_validation={'stage':stage})
-            self.assertIn(needle,message(self.state,1,{})[0])
-            self.assertNotIn('seu @',message(self.state,1,{})[0])
+            self.assertIn(needle,message(self.state,1,{},now=self.now)[0])
+            self.assertNotIn('seu @',message(self.state,1,{},now=self.now)[0])
     def test_second_accepted_closes_and_preserves_receipts_but_unknown_does_not(self):
         from copy import deepcopy
         from threading import RLock
         from unittest.mock import patch
         for status in ['accepted','outcome_unknown']:
             state=deepcopy(self.state)
-            state.update(processed_inbound=['chatwoot:1:1'],effects={'old-invite':{'result_receipt':{'status':'sent','confirmed':True}}})
+            state.update(processed_inbound=['chatwoot:1:1'])
+            state['effects']['old-invite']={'result_receipt':{'status':'sent','confirmed':True}}
+            state['cycle']['real_operations']['relationship']['observed_at']=(self.now+timedelta(minutes=15)).isoformat()
             state['cycle'].update(mode='real',status='open',opened_at=self.now.isoformat(),expires_at=(self.now+timedelta(days=1)).isoformat())
             source={**self.source,'cycle_id':'cycle','event':{'created_at':self.now.isoformat()}}
             saved=[];stopped=[]

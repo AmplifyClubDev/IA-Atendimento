@@ -57,7 +57,7 @@ SAMPLES = ('Tem sim! 😊 As campanhas com amostras aparecem no *Amplify Club* e
 INVITE_WAIT = 'Sua autorização está registrada. O envio do convite ainda não está confirmado.'
 INVITE_STILL = 'Sua autorização está registrada. O envio do convite ainda não está confirmado.'
 INVITE_CHECK = 'Vou conferir agora no TikTok como está o seu convite 🔎'
-PRIOR_INVITE_CHECK = 'Você já tem um convite da Amplify de antes. Vou conferir agora no TikTok como ele está 🔎'
+PRIOR_INVITE_CHECK = 'Há uma tentativa anterior registrada. Vou conferir no TikTok a situação atual antes de seguir 🔎'
 INVITE_STEPS = ('Seu convite da *Amplify* está esperando no TikTok. Para aceitar:\n'
                 '1. Abra o app do *TikTok Shop Creator* (ou a Central do criador no TikTok).\n'
                 '2. Vá em *Parcerias* ou em *Notificações*.\n'

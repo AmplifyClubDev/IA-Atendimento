@@ -7,13 +7,13 @@ import tutorial_videos
 
 THRESHOLD_CENTS = 5_000_000
 QUESTIONS = {
-    'agency': ('Você já está agenciado? Se estiver, é pela Amplify ou por outra agência?', ['Já sou Amplify', 'Outra agência', 'Não sou agenciado']),
+    'agency': ('Você já é agenciado por alguma agência?', ['Sim', 'Não']),
     'agency_kind': ('Seu vínculo atual é com a Amplify ou com outra agência?', ['Já sou Amplify', 'Outra agência']),
     'existing_profile': ('Se você já é agenciado pela Amplify, não precisa se desvincular nem receber outro convite. Qual é seu @ do TikTok para seguir com o cadastro?', []),
     'unlink': ('Para se agenciar com a Amplify, você precisa primeiro se desvincular da outra agência no TikTok Shop. Confira as condições do seu vínculo atual.\n\nQuando concluir, me avise por aqui.', ['Já me desvinculei']),
     'shop': ('Seu TikTok Shop Creator já está ativado?', ['Sim', 'Não', 'Não sei']),
     'activate': ('Para seguir com o agenciamento, ative o TikTok Shop Creator na sua conta. Quando estiver ativo, me avise para eu conferir o perfil.', ['Já está ativo']),
-    'gmv': ('Qual foi seu GMV (total vendido no TikTok Shop) nos últimos 30 dias, em reais? Pode informar um valor aproximado, por exemplo: 50 mil.', []),
+    'gmv': ('Qual foi seu GMV (total vendido no TikTok Shop) nos últimos 30 dias, em reais?', []),
     'gmv_zero_confirmation': ('Só para confirmar: você ainda não fez nenhuma venda no TikTok Shop nos últimos 30 dias?', ['Sim, nenhuma venda', 'Já tive vendas']),
     'choice': ('Você pode seguir o agenciamento por aqui com a Bia ou falar com um especialista da Amplify. Como prefere continuar?', ['Seguir com a Bia', 'Especialista']),
     'specialist': ('Sua preferência por um especialista da Amplify ficou registrada. O agenciamento automático está pausado. Se mudar de ideia, pode escolher continuar com a Bia.', ['Seguir com a Bia']),
@@ -86,6 +86,11 @@ def advance(cycle, text, at):
     yes = value in {'sim','sim tenho','sim esta ativo','esta ativo','ja esta ativo'}
     no = value in {'nao','nao tenho','nao esta ativo','nao sou agenciado','nao sou agenciada'}
     unknown = value in {'nao sei','nao sei informar','nao tenho certeza'}
+    if current == 'agency':
+        yes = yes or value in {'sou agenciado', 'sou agenciada', 'ja sou agenciado', 'ja sou agenciada',
+                               'sim sou agenciado', 'sim sou agenciada', 'tenho agencia', 'ja tenho agencia'}
+        no = no or value in {'nao tenho agencia', 'nao sou agenciado por nenhuma agencia',
+                            'nao sou agenciada por nenhuma agencia'}
     next_stage = current
     facts = cycle['facts']
     if current in {'agency','agency_kind'} and value in {'ja sou amplify','sou agenciado pela amplify','ja sou agenciado pela amplify','sou agenciada pela amplify','ja sou agenciada pela amplify'}:

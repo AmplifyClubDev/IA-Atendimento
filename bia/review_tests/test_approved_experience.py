@@ -99,7 +99,7 @@ class ApprovedExperience(unittest.TestCase):
         r=self.send(r['state'],'Amplify Club')
         self.assertIn('Não consegui consultar',r['reply'])
         self.assertEqual(stage(r['state']['cycle']),'agency')
-        self.assertIn('Você já está agenciado?',r['reply']); self.assertFalse(r['effects'])
+        self.assertIn('Você já é agenciado por alguma agência?',r['reply']); self.assertFalse(r['effects'])
     def test_member_bare_handle_is_requested_input_only(self):
         r=self.send(self.start()['state'],'Já sou Amplify')
         r=self.send(r['state'],'qa_creator')

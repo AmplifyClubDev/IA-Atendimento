@@ -142,7 +142,7 @@ def steps_for(state):
     return LINKED_STEPS if _linked((state.get('cycle') or {})) else STEPS
 
 
-def _message(state, step, policy):
+def _message(state, step, policy, *, now=None):
     """O lembrete da etapa atual, sempre com uma ação concreta e um ângulo novo; None se não couber."""
     import conversao
     from real_journey import PUBLIC_FORM_URL, _first_name, _invite_known, _linked, _policy_fingerprint, policy_valid
@@ -166,8 +166,14 @@ def _message(state, step, policy):
             return hello + conversao.shop_reminder(step), ['Pronto']
         return None
     if _linked(cycle):
+        from real_journey import _linked_in_cycle
+        if not _linked_in_cycle(state, now):
+            return None
         return conversao.registration_reminder(step, name, PUBLIC_FORM_URL), []
     if phase in {'await_acceptance', 'form'} or _invite_known(cycle):
+        from real_journey import invite_acceptance_proven
+        if not invite_acceptance_proven(state, now):
+            return None
         text = (hello + 'Conseguiu aceitar o convite da *Amplify* no TikTok? Ele fica em *Parcerias* ou '
                 '*Notificações* do TikTok Shop Creator. Quando aceitar, me manda “aceitei” que eu confiro na hora.'
                 if step == 1 else
@@ -182,17 +188,19 @@ def _message(state, step, policy):
                 or offer.get('creator') != facts.get('tiktok_declarado')):
             return None
         return hello + conversao.consent_reminder(step, policy), list(conversao.CONSENT_BUTTONS)
+    if cycle.get('educational_invite_help') and facts.get('interesse_agenciamento') is not True:
+        return None
     if not facts.get('tiktok_declarado') and phase in {'intro', 'origin', 'tiktok', 'shop', 'agency'}:
         text, buttons = conversao.intro_reminder(step)
         return hello + text, buttons
     return None
 
 
-def message(state, step, policy):
+def message(state, step, policy, *, now=None):
     """At most two continuation messages, never another opening greeting."""
     if step not in {1, 2}:
         return None
-    result = _message(state, step, policy)
+    result = _message(state, step, policy, now=now)
     if result is None:
         return None
     text, buttons = result
@@ -374,7 +382,7 @@ class Retomada:
             if (delivery.get('latest_attempt_status') != 'accepted' or not last_reply
                     or now - last_reply < MIN_GAP or not self.repository.followup_clear(conv, state)):
                 return idle('intervalo_minimo')
-            payload = message(state, step, self.policy())
+            payload = message(state, step, self.policy(), now=now)
             if payload is None:
                 return idle('cadastro_confirmado' if state.get('cadastro_situacao') == 'confirmado'
                             or cycle.get('acesso_liberado') else 'fase_sem_lembrete')

@@ -90,6 +90,8 @@ def build_jobs(event, state, effects):
         if operation == 'precheck' and (effect.get('payload') or {}).get('source') == 'bridge_retry':
             # Each check after the bridge comes back has its own row (release 40).
             key_operation = 'precheck-bridge:' + effect['id']
+        if operation in {'relationship', 'precheck'} and (effect.get('payload') or {}).get('source') == 'cancellation_resume':
+            key_operation = operation + '-cancellation-resume:' + effect['id']
         result.append({'job_key': business_key(cycle['id'], creator, key_operation),
                        'conversation_key': f"chatwoot:{event['account_id']}:{event['conversation_id']}",
                        'event_key': inbound_key(event), 'effect_id': effect['id'], 'cycle_id': cycle['id'],
@@ -243,7 +245,7 @@ class RealExecutor:
         expires = _clock(cycle.get('expires_at'))
         if (self.settings.get('relationship_check_in_form') is True
                 and job.get('operation') == 'relationship'
-                and (job.get('payload') or {}).get('source') not in {'form', 'chat_acceptance'} | AGENCY_SOURCES):
+                and (job.get('payload') or {}).get('source') not in {'form', 'chat_acceptance', 'cancellation_resume'} | AGENCY_SOURCES):
             return False
         if (self.settings.get('tiktok_mode') != 'real' or self.settings.get('real_worker_enabled') is not True
                 or self.settings.get('contact_sync_enabled') is not True

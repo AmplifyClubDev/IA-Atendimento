@@ -354,6 +354,8 @@ def _effect(state, operation, at, *, policy=None, retry=False, list_proof=False)
     from lead_validation import permitted as validation_permitted
     if not validation_permitted(cycle):
         return None
+    if operation == "invite" and cycle.get("invite_cancellation_reported"):
+        return None
     if not creator or operation not in _OPERATIONS:
         return None
     for effect in state["effects"].values():
@@ -774,6 +776,25 @@ def _invite_known(cycle):
             and record.get('cycle_id') == cycle.get('id'))
 
 
+def invite_acceptance_proven(state, at=None):
+    """An acceptance reminder needs current bound evidence, never just a phase."""
+    cycle = state.get('cycle') or {}
+    if cycle.get('invite_cancellation_reported'):
+        return False
+    relationship = (cycle.get('real_operations') or {}).get('relationship') or {}
+    invite = (cycle.get('real_operations') or {}).get('invite') or {}
+    # A later confirmed absence read supersedes an older send receipt.
+    if _operation_proven(state, 'relationship', 'not_found', now=at):
+        try:
+            if engine._clock(relationship['observed_at']) >= engine._clock(invite.get('observed_at')):
+                return False
+        except (TypeError, ValueError):
+            return False
+    return (_operation_proven(state, 'relationship', 'pending', now=at)
+            or _operation_proven(state, 'invite', 'pending', now=at)
+            or _operation_proven(state, 'invite', 'sent', now=at))
+
+
 def acceptance_declared(text, cycle):
     """"Aceitei" sempre; "feito"/"pronto" só depois de um convite."""
     if not isinstance(text, str) or '?' in text:
@@ -855,8 +876,17 @@ def _acceptance_check(state, at, step, *, origin):
 
 
 def _linked_in_cycle(state, at):
-    return (_operation_proven(state, 'relationship', 'linked', now=at, maximum_age_seconds=24 * 3600)
-            or _operation_proven(state, 'invite', 'linked', now=at, maximum_age_seconds=24 * 3600))
+    if _operation_proven(state, 'relationship', 'linked', now=at, maximum_age_seconds=24 * 3600):
+        return True
+    if not _operation_proven(state, 'invite', 'linked', now=at, maximum_age_seconds=24 * 3600):
+        return False
+    records = (state.get('cycle') or {}).get('real_operations') or {}
+    relation, invite = records.get('relationship') or {}, records.get('invite') or {}
+    if any(_operation_proven(state, 'relationship', status, now=at, maximum_age_seconds=24 * 3600)
+           for status in ('not_found', 'pending')):
+        if engine._clock(relation['observed_at']) >= engine._clock(invite['observed_at']):
+            return False
+    return True
 
 
 def _linked_reply(state):
@@ -901,6 +931,13 @@ def _settle_acceptance_check(state, at, effect, status, policy=None):
     step = (effect.get('payload') or {}).get('check', 0)
     origin = (cycle.get('acceptance_check') or {}).get('at') or engine._stamp(at)
     missing = cycle.get('invite_missing') or {}
+    if _linked_in_cycle(state, at):
+        cycle.pop('acceptance_check', None)
+        return _finish(state, at, reply=_linked_reply(state), buttons=[])
+    if cycle.get('invite_cancellation_reported'):
+        cycle.pop('acceptance_check', None)
+        cycle['phase'] = 'blocked'
+        return _finish(state, at, reply='Vou manter o envio de novos convites pausado. O vínculo atual precisa ser conferido antes de seguir.', buttons=[])
     if status == 'not_found' and _invite_unlanded(cycle):
         recovered = _recover_absent_invite(state, at, effect, policy)
         if recovered is not None:
@@ -942,6 +979,10 @@ def _settle_acceptance_check(state, at, effect, status, policy=None):
     if status == 'linked':
         cycle.pop('acceptance_check', None)
         return _finish(state, at, reply=_linked_reply(state), buttons=[])
+    if not invite_acceptance_proven(state, at):
+        cycle.pop('acceptance_check', None)
+        cycle['phase'] = 'blocked'
+        return _finish(state, at, reply='Não tenho confirmação de um convite disponível para aceitar. Preciso conferir a situação atual antes de orientar o próximo passo.', buttons=[])
     cycle['phase'] = 'await_acceptance'
     last = step >= len(ACCEPTANCE_RECHECK_MINUTES)
     following = None if last else _acceptance_check(state, at, step + 1, origin=origin)
@@ -1639,6 +1680,15 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
         except (ValueError,TypeError,OverflowError):
             pass
     normal = engine._normal(text)
+    if '?' not in text and re.fullmatch(r'(?:(?:eu )?cancelei (?:o |meu )?convite(?: (?:agora|no tiktok))?|(?:o |meu )?convite (?:foi|esta) cancelado)[.!]*', normal.strip()):
+        if _linked_in_cycle(state, at):
+            return _finish(state, at, reply=_linked_reply(state), buttons=[])
+        cycle['invite_cancellation_reported'] = {'at': engine._stamp(at)}
+        cycle['facts']['consentimento_convite'] = False
+        cycle.pop('invite_consent', None)
+        cycle.pop('acceptance_check', None)
+        cycle['phase'] = 'blocked'
+        return _finish(state, at, reply='Entendi o que você informou. Não vou enviar outro convite automaticamente. Precisamos conferir seu vínculo atual antes de seguir.', buttons=[])
     if registered and (fresh or cycle.get('acesso_liberado')):
         # Com o acesso liberado, a Bia segue respondendo: Club, missões e onde entrar. Nunca volta ao funil.
         cycle.update(acesso_liberado=True, phase='acesso')
@@ -1708,6 +1758,27 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
             if effect.get("cycle_id") == cycle["id"] and effect.get("status") in {"pending", "running"}:
                 effect["status"] = "outcome_unknown" if effect.get('operation') == 'invite' else "cancelled"
         return _finish(state, at, reply="Tudo bem. Encerrei este atendimento, preservando o histórico. Quando quiser conversar de novo, pode me chamar.", buttons=[])
+    # Restarting after reported cancellation authorizes reads, never a new invite.
+    if (cycle.get('invite_cancellation_reported') and cycle.get('phase') == 'blocked'
+            and normal in conversation._START | {'quero retomar', 'seguir atendimento'}
+            and not (state.get('human_control') or state.get('opt_out') or cycle.get('opt_out')
+                     or cycle.get('qualification_paused'))):
+        check = _effect(state, 'relationship', at)
+        if check:
+            check['payload']['source'] = 'cancellation_resume'
+            state['effects'][check['id']]['payload']['source'] = 'cancellation_resume'
+            cycle['phase'] = 'checking'
+            return _finish(state, at, reply='Vou conferir seu vínculo atual antes de apresentar os próximos passos. Nenhum novo convite foi autorizado.', effects=[check], buttons=[])
+        return _finish(state, at, reply='A conferência do vínculo ainda está pendente. Não vou enviar outro convite automaticamente.', buttons=[])
+    # Education does not attest to a personal invite or authorize operations.
+    if (re.search(r'\b(?:como (?:aceitar|aceito)|nao sei (?:como )?aceitar|(?:video|tutorial).{0,25}convite)\b', normal) and 'convite' in normal
+            and not re.search(r'\bnao (?:quero|preciso|envie|mande)\b|\bcancelei\b|\bcancelad[oa]\b', normal)
+            and not (state.get('human_control') or state.get('opt_out') or cycle.get('opt_out')
+                     or cycle.get('qualification_paused'))):
+        cycle['educational_invite_help'] = True
+        return _finish(state, at, reply=tutorial_videos.invitation_help(
+            'Este vídeo mostra como aceitar o convite de parceria no TikTok. '
+            'Siga o passo a passo nele. Se a sua tela estiver diferente, me diga o que aparece para eu te orientar.'), buttons=[], exact=True)
     # Adopt presentation only; provider effects stay in the real state machine.
     if cycle.get('experience_version') == 'bia-approved-v1':
         from approved_experience import OPENING, CHOICES, MENUS, TOPICS
@@ -2025,6 +2096,7 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
         if (normal in _REAL_CONSENT | _YES and policy_valid(operation_policy)
                 and offer.get("policy_hash") == _policy_fingerprint(operation_policy)
                 and offer.get("creator") == cycle["facts"].get("tiktok_declarado")):
+            cycle.pop("invite_cancellation_reported", None)
             cycle["facts"]["consentimento_convite"] = True
             cycle["invite_consent"] = {**offer, "cycle_id": cycle["id"], "at": engine._stamp(at),
                                        "source": "current_inbound_explicit_confirmation"}
@@ -2285,6 +2357,7 @@ def _operation_proven(state, operation, status, *, now=None, maximum_age_seconds
     if (cycle.get("mode") != "real" or relationship.get("status") != status or relationship.get("confirmed") is not True
             or relationship.get("creator") != _creator(cycle.get("facts", {}).get("tiktok_declarado"))
             or relationship.get("cycle_id") != cycle.get("id") or not relationship.get("job_id")
+            or not isinstance(relationship.get("observed_at"), str) or not relationship["observed_at"].strip()
             or not isinstance(relationship.get("evidence"), dict) or not relationship["evidence"]):
         return False
     effect = state.get("effects", {}).get(relationship["job_id"]) or {}
@@ -2852,7 +2925,7 @@ def resolve_tiktok_result(session, effect_id, result, *, now=None, operation_pol
     operation = effect["operation"]
     form_mode = cycle.get('relationship_check_in_form') is True
     source = (effect.get('payload') or {}).get('source')
-    if form_mode and operation == 'relationship' and source not in {'form', 'chat_acceptance'} | AGENCY_SOURCES:
+    if form_mode and operation == 'relationship' and source not in {'form', 'chat_acceptance', 'cancellation_resume'} | AGENCY_SOURCES:
         return engine._result(state, ignored=True, reason='relationship_requires_form_source')
     if (not isinstance(result, dict) or result.get("operation") != operation
             or _result_creator(result.get("creator")) != effect["creator"]
@@ -2868,9 +2941,18 @@ def resolve_tiktok_result(session, effect_id, result, *, now=None, operation_pol
     proof = isinstance(result.get("evidence"), dict) and bool(result["evidence"])
     if success and (not valid_time or not proof or (operation != "lookup" and result.get("confirmed") is not True)):
         return engine._result(state, ignored=True, reason="operation_evidence_missing_or_stale")
+    previous = (cycle.get('real_operations') or {}).get(operation) or {}
+    if operation == 'relationship' and relationship_proven(state, now=at):
+        try:
+            older = observed <= engine._clock(previous.get('observed_at'))
+        except (TypeError, ValueError):
+            older = False
+        if older and result['status'] != 'linked':
+            effect.update(status='done', resolved_at=engine._stamp(at))
+            return engine._result(state, ignored=True, reason='older_relationship_observation')
     status = result["status"]
     invite_observed = bool(cycle.get("real_operations", {}).get("invite"))
-    effect.update(status=("pending" if not form_mode and operation == "relationship" and (status == "pending" or (status == "not_found" and invite_observed)) else
+    effect.update(status=("pending" if not form_mode and not cycle.get("invite_cancellation_reported") and operation == "relationship" and (status == "pending" or (status == "not_found" and invite_observed)) else
                           "outcome_unknown" if status == "outcome_unknown" else "done"),
                   resolved_at=engine._stamp(at))
     record = {key: deepcopy(result[key]) for key in ("status", "operation", "creator", "observed_at", "evidence", "confirmed", "reason") if key in result}
@@ -2951,6 +3033,26 @@ def resolve_tiktok_result(session, effect_id, result, *, now=None, operation_pol
             cycle['invite_wait']['reason'] = result['reason']
         state['revision'] += 1
         return engine._result(state, operation_settled=True)
+    if operation == 'relationship' and source == 'cancellation_resume':
+        if _linked_in_cycle(state, at):
+            return _finish(state, at, reply=_linked_reply(state), buttons=[])
+        if status == 'not_found' and _operation_proven(state, 'relationship', 'not_found', now=at):
+            if precheck_proven(state, now=at):
+                cycle['phase'] = 'consent_real'
+                return _finish(state, at, reply=_consent_prompt(cycle, operation_policy))
+            job = _effect(state, 'precheck', at)
+            if job:
+                job['payload']['source'] = 'cancellation_resume'
+                state['effects'][job['id']]['payload']['source'] = 'cancellation_resume'
+                cycle['phase'] = 'checking'
+                return _finish(state, at, reply='Vou atualizar a validação do perfil antes de apresentar as condições do convite.', effects=[job], buttons=[])
+        cycle['phase'] = 'blocked'
+        return _finish(state, at, reply='A conferência ainda não permite prosseguir com um novo convite. Nenhum novo envio foi autorizado.', buttons=[])
+    if operation == 'relationship' and cycle.get('invite_cancellation_reported'):
+        if _linked_in_cycle(state, at):
+            return _finish(state, at, reply=_linked_reply(state), buttons=[])
+        cycle['phase'] = 'blocked'
+        return _finish(state, at, reply='Preservei seu relato de cancelamento. A consulta não confirma um vínculo ativo; nenhum novo convite foi autorizado.', buttons=[])
     if form_mode and operation == 'relationship' and source == 'chat_acceptance':
         return _settle_acceptance_check(state, at, effect, status, operation_policy)
     if form_mode and operation == 'relationship':

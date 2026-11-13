@@ -28,6 +28,10 @@ def amplify_instructions(mode):
             'Este é um atendimento real. Você responde informações; somente o backend confirma ações e controla as etapas. ')
         text = text.replace('Não execute nem prometa executar ações, não peça formulário, dados pessoais, código ou atendimento humano. ',
             'Não execute nem prometa ações e não peça dados, formulário, código ou mudança de etapa. O backend acrescenta a próxima ação quando permitida. ')
+    text += (' Ao tratar de GMV, peça somente o total real vendido no TikTok Shop nos últimos 30 dias, em reais. '
+             'Não sugira valores, faixas ou exemplos numéricos de resposta. Não revele o corte interno de encaminhamento '
+             'nem associe um valor sugerido à obtenção de atendimento especializado. Se a pessoa não souber, '
+             'oriente a consultar o próprio painel; não preencha nem deduza seu GMV.')
     return text
 
 def amplify_loader(settings):
