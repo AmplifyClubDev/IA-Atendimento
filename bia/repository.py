@@ -322,6 +322,25 @@ class Repository:
             return self._real_row(db.execute('SELECT * FROM real_jobs WHERE effect_id=? ORDER BY updated_at DESC LIMIT 1',
                                              (effect_id,)).fetchone())
 
+    def invite_attempt_rows(self, conversation_key):
+        """Small diagnostic projection scoped in SQL; never read event/payload bodies."""
+        with self._connection() as db:
+            rows = db.execute("""
+                SELECT effect_id, cycle_id, creator, updated_at, result_json
+                FROM real_jobs
+                WHERE conversation_key=? AND operation='invite'
+                  AND CASE WHEN json_valid(result_json) THEN
+                    json_type(result_json, '$.evidence.bridge_post_attempted')='true'
+                    OR json_type(result_json, '$.evidence.post_attempted')='true'
+                  ELSE 0 END
+                ORDER BY COALESCE(
+                    CASE WHEN json_valid(result_json) THEN julianday(json_extract(result_json, '$.observed_at')) END,
+                    julianday(updated_at)
+                ) DESC, effect_id DESC LIMIT 12
+            """, (conversation_key,)).fetchall()
+        return [{**{key: row[key] for key in ('effect_id', 'cycle_id', 'creator', 'updated_at')},
+                 'result': json.loads(row['result_json'])} for row in rows]
+
     def precheck_conversations(self):
         with self._connection() as db:
             rows = db.execute("SELECT conversation_key,event_json FROM real_jobs WHERE operation='precheck' ORDER BY conversation_key").fetchall()

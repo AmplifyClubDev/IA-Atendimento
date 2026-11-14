@@ -1174,8 +1174,10 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
             "pausa_ou_saida": bool(cycle.get("qualification_paused") or state.get("opt_out") or cycle.get("opt_out")),
             "cadastro": state.get("cadastro_situacao"),
         }
-        from operational_diagnostics import operation_diagnostics
+        from operational_diagnostics import invite_attempt_diagnostics, operation_diagnostics
         attendance['operacoes_tiktok'] = operation_diagnostics(cycle, settings)
+        attendance['tentativas_convite'] = invite_attempt_diagnostics(
+            state, repository.invite_attempt_rows(conv), settings)
         return jsonify(conversa=str(conversation_id), chatwoot=chatwoot, atendimento=attendance,
                        decisoes=DECISOES.for_conversation(conversation_id)), 200
 

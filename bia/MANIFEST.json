@@ -199,8 +199,8 @@
     },
     {
       "path": "repository.py",
-      "bytes": 32077,
-      "sha256": "5e3773171f64922c6ccdbb229bc197e34a39c3a71d66f871d012d40ed468ec9d"
+      "bytes": 33209,
+      "sha256": "b60563b27898009b379742b2b76889d2d01df8730df97a24a53f25b8d0b17137"
     },
     {
       "path": "requirements.txt",
@@ -219,8 +219,8 @@
     },
     {
       "path": "server.py",
-      "bytes": 105000,
-      "sha256": "dccdf88ccb60945543750ecf52b569b0ecd90a532a337441c50244bcd4eee953"
+      "bytes": 105166,
+      "sha256": "075217f85f12184724175ff3be92422ac82f6f7cc2a1921b16d101ee1de9af83"
     },
     {
       "path": "smtp.py",
@@ -239,8 +239,8 @@
     },
     {
       "path": "operational_diagnostics.py",
-      "bytes": 2050,
-      "sha256": "0d707471551293cf636dc4ef9cb5eaa6a71d8818a8158a154ce7c268cf3bebc0"
+      "bytes": 8332,
+      "sha256": "f6cdeea1565ab42d96d0d71bf6d71155f5e63f8842f1c23eb155488ea6570fd7"
     },
     {
       "path": "tutorial_videos.py",
