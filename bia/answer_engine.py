@@ -271,6 +271,8 @@ def build_answerer(settings, *, opener=None, context_loader=None, semantic_verif
             for key in ('last_question', 'last_answer'):
                 dialogue[key] = safe_context_text(conversation.get(key), 900)
             dialogue['pending_clarification'] = safe_context_text(conversation.get('pending_clarification'), 240)
+            if mode == 'real' and conversation.get('last_accepted_public_reply'):
+                dialogue['last_accepted_public_reply'] = safe_context_text(conversation['last_accepted_public_reply'], 600)
             rows = conversation.get('recent_dialogue', [])
             dialogue['recent_dialogue'] = [
                 {'question': safe_context_text(row.get('question'), 300),

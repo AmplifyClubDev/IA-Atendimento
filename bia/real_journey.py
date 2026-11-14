@@ -157,7 +157,7 @@ def _policy_fingerprint(policy):
 def _consent_prompt(cycle, policy):
     if not policy_valid(policy):
         cycle.pop("invite_offer", None)
-        return ("Seu perfil passou pela consulta. Antes de enviar um convite real, as condições da parceria "
+        return ("Antes de enviar um convite real, as condições da parceria "
                 "precisam estar confirmadas pela Amplify. Vou aguardar essa confirmação para te apresentar tudo com clareza.")
     policy_hash = _policy_fingerprint(policy)
     cycle["invite_offer"] = {"policy_hash": policy_hash, "policy_version": policy["version"],
@@ -192,7 +192,7 @@ def _grant_auto_consent(cycle, at):
 
 
 def _auto_invite(state, at, policy, *, prefix=''):
-    """Logo depois da pré-validação aprovada: condições + convite, numa mensagem só."""
+    """Enqueue the evidenced operation; the pre-send reply discloses terms only."""
     if not _auto_invite_allowed(state, policy):
         return None
     cycle = state['cycle']
@@ -2245,7 +2245,9 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
         cycle["pending_profile_changes"] = changes
         labels = {"nome_declarado": "nome", "tiktok_declarado": "@ do TikTok", "origem_declarada": "origem",
                   "origem_canal_declarado": "canal de origem"}
-        details = "; ".join(f"{labels[key]}: {cycle['facts'][key] or 'não informado'} → {value or 'não informado'}" for key, value in changes.items())
+        details = "; ".join(
+            f"{labels[key]}: {(cycle['facts'][key] if key != 'nome_declarado' or _first_name(cycle) else None) or 'não informado'}"
+            f" → {value or 'não informado'}" for key, value in changes.items())
         return _finish(state, at, reply="Você informou uma mudança: " + details + ".\n\nConfirma atualizar esses dados?", buttons=["Confirmo", "Não confirmo"])
     applied = []
     for key, value in claims.items():
@@ -3132,7 +3134,7 @@ def resolve_tiktok_result(session, effect_id, result, *, now=None, operation_pol
                 cycle["phase"] = "checking"
                 job = _effect(state, "relationship", at)
                 effects = [job] if job else []
-                reply = "Seu perfil passou pela validação inicial. Estou conferindo o vínculo atual para te orientar no próximo passo. 🔎"
+                reply = "Estou conferindo o vínculo atual para te orientar no próximo passo. 🔎"
         elif status == "ineligible":
             cycle["phase"] = "blocked"
             reply = "A consulta identificou uma condição que impede seguir com o convite agora. Vou manter essa pendência registrada para a conferência da Amplify."

@@ -44,9 +44,26 @@ _SPEECH_WORDS = frozenset((
 ))
 _PARTICLES = frozenset(('da', 'de', 'do', 'das', 'dos', 'e'))
 
+# A resposta pode descrever experiência, função ou estado, inclusive depois
+# de uma pergunta de nome. Nunca use esses valores também como nome antigo.
+_ROLE_OR_STATUS = frozenset((
+    'iniciante', 'iniciantes', 'principiante', 'principiantes', 'novato',
+    'novata', 'novatos', 'novatas', 'intermediario', 'intermediaria',
+    'avancado', 'avancada', 'experiente', 'inexperiente', 'afiliado',
+    'afiliada', 'afiliados', 'afiliadas', 'influenciador', 'influenciadora',
+    'vendedor', 'vendedora', 'consultor', 'consultora', 'especialista',
+    'empreendedor', 'empreendedora', 'lojista', 'cliente', 'aluno', 'aluna',
+    'estudante', 'curioso', 'curiosa', 'interessado', 'interessada',
+    'perdido', 'perdida', 'confuso', 'confusa', 'novo por aqui', 'nova por aqui',
+    'do brasil', 'da amplify',
+))
+_NON_NAME_PREFIXES = frozenset(('um', 'uma', 'muito', 'muita', 'bem', 'totalmente'))
+
 
 def _valid_name(value):
-    if not 2 <= len(value) <= 80 or _normal(value) in _NON_NAMES:
+    normal = _normal(value)
+    if (not 2 <= len(value) <= 80 or normal in _NON_NAMES or normal in _ROLE_OR_STATUS
+            or normal.split(' ', 1)[0] in _NON_NAME_PREFIXES):
         return False
     # Letters, spaces, and apostrophes/hyphens between letters only. Digits,
     # emails, handles, URLs, emoji, punctuation and quoted examples are refused.
@@ -63,7 +80,9 @@ def _valid_name(value):
                 return False
         else:
             return False
-    tokens = re.split(r"[ '\-]+", _normal(value))
+    tokens = re.split(r"[ '\-]+", normal)
+    if any(token in _ROLE_OR_STATUS for token in tokens):
+        return False
     # Preserve existing multiword name fixtures/preferences such as "Nome Novo"
     # without accepting a bare field label or phrases like "meu nome".
     placeholder_name = (len(value.split()) >= 2

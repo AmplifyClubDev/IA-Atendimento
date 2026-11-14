@@ -39,8 +39,8 @@
     },
     {
       "path": "conversao.py",
-      "bytes": 12519,
-      "sha256": "bdd9cb1b287f78b3cbea568a2a1dcf9fb7819d9d2d24e231e7aa25be37beec7e"
+      "bytes": 12491,
+      "sha256": "0bf3a4e1d7e228b1388c2a87af7b186994ee6b43ca691d7ff9e295427916e665"
     },
     {
       "path": "conversation.py",
@@ -144,13 +144,13 @@
     },
     {
       "path": "lead_validation.py",
-      "bytes": 9739,
-      "sha256": "d395d5cc8d55c157574036399dea52a74aa7185e9bc26cfdd418c3a6397b4401"
+      "bytes": 10356,
+      "sha256": "8781d78062ca56aa268d69ccc8c6eaa339c53cbbb18b3207e0ebd8abed504353"
     },
     {
       "path": "nome_contextual.py",
-      "bytes": 6138,
-      "sha256": "5c8972325fdcb426234f8a423ac0146e615914c0fc5683a54d24f38cd5c8ff95"
+      "bytes": 7237,
+      "sha256": "163c26396d1e3c198125ee0a3b47a714087cd8a8c430cf3db9233f7f612ad134"
     },
     {
       "path": "ops/context_preflight.py",
@@ -174,8 +174,8 @@
     },
     {
       "path": "real_journey.py",
-      "bytes": 193175,
-      "sha256": "69aa4ead03bb9555d192d14c7be01fe4f557c47bc7b4f2904611f768d2a00bc0"
+      "bytes": 193178,
+      "sha256": "fb7c37ebc184afb16b35892376363d19bb59c9713adb6d81d23fd79dab37a2ac"
     },
     {
       "path": "real_operations.py",
@@ -219,8 +219,8 @@
     },
     {
       "path": "server.py",
-      "bytes": 102740,
-      "sha256": "7f08ab4630c18a33aebb6704bed70450ef7bfc7e4659bb257d949ee12489ad6a"
+      "bytes": 105000,
+      "sha256": "dccdf88ccb60945543750ecf52b569b0ecd90a532a337441c50244bcd4eee953"
     },
     {
       "path": "smtp.py",
@@ -249,18 +249,18 @@
     },
     {
       "path": "answer_engine.py",
-      "bytes": 34642,
-      "sha256": "8ece21ef1f086214e03e2c94d3b2e13d4bac4e6b1fe100195a15b8a08c76bcc8"
+      "bytes": 34848,
+      "sha256": "6cda77b5d25cd6d4e0e2dcfa16f9c7be83158fc97bedd541f967f3b98f48d401"
     },
     {
       "path": "amplify_answer_profile.py",
-      "bytes": 11616,
-      "sha256": "2e510e08868e8c501c3d8a5b4fec0f77ab0e67f24d97e086b80bc15cddd34774"
+      "bytes": 12485,
+      "sha256": "aad8ed45b06e3f7891da1950dd93764acf76487326cbd715c659fd628eadd462"
     },
     {
       "path": "real_answer_adapter.py",
-      "bytes": 8589,
-      "sha256": "865219044b13b6468f3a7a937288a85b125bb08f03f5c5ff758e84593a53b01e"
+      "bytes": 14683,
+      "sha256": "69c6e8b69f8341888b38e035bd149abc356f969c8339f2876521ca3663e37e05"
     }
   ],
   "provenance": {

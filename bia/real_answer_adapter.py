@@ -21,9 +21,131 @@ def dialogue_from_context(context):
             pairs.append({'question': pending, 'answer': safe_context_text(text, 600)})
             pending = ''
     last = pairs[-1] if pairs else {}
+    delivered = context.get('delivery_context') if isinstance(context, dict) else None
+    accepted = delivered.get('last_accepted_reply') if isinstance(delivered, dict) and delivered.get('source') == 'outbox' else None
+    accepted_text = safe_context_text(accepted.get('text'), 600) if isinstance(accepted, dict) else ''
     return {'recent_dialogue': pairs[-6:], 'prior_questions': [p['question'] for p in pairs[-6:]],
             'last_question': last.get('question', ''), 'last_answer': last.get('answer', ''),
+            'last_accepted_public_reply': accepted_text,
             'pending_clarification': clarification_question(last.get('answer', ''))}
+
+
+# A question dropped by the in-process reply fence may be added to the NEXT
+# natural FAQ answer. Never feed it back into operational interpretation.
+_PENDING_KEY = 'pending_information_questions'
+_PENDING_SECONDS = 120
+_PENDING_LIMIT = 2
+
+
+def _informational_question(value):
+    import re
+    from engine import _normal
+    if not isinstance(value, str) or not 1 <= len(value) <= 195 or '?' not in value:
+        return ''
+    # Limit this recovery to general questions, never controls, PII, access,
+    # invitation, consent, a profile lookup or personal status.
+    text = safe_context_text(value, 195).strip()
+    if '[dado removido]' in text:
+        return ''
+    plain = _normal(text)
+    if not re.search(r'\b(?:como funciona|onde (?:fica|ficam|voces ficam)|de onde (?:voces sao|e a agencia)|'
+                     r'qual (?:e |eh )?(?:o endereco|a localizacao)|quais (?:os |as )?(?:beneficios|vantagens)|'
+                     r'(?:preciso|posso|tenho que) fazer lives?|tem (?:treinamento|aulas?))\b', plain):
+        return ''
+    if re.search(r'\b(?:aceit\w*|consent\w*|autoriz\w*|confirm\w*|convites?|cadastro\w*|'
+                 r'vincul\w*|perfil|arroba|c[oó]digo|senha|agencia[dr]\w*|agenciamento|'
+                 r'(?:meu|minha) acesso|sair|cancel\w*|encerr\w*|parar|reset)\b', plain):
+        return ''
+    return text
+
+
+def pending_information_questions(state, event, *, now=None):
+    """Return only earlier, recent questions in the same open cycle."""
+    from datetime import datetime, timezone
+    from engine import _clock
+    cycle = state.get('cycle') or {}
+    rows = state.get(_PENDING_KEY)
+    if (not isinstance(rows, list) or cycle.get('status') != 'open' or not cycle.get('id')):
+        return []
+    try:
+        identifier = int(event['message_id'])
+        at = datetime.now(timezone.utc) if now is None else _clock(now)
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return []
+    result = []
+    for row in rows[-_PENDING_LIMIT:]:
+        if not isinstance(row, dict) or row.get('cycle_id') != cycle['id']:
+            continue
+        try:
+            age = (at - _clock(row['observed_at'])).total_seconds()
+            prior = int(row['message_id'])
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+        if not 0 <= age <= _PENDING_SECONDS or not 0 < prior < identifier:
+            continue
+        original = _informational_question(row.get('text'))
+        if original:
+            result.append({**row, 'text': original})
+    return result
+
+
+def remember_suppressed_question(state, event, *, now=None):
+    """Caller must have proven that the reply was superseded before POST."""
+    from datetime import datetime, timezone
+    from engine import _clock, _stamp
+    cycle = state.get('cycle') or {}
+    text = _informational_question(event.get('text'))
+    if not text or cycle.get('status') != 'open' or not cycle.get('id'):
+        return False
+    at = datetime.now(timezone.utc) if now is None else _clock(now)
+    try:
+        identifier = int(event['message_id'])
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return False
+    if identifier <= 0:
+        return False
+    existing = pending_information_questions(state, event, now=at)
+    formatted = { 'cycle_id': cycle['id'], 'message_id': identifier, 'observed_at': _stamp(at), 'text': text }
+    state[_PENDING_KEY] = ([row for row in existing if row['text'] != text] + [formatted])[-_PENDING_LIMIT:]
+    return True
+
+
+def clear_answered_questions(state, message_ids):
+    rows = state.get(_PENDING_KEY)
+    if not isinstance(rows, list) or not message_ids:
+        return False
+    pending = [row for row in rows if not isinstance(row, dict) or row.get('message_id') not in message_ids]
+    if pending == rows:
+        return False
+    if pending:
+        state[_PENDING_KEY] = pending
+    else:
+        state.pop(_PENDING_KEY, None)
+    return True
+
+
+def _merged_information_question(question, context):
+    from engine import _normal
+    current = safe_context_text(question, 300)
+    if current != question or not isinstance(context, dict) or context.get('real_mode') is not True:
+        return question, []
+    rows = context.get('pending_information_questions')
+    if not isinstance(rows, list):
+        return question, []
+    # Only context from the trusted server projection reaches here. Recheck
+    # shape and scope: not a user-supplied instruction or an operational claim.
+    parts, sources = [], []
+    for row in rows[-_PENDING_LIMIT:]:
+        if not isinstance(row, dict) or type(row.get('message_id')) is not int:
+            continue
+        text = _informational_question(row.get('text'))
+        if not text or _normal(text) == _normal(current) or text in parts:
+            continue
+        if sum(map(len, parts)) + len(text) + len(current) + 4 > 500:
+            continue
+        parts.append(text)
+        sources.append(row['message_id'])
+    return ('\n'.join(parts + [current]), sources) if parts else (question, [])
 
 
 def build_real_planner(settings, planner, *, answerer=None):
@@ -32,24 +154,32 @@ def build_real_planner(settings, planner, *, answerer=None):
     engine = answerer if answerer is not None else build_answerer(settings, mode='real')
     def plan(question, context, turn_settings):
         try:
-            result = planner(question, context, turn_settings)
+            # Even the structured interpretation prompt must never see carried
+            # FAQ text: only the current inbound can express facts or consent.
+            classifier_context = {key: value for key, value in context.items()
+                                  if key != _PENDING_KEY} if isinstance(context, dict) else context
+            result = planner(question, classifier_context, turn_settings)
         except Exception:
             result = {'provider_status': 'unknown', 'intent': 'clarify', 'claims': []}
         result = dict(result) if isinstance(result, dict) else {'provider_status': 'unknown', 'intent': 'clarify', 'claims': []}
         # Model output is never permitted to mint a trusted engine marker.
         result.pop('shared_answer', None)
+        result.pop('carried_information_sources', None)
         result['reply'] = ''
         result.pop('approved_topic_answer', None)
         result.pop('topic_ids', None)
         try:
-            answer = engine(question, conversation=dialogue_from_context(context)) if callable(engine) else 'faq_unavailable'
+            answer_question, carried_sources = _merged_information_question(question, context)
+            answer = engine(answer_question, conversation=dialogue_from_context(context)) if callable(engine) else 'faq_unavailable'
         except Exception:
-            answer = 'faq_unavailable'
+            answer, carried_sources = 'faq_unavailable', []
         valid = (isinstance(answer, dict) and isinstance(answer.get('answer'), str)
                  and isinstance(answer.get('evidence'), list) and bool(answer['evidence'])
                  and isinstance(answer.get('knowledge_version'), str))
         text = answer['answer'] if valid else UNKNOWN if answer == 'faq_unknown' else UNAVAILABLE
         result['reply'] = text
+        if valid and carried_sources and not clarification_question(text):
+            result['carried_information_sources'] = carried_sources
         result['shared_answer'] = {'engine': ENGINE, 'status': 'supported' if valid else 'unavailable',
                                    'text': text, 'profile_id': getattr(engine, 'profile_id', 'amplify-v1')}
         return result

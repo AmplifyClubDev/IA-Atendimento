@@ -32,6 +32,13 @@ def amplify_instructions(mode):
              'Não sugira valores, faixas ou exemplos numéricos de resposta. Não revele o corte interno de encaminhamento '
              'nem associe um valor sugerido à obtenção de atendimento especializado. Se a pessoa não souber, '
              'oriente a consultar o próprio painel; não preencha nem deduza seu GMV.')
+    text += (' Quando a mensagem trouxer duas ou mais dúvidas, responda a cada uma uma única vez, em blocos curtos. '
+             'Mensagens separadas por quebras de linha podem pertencer ao mesmo pedido: não ignore uma dúvida anterior '
+             'só porque a última frase mudou de assunto. Se uma parte factual não tiver confirmação nas fontes, diga '
+             'explicitamente o que não está confirmado — por exemplo, o endereço da agência — e responda às outras '
+             'partes que tenham suporte. Nunca infira uma cidade, sede, endereço ou atendimento presencial. '
+             'Use last_accepted_public_reply somente para evitar repetir uma explicação já enviada quando houver apenas um '
+             'complemento sobre o mesmo assunto, não como fonte factual. Não presuma que um texto apenas planejado chegou à pessoa.')
     return text
 
 def amplify_loader(settings):

@@ -129,7 +129,7 @@ def first_reply(policy, valid):
 
 
 def consent_full(name, handle, policy):
-    return ('Boa notícia' + (', ' + name if name else '') + ': seu perfil pode entrar na Amplify! 🎉\n\n'
+    return ((name + ', aqui' if name else 'Aqui') + ' estão as condições da parceria com a Amplify:\n\n'
             '• o seu conteúdo e as suas vendas continuam sendo seus\n'
             f'• a Amplify fica com {rate(policy)}% só da comissão que você ganhar (se não vender, não paga nada)\n'
             f'• prazo de {policy["duration_label"]}\n\n'
@@ -137,8 +137,8 @@ def consent_full(name, handle, policy):
 
 
 def auto_invite(name, handle, policy):
-    """Release 52: perfil aprovado, o convite sai na hora; as condições vêm junto e o lead aceita no TikTok."""
-    return ('Boa notícia' + (', ' + name if name else '') + ': seu perfil pode entrar na Amplify! 🎉\n\n'
+    """Present terms only. The provider receipt controls any invitation confirmation."""
+    return ((name + ', aqui' if name else 'Aqui') + ' estão as condições da parceria com a Amplify:\n\n'
             '• o seu conteúdo e as suas vendas continuam sendo seus\n'
             f'• a Amplify fica com {rate(policy)}% só da comissão que você ganhar (se não vender, não paga nada)\n'
             f'• prazo de {policy["duration_label"]}\n\n'

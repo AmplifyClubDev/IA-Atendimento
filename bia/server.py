@@ -1264,6 +1264,14 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                     # One immutable context snapshot per inbound. Never cache it in
                     # global service settings: the next message must see DB edits.
                     turn_settings = dict(settings)
+                    from real_answer_adapter import (pending_information_questions, remember_suppressed_question,
+                                                     clear_answered_questions)
+                    faq_controls = reply_fence.control_message(
+                        event.get('text'), reset=reset_requested, real_mode=True)
+                    faq_enabled = (conversational and _get(settings, 'tiktok_mode') == 'real'
+                                   and settings.get('same_engine_enabled') is True and resumed is None
+                                   and not faq_controls and not state.get('human_control') and not state.get('opt_out'))
+                    answered_faq = {}
 
                     def knowledge(question, context):
                         operation_key = key + ":answer"
@@ -1322,6 +1330,8 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                                     pass
                                 projected.append({"operation": operation, "status": status})
                             context["pending_operations"] = projected
+                            if faq_enabled and question == event.get('text') and not projected:
+                                context['pending_information_questions'] = pending_information_questions(state, event)
                             if any(row["status"] == "outcome_unknown" for row in projected):
                                 context["current_question"] = ("O resultado dessa operação ainda não foi confirmado. "
                                     "É preciso conferir o que aconteceu antes de prosseguir; não há confirmação de consulta em andamento.")
@@ -1330,6 +1340,11 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                             raise ValueError("invalid_conversation_contract")
                         status = "outcome_unknown" if answer.get("provider_status") == "unknown" else "completed"
                         repository.complete_operation(operation_key, answer, status)
+                        if faq_enabled and answer.get('carried_information_sources'):
+                            marker = _mapping(answer.get('shared_answer'))
+                            if marker.get('status') == 'supported' and isinstance(marker.get('text'), str):
+                                answered_faq.update({'sources': answer['carried_information_sources'],
+                                                     'text': marker['text']})
                         return answer
 
                     if conversational:
@@ -1381,7 +1396,12 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                                 repository.complete_operation(op_key, {"generated": True})
                     outbox_key = key + ":reply"
                     body = {"text": reply, "buttons": buttons} if reply and reply_fence.current(event) else None
-                    real_jobs = build_jobs(event, state, result.get('effects', []))
+                    effects = result.get('effects', [])
+                    faq_reply = (faq_enabled and reply and not effects and not result.get('fixed_greeting')
+                                 and not _mapping(state.get('cycle')).get('opt_out'))
+                    if faq_reply and not body:
+                        remember_suppressed_question(state, event)
+                    real_jobs = build_jobs(event, state, effects)
                     repository.prepare_reply(key, conv, state, outbox_key, body, real_jobs=real_jobs)
                     if body:
                         receipt = send_current_reply(event, reply, buttons, outbox_key)
@@ -1391,6 +1411,13 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                         safe_receipt = {name: receipt[name] for name in ("status", "message_id", "reason")
                                         if isinstance(receipt, dict) and name in receipt and isinstance(receipt[name], str)}
                         repository.finish_outbox(outbox_key, status, safe_receipt)
+                        if faq_reply and safe_receipt.get('reason') == 'reply_superseded_by_new_inbound':
+                            if remember_suppressed_question(state, event):
+                                repository.save_session(conv, state)
+                        if (status == 'accepted' and answered_faq.get('text')
+                                and answered_faq['text'] in reply
+                                and clear_answered_questions(state, answered_faq['sources'])):
+                            repository.save_session(conv, state)
                         mark_linked_notice(conv, state, reply, status)
                         final = "completed" if status == "accepted" or safe_receipt.get("reason") == "reply_superseded_by_new_inbound" else status
                     else:

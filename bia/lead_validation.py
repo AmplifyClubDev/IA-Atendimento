@@ -34,6 +34,14 @@ def parse_gmv(text):
             r'(?:eu )?(?:ainda nao vendi(?: nada)?|nunca vendi(?: nada)?|nao fiz nenhuma venda)'
             r'(?: (?:pelo|no) tiktok shop)?[.!]?', value):
         return 0
+    # Explicit no-sales answer with a separate, narrow beginner/help clause.
+    # Full match matters: don't swallow a later correction or amount.
+    if re.fullmatch(
+            r'(?:eu )?(?:ainda nao vendi(?: nada)?|nao vendi nada|nunca vendi(?: nada)?|nao fiz nenhuma venda)'
+            r'(?: (?:pelo|no) tiktok shop)?'
+            r'[,.;] *(?:(?:eu )?(?:estou|to) comecando(?:[,]? mas (?:ainda )?nao sei como)?|'
+            r'(?:ainda )?nao sei como comecar|quero aprender(?: a vender)?)[.!]?', value):
+        return 0
     value = re.sub(r'^(?:fiz|vendi|meu gmv foi|meu gmv e|foi|cerca de|aproximadamente)\s+', '', value)
     match = re.fullmatch(r'(?:r\$\s*)?(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:,\d{1,2})?|\d+\.\d{1,2})\s*(k|mil|milhao|milhoes)?(?:\s*(?:reais|brl))?', value)
     if not match:
@@ -131,7 +139,8 @@ def advance(cycle, text, at):
                 # Ambiguity cannot answer this specific zero confirmation.
                 return QUESTIONS['gmv_zero_confirmation']
         elif amount is None and re.fullmatch(
-                r'(?:eu )?(?:ainda nao comecei|nao comecei ainda|so ativei (?:a conta|o shop)|somente ativei (?:a conta|o shop))'
+                r'(?:eu )?(?:ainda nao comecei|nao comecei ainda|so ativei (?:a conta|o shop)|somente ativei (?:a conta|o shop)|'
+                r'(?:vou|irei|irie) comecar a vender(?: amanha)?|comeco a vender amanha)'
                 r'(?:[,.;]? (?:so|somente|apenas) ativei (?:a conta|o shop))?[.!]?', value):
             record['stage'] = 'gmv_zero_confirmation'
             record['updated_at'] = engine._stamp(at)
