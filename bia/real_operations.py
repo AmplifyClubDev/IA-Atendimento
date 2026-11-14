@@ -62,7 +62,8 @@ def business_key(cycle_id, creator, operation):
 
 
 # Release 42: reads of the relations list started by the scan (see real_journey.AGENCY_SOURCES).
-AGENCY_SOURCES = frozenset({'invite_list_proof', 'invite_tracking'})
+AGENCY_SOURCES = frozenset({'invite_list_proof', 'invite_tracking', 'pending_relationship_manual',
+                            'pending_relationship_recovery'})
 
 
 def build_jobs(event, state, effects):

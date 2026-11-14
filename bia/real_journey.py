@@ -135,6 +135,58 @@ def _creator(value):
     return value.lower() if isinstance(value, str) and re.fullmatch(r"@[A-Za-z0-9_][A-Za-z0-9_.]{1,23}", value) else None
 
 
+def _qualification_handle(text):
+    """Independent self-declaration, never bare text or an arbitrary @ mention."""
+    value = text.strip()
+    if any(mark in value for mark in ('?', '"', '“', '”', '@@', '\n', '\r')):
+        return None, text
+    exact = _creator(value)
+    if exact:
+        return exact, ''
+    match = re.fullmatch(
+        r"(?:(?P<answer>[^@,;.!?]{1,100})[,;]\s*)?"
+        r"meu\s+(?:@(?:\s+do\s+tiktok)?|tiktok|perfil\s+do\s+tiktok)"
+        r"\s*(?:(?:é|e)\s+|:\s*)(?P<handle>@[A-Za-z0-9_][A-Za-z0-9_.]{1,23})[!]?",
+        value, flags=re.IGNORECASE)
+    if not match:
+        return None, text
+    return _creator(match['handle']), (match['answer'] or '').strip()
+
+
+def _preserve_qualification_handle(cycle, text, at):
+    profile, remaining = _qualification_handle(text)
+    facts = cycle['facts']
+    if not profile:
+        return None, text
+    previous = _creator(facts.get('tiktok_declarado'))
+    if previous and previous != profile:
+        # Existing profiles require the existing correction/confirmation flow.
+        return None, text
+    if not previous:
+        facts['tiktok_declarado'] = profile
+        cycle.setdefault('claim_provenance', []).append({
+            'field': 'tiktok_declarado', 'at': engine._stamp(at),
+            'source': 'current_inbound_declaration'})
+    return profile, remaining
+
+
+def _invite_permission_followup(cycle, text):
+    invite = (cycle.get('real_operations') or {}).get('invite') or {}
+    if (cycle.get('phase') != 'blocked' or cycle.get('block_reason') != 'creator_binding_not_permitted'
+            or invite.get('status') != 'failed' or invite.get('reason') != 'creator_binding_not_permitted'
+            or invite.get('cycle_id') != cycle.get('id')
+            or not _creator(invite.get('creator'))
+            or invite.get('creator') != _creator((cycle.get('facts') or {}).get('tiktok_declarado'))):
+        return False
+    value = engine._normal(text).strip().rstrip('?! .')
+    return bool(re.fullmatch(
+        r"(?:onde (?:(?:eu |posso |consigo )?(?:verific(?:ar|a|o)|conf(?:erir|ere|iro)|vejo|ver|olho|consulto)"
+        r"|fica(?: essa (?:permissao|opcao))?)|"
+        r"como (?:(?:eu |posso )?(?:verific(?:ar|a|o)|conf(?:erir|ere|iro)|ver|resolvo|resolver|confirmo)"
+        r"|faco(?: para (?:verificar|conferir|resolver))?)|o que (?:eu )?faco)"
+        r"(?: (?:isso|essa permissao|esse requisito|a permissao|o requisito|no tiktok|no app))?", value))
+
+
 def _result_creator(value):
     return _creator(value if isinstance(value, str) and value.startswith("@") else "@" + value if isinstance(value, str) else None)
 
@@ -335,7 +387,9 @@ def _finish(state, at, *, reply=None, effects=None, status="real", intro=False, 
         buttons = (["Conhecer a Amplify", "Quero me agenciar"] if cycle["phase"] == "intro" and intro
                    else ["Anúncio", "Indicação", "Outra origem"] if cycle["phase"] == "origin" and text.endswith(PROMPTS["origin"])
                    else list(conversao.CONSENT_BUTTONS) if cycle["phase"] == "consent_real" and cycle.get("invite_offer")
-                   else ["Verificar aceite"] if cycle["phase"] == "await_acceptance" else [])
+                   else [PENDING_RECHECK_BUTTON] if _pending_recheck_allowed(state, at) and cycle["phase"] == "await_acceptance"
+                   else ["Verificar aceite"] if cycle["phase"] == "await_acceptance"
+                        and cycle.get("relationship_check_in_form") is not True else [])
     if cycle.get('experience_version') == 'bia-approved-v1':
         text = text.replace(_INTRO_ACTION, 'Se quiser começar, toque em *Quero fazer parte* 😊')
         buttons = ['Quero fazer parte' if label == 'Quero me agenciar' else label for label in buttons]
@@ -807,6 +861,133 @@ def acceptance_declared(text, cycle):
             r'(?: (?:no|la no|do) tiktok| la| agora| sim| ja)?', normal):
         return True
     return normal in _ACCEPTANCE_CONTEXTUAL and (_invite_known(cycle) or cycle.get('phase') in {'await_acceptance', 'checking_acceptance'})
+
+
+PENDING_RECHECK_BUTTON = 'Verificar novamente'
+_PENDING_MANUAL_SOURCE = 'pending_relationship_manual'
+_PENDING_RECOVERY_SOURCE = 'pending_relationship_recovery'
+_PENDING_SOURCES = frozenset({_PENDING_MANUAL_SOURCE, _PENDING_RECOVERY_SOURCE})
+_PENDING_RECHECK_TTL = 24 * 3600
+_PENDING_RECHECK_BRIDGE_WAIT = timedelta(minutes=1)
+_PENDING_RECHECK_MAX_RECOVERY = 3
+_PENDING_RECHECK_MIN_SPACING = timedelta(seconds=30)
+
+
+def _pending_recheck_command(text):
+    if not isinstance(text, str):
+        return False
+    return engine._normal(text).rstrip(' ?!.') in {'verificar novamente', 'verificar meu vinculo',
+                                                   'verifique novamente', 'conferir novamente'}
+
+
+def _pending_recheck_allowed(state, at):
+    cycle = state.get('cycle') or {}
+    if (cycle.get('status') != 'open' or cycle.get('mode') != 'real'
+            or cycle.get('relationship_check_in_form') is not True
+            or cycle.get('phase') not in {'await_acceptance', 'checking_acceptance', 'form', 'blocked'}
+            or state.get('human_control') or state.get('opt_out') or cycle.get('opt_out')
+            or cycle.get('qualification_paused') or cycle.get('pending_profile_changes')
+            or cycle.get('invite_cancellation_reported') or state.get('cadastro_situacao') == 'confirmado'):
+        return False
+    return _linked_in_cycle(state, at) or _pending_read_scope(state, at) is not None
+
+
+def _pending_read_scope(state, at):
+    """Current proof, or a recent read-only scope created from bound proof on this exact profile."""
+    cycle = state.get('cycle') or {}
+    operations = cycle.get('real_operations') or {}
+    times = [engine._clock(operations[operation]['observed_at'])
+             for operation, status in (('invite', 'pending'), ('invite', 'sent'), ('relationship', 'pending'))
+             if _operation_proven(state, operation, status, now=at, maximum_age_seconds=_PENDING_RECHECK_TTL)]
+    if times:
+        return max(times)
+    marker = cycle.get('pending_relationship_recheck') or {}
+    if (marker.get('cycle_id') != cycle.get('id')
+            or marker.get('creator') != _creator((cycle.get('facts') or {}).get('tiktok_declarado'))):
+        return None
+    try:
+        proof_at = engine._clock(marker['proof_at'])
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+    return proof_at if 0 <= (at - proof_at).total_seconds() <= _PENDING_RECHECK_TTL else None
+
+
+def _pending_recheck_job(state, at, source):
+    job = _effect(state, 'relationship', at)
+    if not job:
+        return None
+    for item in (job, state['effects'][job['id']]):
+        item['payload']['source'] = source
+    return job
+
+
+def _pending_recheck_turn(state, at):
+    cycle = state['cycle']
+    if _linked_in_cycle(state, at):
+        # A button click is not a declaration, a consent update, or a new invitation.
+        return _finish(state, at, reply=_linked_reply(state), buttons=[], force_form_button=True)
+    marker = cycle.get('pending_relationship_recheck') or {}
+    last = engine._clock(marker['last_manual_at']) if marker.get('last_manual_at') else None
+    if last is not None and at - last < _PENDING_RECHECK_MIN_SPACING:
+        return _finish(state, at, reply='Já estou conferindo o vínculo no TikTok. Não precisa solicitar outra consulta.', buttons=[])
+    proof_at = _pending_read_scope(state, at)
+    if proof_at is None:
+        return _finish(state, at, reply='Não encontrei um convite ativo para verificar neste atendimento.', buttons=[])
+    old = (state.get('effects') or {}).get(marker.get('effect_id')) or {}
+    if ((old.get('payload') or {}).get('source') in _PENDING_SOURCES
+            and old.get('cycle_id') == cycle['id'] and _stale(old, at)):
+        old['status'] = 'superseded_stale'
+    job = _pending_recheck_job(state, at, _PENDING_MANUAL_SOURCE)
+    if not job:
+        return _finish(state, at, reply='Já há uma consulta em andamento. Aguarde um pouco e tente novamente se precisar.', buttons=[])
+    cycle['pending_relationship_recheck'] = {'effect_id': job['id'], 'last_manual_at': engine._stamp(at),
+        'attempts': 0, 'cycle_id': cycle['id'], 'creator': job['creator'], 'proof_at': engine._stamp(proof_at)}
+    # Keep the existing form and cycle state; only the relationship is read.
+    return _finish(state, at, reply='Vou conferir o vínculo no TikTok. 🔎', effects=[job], buttons=[])
+
+
+def _settle_pending_relationship_read(state, at, effect, result):
+    cycle = state['cycle']
+    marker = cycle.get('pending_relationship_recheck') or {}
+    manual = effect['payload']['source'] == _PENDING_MANUAL_SOURCE
+    status = result['status']
+
+    def silent():
+        state['revision'] += 1
+        return engine._result(state, operation_settled=True)
+
+    if marker.get('effect_id') != effect['id']:
+        return silent()
+    if status == 'linked':
+        cycle.pop('pending_relationship_recheck', None)
+        if state.get('cadastro_situacao') == 'confirmado':
+            return silent()
+        return _finish(state, at, reply=_linked_reply(state), buttons=[], force_form_button=True)
+    if status in {'pending', 'not_found'}:
+        marker.pop('retry_at', None)
+        if status == 'pending':
+            # Once a manual absence is followed by fresh pending proof, normal read tracking may resume.
+            if (cycle.get('invite_tracking') or {}).get('stopped') == 'manual_absence':
+                _start_tracking(cycle, at)
+            reply = ('O convite da *Amplify* ainda está pendente. No TikTok Shop Creator, '
+                     'abra *Parcerias* ou *Notificações* e aceite o convite.\n\n'
+                     'Depois, toque em *Verificar novamente*.')
+        else:
+            cycle.setdefault('invite_tracking', {})['stopped'] = 'manual_absence'
+            reply = ('Não encontrei o vínculo nessa consulta. Confira se aceitou o convite da *Amplify* '
+                     'no perfil certo e toque em *Verificar novamente*. Não reenviei o convite.')
+        return _finish(state, at, reply=reply, buttons=[PENDING_RECHECK_BUTTON]) if manual else silent()
+    if int(marker.get('attempts') or 0) < _PENDING_RECHECK_MAX_RECOVERY:
+        marker['retry_at'] = engine._stamp(at + _PENDING_RECHECK_BRIDGE_WAIT)
+    else:
+        marker.pop('retry_at', None)
+    if manual:
+        return _finish(state, at, reply=(
+            'Não consegui confirmar o vínculo no TikTok agora. Se você já recebeu o link do cadastro, '
+            'ele continua disponível. Posso tentar novamente quando a consulta voltar; você também pode tocar '
+            'em *Verificar novamente*.'
+        ), buttons=[PENDING_RECHECK_BUTTON])
+    return silent()
 
 
 def form_link_requested(text):
@@ -1770,6 +1951,14 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
             cycle['phase'] = 'checking'
             return _finish(state, at, reply='Vou conferir seu vínculo atual antes de apresentar os próximos passos. Nenhum novo convite foi autorizado.', effects=[check], buttons=[])
         return _finish(state, at, reply='A conferência do vínculo ainda está pendente. Não vou enviar outro convite automaticamente.', buttons=[])
+    if (_invite_permission_followup(cycle, text) and not _linked_in_cycle(state, at)
+            and not (state.get('human_control') or state.get('opt_out') or cycle.get('opt_out'))):
+        return _finish(state, at, reply=(
+            'No app do TikTok, entre com o mesmo perfil e confira se a *Central do Criador do TikTok Shop* abre. '
+            'Ter acesso à Central não confirma a permissão para se vincular a uma agência.\n\n'
+            'O TikTok não mostrou aqui qual requisito impediu o vínculo. Se a Central abrir, '
+            'consulte o suporte do TikTok Shop para confirmar esse requisito. Não vou reenviar o convite agora.'
+        ), buttons=[], exact=True)
     # Education does not attest to a personal invite or authorize operations.
     if (re.search(r'\b(?:como (?:aceitar|aceito)|nao sei (?:como )?aceitar|(?:video|tutorial).{0,25}convite)\b', normal) and 'convite' in normal
             and not re.search(r'\bnao (?:quero|preciso|envie|mande)\b|\bcancelei\b|\bcancelad[oa]\b', normal)
@@ -1845,11 +2034,22 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
 
     from lead_validation import stage as validation_stage, advance as validation_advance
     if validation_stage(cycle) not in {None, 'complete'}:
-        validation_text = text
-        if (cycle.get('experience_version') == 'bia-approved-v1' and validation_stage(cycle) == 'existing_profile'
-                and not re.fullmatch(r'[A-ZÀ-Ý][a-zà-ÿ]+', text.strip())):
-            validation_text = _bare_handle(text) or text
         previous_stage = validation_stage(cycle)
+        profile, validation_text = _preserve_qualification_handle(cycle, text, at)
+        if previous_stage == 'existing_profile':
+            if profile:
+                validation_text = profile
+            elif cycle.get('experience_version') == 'bia-approved-v1' and not re.fullmatch(r'[A-ZÀ-Ý][a-zà-ÿ]+', text.strip()):
+                # Bare handles only under the explicit profile question.
+                validation_text = _bare_handle(text) or text
+            known = _creator(cycle['facts'].get('tiktok_declarado'))
+            if known and _creator(validation_text) not in {None, known}:
+                # Never replace the stored creator through qualification.
+                validation_text = ''
+        elif profile and not validation_text:
+            from lead_validation import QUESTIONS
+            question, choices = QUESTIONS[previous_stage]
+            return _finish(state, at, reply='Anotei seu @.\n\n' + question, buttons=choices, exact=True)
         response = validation_advance(cycle, validation_text, at)
         if response is not None:
             question, choices = response
@@ -1872,6 +2072,22 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
                     cycle['answer_clarification'] = clarification
                     return _finish(state, at, reply=answer, buttons=[], exact=True)
                 cycle.pop('answer_clarification', None)
+                if previous_stage == 'gmv':
+                    # A missing/ambiguous amount is not zero. After explaining
+                    # the step once, keep a safe skip/zero choice instead of
+                    # appending the same question after every unrelated turn.
+                    gmv_step = cycle['bia_validation']
+                    previous_help = gmv_step.get('gmv_help_last')
+                    gmv_step['gmv_help_last'] = engine._normal(answer)
+                    shortcuts = ['Não sei', 'Nenhuma venda']
+                    if previous_help is not None:
+                        if previous_help == gmv_step['gmv_help_last']:
+                            return _finish(state, at, reply=(
+                                'Se não souber o valor, toque em *Não sei*. Se não fez nenhuma venda nos últimos '
+                                '30 dias, toque em *Nenhuma venda*. Se souber, pode mandar só o valor em reais.'
+                            ), buttons=shortcuts, exact=True)
+                        return _finish(state, at, reply=answer, buttons=shortcuts, exact=True)
+                    return _finish(state, at, reply=answer + '\n\n' + question, buttons=shortcuts, exact=True)
                 return _finish(state, at, reply=answer + '\n\n' + question, buttons=choices, exact=True)
             return _finish(state, at, reply=question, buttons=choices, exact=True)
         if cycle['bia_validation'].get('existing_amplify_declared') is True:
@@ -1895,8 +2111,7 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
         validation_question = validation_begin(cycle, at)
         if validation_question is not None:
             # Preserve an explicitly supplied profile, never promote bare prose.
-            if _creator(text.strip()) and not cycle['facts'].get('tiktok_declarado'):
-                cycle['facts']['tiktok_declarado'] = text.strip().lower()
+            _preserve_qualification_handle(cycle, text, at)
             question, choices = validation_question
             return _finish(state, at, reply=question, buttons=choices, exact=True)
 
@@ -2027,6 +2242,13 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
                 _consent_prompt(cycle, operation_policy) if cycle['phase'] == 'consent_real' else _phase_prompt(cycle))
         return _finish(state, at, reply='O cadastro é liberado depois que você aceita o convite da Amplify no TikTok. 😊\n\n' + step,
                        buttons=['Quero me agenciar'] if cycle['phase'] == 'intro' else None)
+    if _pending_recheck_command(text):
+        if _pending_recheck_allowed(state, at):
+            return _pending_recheck_turn(state, at)
+        if normal.rstrip(' ?!.') == 'verificar novamente':
+            return _finish(state, at, reply=(
+                'Não encontrei um convite ativo para verificar neste atendimento. Nenhum novo convite foi enviado.'
+            ), buttons=[])
     if invite_pending and re.search(r'\b(?:como (?:aceitar|aceito)|nao sei (?:como )?aceitar|(?:video|tutorial).{0,25}convite)\b', normal):
         return _finish(state, at, reply=conversao.INVITE_WHERE, buttons=['Já aceitei'])
     if invite_pending and invite_missing(text):
@@ -2509,7 +2731,7 @@ LIST_PROOF_MAX_AGE_SECONDS = 1800
 AGENCY_READ_GAP = timedelta(minutes=15)
 TRACKING_HORIZON = timedelta(days=7)
 TRACKED_INVITE = frozenset({'sent', 'pending', 'pending_verification'})
-AGENCY_SOURCES = frozenset({'invite_list_proof', 'invite_tracking'})
+AGENCY_SOURCES = frozenset({'invite_list_proof', 'invite_tracking'}) | _PENDING_SOURCES
 READ_MARGIN = timedelta(minutes=15)
 
 
@@ -2673,7 +2895,14 @@ def _mark_linked_notice(cycle, at):
 
 
 def agency_read_due(state, now):
-    return 'invite_list_proof' if list_proof_due(state, now) else 'invite_tracking' if tracking_due(state, now) else None
+    at = engine._clock(now)
+    cycle = state.get('cycle') or {}
+    marker = cycle.get('pending_relationship_recheck') or {}
+    due = engine._clock(marker['retry_at']) if marker.get('retry_at') else None
+    if (due is not None and at >= due and int(marker.get('attempts') or 0) < _PENDING_RECHECK_MAX_RECOVERY
+            and _agency_gate(state, at) and _pending_recheck_allowed(state, at)):
+        return _PENDING_RECOVERY_SOURCE
+    return 'invite_list_proof' if list_proof_due(state, at) else 'invite_tracking' if tracking_due(state, at) else None
 
 
 def agency_read_effect(state, now):
@@ -2682,10 +2911,19 @@ def agency_read_effect(state, now):
     if not source:
         return None
     cycle, at = state['cycle'], engine._clock(now)
-    since = _tracking_since(state)
     for old in state['effects'].values():
         if old.get('type') == 'tiktok_operation' and old.get('cycle_id') == cycle['id'] and _stale(old, at):
             old['status'] = 'superseded_stale'
+    if source == _PENDING_RECOVERY_SOURCE:
+        effect = _pending_recheck_job(state, at, source)
+        if not effect:
+            return None
+        marker = cycle['pending_relationship_recheck']
+        marker.update(effect_id=effect['id'], attempts=int(marker.get('attempts') or 0) + 1)
+        marker.pop('retry_at', None)
+        state['revision'] += 1
+        return effect
+    since = _tracking_since(state)
     effect = _effect(state, 'relationship', at)
     if not effect:
         return None
@@ -2942,6 +3180,10 @@ def resolve_tiktok_result(session, effect_id, result, *, now=None, operation_pol
     success = result["status"] in {"eligible", "ineligible", "sent", "linked", "pending", "not_found", "observed"}
     proof = isinstance(result.get("evidence"), dict) and bool(result["evidence"])
     if success and (not valid_time or not proof or (operation != "lookup" and result.get("confirmed") is not True)):
+        if operation == 'relationship' and source in _PENDING_SOURCES:
+            # No success may be announced without proof. Treat this read as temporarily unconfirmed.
+            effect.update(status='done', resolved_at=engine._stamp(at))
+            return _settle_pending_relationship_read(state, at, effect, {'status': 'verification_pending'})
         return engine._result(state, ignored=True, reason="operation_evidence_missing_or_stale")
     previous = (cycle.get('real_operations') or {}).get(operation) or {}
     if operation == 'relationship' and relationship_proven(state, now=at):
@@ -2959,7 +3201,9 @@ def resolve_tiktok_result(session, effect_id, result, *, now=None, operation_pol
                   resolved_at=engine._stamp(at))
     record = {key: deepcopy(result[key]) for key in ("status", "operation", "creator", "observed_at", "evidence", "confirmed", "reason") if key in result}
     record.update(job_id=effect_id, cycle_id=cycle["id"], creator=effect["creator"])
-    cycle.setdefault("real_operations", {})[operation] = record
+    # A temporary read failure cannot replace existing bound relationship proof.
+    if source not in _PENDING_SOURCES or status in {'linked', 'pending', 'not_found'}:
+        cycle.setdefault("real_operations", {})[operation] = record
     if operation == "invite":
         effect["result_receipt"] = deepcopy(record)
     effects, reply = [], ""
@@ -2968,6 +3212,10 @@ def resolve_tiktok_result(session, effect_id, result, *, now=None, operation_pol
         cycle.update(phase="blocked", block_reason="creator_binding_not_permitted")
         cycle["team_alert"] = {"at": engine._stamp(at), "reason": "creator_binding_not_permitted"}
         return _finish(state, at, reply="O TikTok informou que este perfil ainda não tem permissão para se vincular a uma agência. Esse requisito precisa ser verificado antes de continuar o agenciamento.", buttons=[])
+    if form_mode and operation == 'relationship' and source in _PENDING_SOURCES:
+        # Read-only regardless of status, including confirmed absence. Never call resend handlers here.
+        effect['status'] = 'done'
+        return _settle_pending_relationship_read(state, at, effect, result)
     if form_mode and operation == 'relationship' and source in AGENCY_SOURCES:
         return _settle_agency_read(state, at, effect, result, operation_policy)
     if form_mode and operation == 'precheck' and source == 'invite_list_proof':
