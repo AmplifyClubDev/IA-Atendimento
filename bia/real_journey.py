@@ -849,6 +849,48 @@ def invite_acceptance_proven(state, at=None):
             or _operation_proven(state, 'invite', 'sent', now=at))
 
 
+def _is_invite_followthrough(cycle, *, bound_receipt=False):
+    if not cycle.get('relationship_check_in_form'):
+        return False
+    phase = cycle['phase']
+    return (phase in {'await_acceptance', 'checking_acceptance'}
+            or (phase == 'form' and (bound_receipt or _invite_known(cycle) or _invite_unlanded(cycle))))
+
+
+def _post_invite_next_step(state, normal, at):
+    """Route only personal next-step questions, not general FAQs or commands."""
+    if not re.fullmatch(
+            r'(?:(?:(?:eu )?nao sei |(?:eu )?(?:quero|queria|gostaria de) saber )?'
+            r'como (?:eu )?(?:comeco|comecar|inicio|iniciar|faco para comecar|faco|fazer|continuo|continuar|sigo|seguir)'
+            r'|qual (?:e )?(?:o |meu |o meu )?proximo passo|(?:e )?agora o que (?:eu )?faco'
+            r'|o que (?:eu )?faco agora|e agora)(?: agora| por favor)?', normal):
+        return None
+    cycle = state['cycle']
+    phase = cycle['phase']
+    if (state.get('human_control') or state.get('opt_out') or cycle.get('opt_out')
+            or cycle.get('qualification_paused') or cycle.get('pending_profile_changes')
+            or cycle.get('answer_clarification')):
+        return None
+    if not cycle.get('relationship_check_in_form') or phase not in {'form', 'await_acceptance', 'checking_acceptance'}:
+        return None
+    linked = _linked_in_cycle(state, at)
+    pending = invite_acceptance_proven(state, at)
+    # Form also covers creators who did not enter via an invite. Only route
+    # that phase here when the same cycle has an invitation or bound receipt.
+    if not _is_invite_followthrough(cycle, bound_receipt=linked or pending):
+        return None
+    if linked:
+        return 'Seu vínculo com a Amplify foi confirmado. O próximo passo é concluir o cadastro da Amplify.'
+    if phase == 'checking_acceptance' or cycle['facts'].get('aceite_declarado') is True:
+        return 'Se você já aceitou, não precisa aceitar de novo. O próximo passo é confirmar o vínculo antes do cadastro.'
+    if pending:
+        return ('O próximo passo é aceitar o convite da Amplify. No TikTok Shop Creator, '
+                'abra *Parcerias* ou *Notificações*. Depois que aceitar, me avise por aqui.')
+    return ('Não tenho confirmação de um convite disponível agora. Se o convite da Amplify aparecer em '
+            '*Parcerias* ou *Notificações* no TikTok Shop Creator, você pode aceitá-lo por lá. '
+            'Se não aparecer, me diga o que você vê na tela.')
+
+
 def acceptance_declared(text, cycle):
     """"Aceitei" sempre; "feito"/"pronto" só depois de um convite."""
     if not isinstance(text, str) or '?' in text:
@@ -1968,6 +2010,9 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
         return _finish(state, at, reply=tutorial_videos.invitation_help(
             'Este vídeo mostra como aceitar o convite de parceria no TikTok. '
             'Siga o passo a passo nele. Se a sua tela estiver diferente, me diga o que aparece para eu te orientar.'), buttons=[], exact=True)
+    next_step = _post_invite_next_step(state, normal, at)
+    if next_step:
+        return {**_finish(state, at, reply=next_step, buttons=[], exact=True), 'fixed_greeting': True}
     # Adopt presentation only; provider effects stay in the real state machine.
     if cycle.get('experience_version') == 'bia-approved-v1':
         from approved_experience import OPENING, CHOICES, MENUS, TOPICS
@@ -2002,7 +2047,8 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
             pending = current_validation_stage(cycle)
             if cycle.get('answer_clarification'):
                 return {**_finish(state, at, reply=answer, buttons=[], exact=True), 'fixed_greeting': True}
-            if pending and pending != 'complete':
+            if pending and pending != 'complete' and not _is_invite_followthrough(
+                    cycle, bound_receipt=invite_acceptance_proven(state, at) or _linked_in_cycle(state, at)):
                 from lead_validation import QUESTIONS
                 prompt, buttons = QUESTIONS[pending]
                 answer += '\n\n' + prompt
