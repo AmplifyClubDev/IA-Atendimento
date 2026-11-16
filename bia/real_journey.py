@@ -63,6 +63,18 @@ _ACCEPT_NEXT_STEP = ("Quando aceitar o convite da *Amplify* no TikTok Shop Creat
 # Depois de um convite, "feito"/"pronto" respondem ao pedido de aceite.
 _ACCEPTANCE_CONTEXTUAL = {"feito", "pronto", "prontinho", "ja fiz", "fiz", "consegui", "ja consegui", "ok feito",
                           "pronto feito", "feito ja", "ja feito", "tudo certo", "ja esta", "ja ta"}
+_ACKNOWLEDGMENT = re.compile(
+    r'(?:ok+|okay|entendi|entendido|certo|beleza|blz|ta bom|tudo bem|valeu|obrigad[oa]|obg|show|perfeito)'
+    r'(?: (?:entendi|valeu|obrigad[oa]|obg))?'
+)
+
+
+def _acknowledgment_only(text, normal):
+    # Normalization removes punctuation; do not turn a question, handle or
+    # other explicit input into an acknowledgment.
+    return not re.search(r'[?¿@#]', text) and bool(_ACKNOWLEDGMENT.fullmatch(normal))
+
+
 # Release 40: conferência do perfil que falhou porque a ponte estava fora (não por perfil inelegível).
 BRIDGE_DOWN_REASONS = frozenset({'human_verification_required', 'session_not_ready', 'transport_unconfirmed',
                                  'invalid_response', 'redirect_rejected', 'response_too_large',
@@ -871,13 +883,17 @@ def _post_invite_next_step(state, normal, at):
             or cycle.get('qualification_paused') or cycle.get('pending_profile_changes')
             or cycle.get('answer_clarification')):
         return None
-    if not cycle.get('relationship_check_in_form') or phase not in {'form', 'await_acceptance', 'checking_acceptance'}:
+    if not cycle.get('relationship_check_in_form') or phase not in {
+            'inviting', 'form', 'await_acceptance', 'checking_acceptance'}:
         return None
     linked = _linked_in_cycle(state, at)
     pending = invite_acceptance_proven(state, at)
+    if phase == 'inviting' and not linked and not pending:
+        return ('O envio do convite ainda não foi confirmado. Por enquanto, '
+                'você não precisa fazer nada nem mandar seus dados de novo.')
     # Form also covers creators who did not enter via an invite. Only route
     # that phase here when the same cycle has an invitation or bound receipt.
-    if not _is_invite_followthrough(cycle, bound_receipt=linked or pending):
+    if phase != 'inviting' and not _is_invite_followthrough(cycle, bound_receipt=linked or pending):
         return None
     if linked:
         return 'Seu vínculo com a Amplify foi confirmado. O próximo passo é concluir o cadastro da Amplify.'
@@ -1981,6 +1997,12 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
             if effect.get("cycle_id") == cycle["id"] and effect.get("status") in {"pending", "running"}:
                 effect["status"] = "outcome_unknown" if effect.get('operation') == 'invite' else "cancelled"
         return _finish(state, at, reply="Tudo bem. Encerrei este atendimento, preservando o histórico. Quando quiser conversar de novo, pode me chamar.", buttons=[])
+    if not fresh and _acknowledgment_only(text, normal):
+        # The inbound is already in history. Commit it without a public
+        # reply or an effect, leaving pending questions and jobs intact.
+        result = engine._finish_reply(state, '', [], at)
+        result['planner_status'] = 'real'
+        return result
     # Restarting after reported cancellation authorizes reads, never a new invite.
     if (cycle.get('invite_cancellation_reported') and cycle.get('phase') == 'blocked'
             and normal in conversation._START | {'quero retomar', 'seguir atendimento'}
