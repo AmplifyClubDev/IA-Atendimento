@@ -6,6 +6,7 @@ from unittest.mock import Mock
 import conversation
 import engine
 from real_journey import PUBLIC_FORM_URL, _acknowledgment_only
+from server import _InboundReplyFence
 from test_relationship_form_chat30 import AT, POLICY, GATE, eligible, inbound, invited, settle
 
 
@@ -102,3 +103,25 @@ class ContextualAcknowledgment(TestCase):
         self.assertTrue(duplicate['duplicate'])
         self.assertEqual(duplicate['state']['history'], first['state']['history'])
         planner.assert_not_called()
+
+    def test_acknowledgment_does_not_supersede_a_waiting_answer(self):
+        fence = _InboundReplyFence()
+        def event(id, text):
+            return {'provider': 'chatwoot', 'account_id': '1', 'conversation_id': '7',
+                    'message_id': str(id), 'text': text}
+        def admit(inbound):
+            ack = _acknowledgment_only(inbound['text'], engine._normal(inbound['text']))
+            return fence.admit(inbound, lambda: {'reserved': True}, supersedes=not ack)[1]
+        question = event(101, 'Quais são os benefícios?')
+        ack = event(102, 'Ok')
+        next_question = event(103, 'Como funciona?')
+        old_ticket = admit(question)
+        ack_ticket = admit(ack)
+        self.assertIs(ack_ticket[0], old_ticket[1])  # FIFO state still preserved
+        self.assertTrue(fence.current(question))
+        new_ticket = admit(next_question)
+        self.assertIs(new_ticket[0], ack_ticket[1])
+        self.assertFalse(fence.current(question))
+        self.assertTrue(fence.current(next_question))
+        admit(event(104, 'Resetar'))
+        self.assertFalse(fence.current(next_question))
