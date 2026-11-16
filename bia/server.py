@@ -117,22 +117,22 @@ class _InboundReplyFence:
         self._lock, self._admission = threading.Lock(), threading.Lock()
         self._heads, self._resets, self._tails = {}, {}, {}
 
-    def admit(self, event, reserve, *, reset=False):
+    def admit(self, event, reserve, *, reset=False, supersedes=True):
         # Couple reservation and ticket order without holding the conversation
         # RLock or the source-reader lock during SQLite/provider work.
         with self._admission:
             reservation = reserve()
-            ticket = self.observe(event, reset=reset) if reservation.get('reserved') else None
+            ticket = self.observe(event, reset=reset, supersedes=supersedes) if reservation.get('reserved') else None
             return reservation, ticket
 
-    def observe(self, event, *, reset=False):
+    def observe(self, event, *, reset=False, supersedes=True):
         conv, source = conversation_key(event), inbound_key(event)
         identifier = int(_positive_id(event.get('message_id')) or '0')
         with self._lock:
             before, done = self._tails.get(conv), threading.Event()
             self._tails[conv] = done
             old = self._heads.get(conv)
-            if source and identifier and (old is None or identifier > old['message_id']):
+            if (supersedes or reset) and source and identifier and (old is None or identifier > old['message_id']):
                 self._heads[conv] = {'source': source, 'message_id': identifier}
             if source and identifier and reset is True:
                 self._resets.setdefault(conv, {}).setdefault(source,
@@ -1226,11 +1226,17 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
         digest = hashlib.sha256(json.dumps(event, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         import conversation as conversation_commands
         recognize_reset = getattr(conversation_commands, '_chat_reset_requested', None)
-        reset_requested = bool(callable(recognize_reset) and recognize_reset(
-            event.get('text'), real_mode=_get(settings, 'tiktok_mode') == 'real'))
+        real_mode = _get(settings, 'tiktok_mode') == 'real'
+        reset_requested = bool(callable(recognize_reset) and recognize_reset(event.get('text'), real_mode=real_mode))
+        from real_journey import _acknowledgment_only
+        # A bare acknowledgment still takes its FIFO turn, but it cannot
+        # cancel the answer to an earlier real question that is still running.
+        ack_only = (conversational and real_mode and isinstance(event.get('text'), str)
+                    and _acknowledgment_only(event['text'], engine._normal(event['text'])))
         try:
             reservation, ticket = reply_fence.admit(event, lambda: repository.reserve_event(
-                key, conv, digest, source_at=event.get('created_at')), reset=reset_requested)
+                key, conv, digest, source_at=event.get('created_at')), reset=reset_requested,
+                supersedes=not ack_only)
         except Exception:
             return dict(accepted=False, status="operational_state_unavailable"), 503
         if not reservation["reserved"]:
