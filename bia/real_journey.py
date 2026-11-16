@@ -1931,6 +1931,10 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
     if registered and (fresh or cycle.get('acesso_liberado')):
         # Com o acesso liberado, a Bia segue respondendo: Club, missões e onde entrar. Nunca volta ao funil.
         cycle.update(acesso_liberado=True, phase='acesso')
+        if not fresh and _acknowledgment_only(text, normal):
+            result = engine._finish_reply(state, '', [], at)
+            result['planner_status'] = 'real'
+            return result
         return {**_finish(state, at, reply=_after_access_reply(text, normal), buttons=[]), 'fixed_greeting': True}
     if fresh and _AD_MESSAGE.search(normal) and 'origem_declarada' not in cycle['facts']:
         cycle['facts']['origem_declarada'] = 'anuncio'
@@ -2055,7 +2059,7 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
                        'history': deepcopy([item for item in state['history'] if item['cycle_id'] == cycle['id']]),
                        'cycle': {key: cycle[key] for key in ('id', 'number', 'status', 'expires_at', 'opened_at') if key in cycle},
                        'real_mode': True, 'simulation_only': False, 'current_question': '',
-                       'allowed_claim_fields': [], 'allowed_actions': ['question', 'clarify', 'converse'],
+                       'explicit_information': True, 'allowed_claim_fields': [], 'allowed_actions': ['question', 'clarify', 'converse'],
                        'can_confirm_external_events': False}
             if policy_valid(operation_policy):
                 context['commercial_policy'] = {key: operation_policy[key] for key in
@@ -2123,14 +2127,33 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
             question, choices = response
             if same_engine_enabled is True and validation_stage(cycle) == previous_stage:
                 context = {'phase': cycle['phase'], 'facts': deepcopy(cycle['facts']),
+                           'cycle': {key: cycle[key] for key in ('id', 'opened_at') if key in cycle},
                            'history': deepcopy([item for item in state['history'] if item['cycle_id'] == cycle['id']]),
                            'real_mode': True, 'current_question': question, 'allowed_claim_fields': [],
+                           'interpretation_stage': previous_stage,
                            'allowed_actions': ['question', 'clarify', 'converse']}
                 try:
                     proposal = assistant_callback(text, context) if callable(assistant_callback) else None
                 except Exception:
                     proposal = None
-                from real_answer_adapter import shared_reply, UNAVAILABLE
+                from turn_meaning import INPUTS, validated_meaning
+                proposed = proposal.get('turn_meaning') if isinstance(proposal, dict) else None
+                meaning = (validated_meaning(text, previous_stage, proposed.get('label'))
+                           if isinstance(proposed, dict) and proposed.get('stage') == previous_stage else None)
+                if meaning == 'period_unclear' or (isinstance(proposed, dict)
+                        and proposed.get('stage') == previous_stage and proposed.get('label') == 'unclear'):
+                    return _finish(state, at, reply=(
+                        'Para eu registrar certo, me diga quanto vendeu nos últimos 30 dias no TikTok Shop. Se não souber o total, pode me dizer.'),
+                        buttons=[], exact=True)
+                if meaning in INPUTS:
+                    semantic_response = validation_advance(cycle, INPUTS[meaning], at)
+                    if semantic_response is not None:
+                        return _finish(state, at, reply=semantic_response[0], buttons=semantic_response[1], exact=True)
+                    if cycle['bia_validation'].get('existing_amplify_declared') is True:
+                        return _direct_form(state, at)
+                    cycle['phase'] = _qualification_phase(cycle)
+                    return _finish(state, at, effects=_initial_checks(state, at), exact=True)
+                from real_answer_adapter import UNAVAILABLE
                 from demo_support import clarification_question
                 answer = _question_reply(text, proposal, cycle, operation_policy, state=state, now=at, allow_local=False) or UNAVAILABLE
                 clarification = clarification_question(answer)
@@ -2484,6 +2507,7 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
                "allowed_actions": sorted(INTENTS), "allowed_claim_fields": sorted(FIELDS),
                "current_question": _phase_prompt(cycle), "simulation_only": False,
                "real_mode": True, "can_confirm_external_events": False,
+               "interpretation_stage": cycle["phase"] if "form" == cycle["phase"] else None,
                "relationship_check_in_form": cycle.get('relationship_check_in_form') is True,
                **_turn_guidance(state, at)}
     if policy_valid(operation_policy):
@@ -2498,6 +2522,18 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
                 if callable(assistant_callback) and not (direct_input or scripted_input) else None)
     except Exception:
         plan = None
+    if same_engine_enabled is True and answered_phase == 'form' and isinstance(plan, dict):
+        from turn_meaning import validated_meaning
+        progress = plan.get('turn_meaning')
+        if isinstance(progress, dict) and progress.get('stage') == answered_phase:
+            if progress.get('label') == 'unclear':
+                return _finish(state, at, reply='Você está me contando o que apareceu no cadastro ou precisa de ajuda com alguma etapa?', buttons=[], exact=True)
+            meaning = validated_meaning(text, answered_phase, progress.get('label'))
+            if meaning in {'form_reported', 'status_reported'}:
+                reply = ('Entendi, você informou que concluiu o cadastro. Vou considerar o cadastro confirmado '
+                         'somente quando o envio aparecer validado.' if meaning == 'form_reported' else
+                         'Entendi o que você viu. Isso ainda não confirma que o cadastro foi concluído.')
+                return _finish(state, at, reply=reply, buttons=[], exact=True)
     # Interpret the answer against the question that was pending when the lead
     # wrote it, even when existing facts already permit a different next action.
     requested_name=cycle.get('name_question_pending') is True

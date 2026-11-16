@@ -1,11 +1,11 @@
 {
   "release": "bia-stability-20261110",
-  "source_count": 52,
+  "source_count": 53,
   "files": [
     {
       "path": "Dockerfile",
-      "bytes": 1173,
-      "sha256": "39a297ca5674104a448e6e036fa0d60d5e2eacfd28d91507e30287ba3fee167f"
+      "bytes": 1189,
+      "sha256": "15ed5071091d87dcb3daa9e11e27308baedc642dc915fae873bfa74bb6a3717c"
     },
     {
       "path": "answers.py",
@@ -84,8 +84,8 @@
     },
     {
       "path": "demo_knowledge.py",
-      "bytes": 12884,
-      "sha256": "533d3f4e009386d069837209869be68444af60f178554e708a3cd8b456f4a8c5"
+      "bytes": 12901,
+      "sha256": "bfe503d41b1143288c7f21407ee19dc2561523261fe516adb38993fa85ca2da3"
     },
     {
       "path": "demo_real_bridge.py",
@@ -174,8 +174,8 @@
     },
     {
       "path": "real_journey.py",
-      "bytes": 210921,
-      "sha256": "cb6afe92a43ee7d652f9b87a1185c22efbef95ee8d51077e80d09153592ebd49"
+      "bytes": 213840,
+      "sha256": "1c800997324ba3bef33ab0c48434db92cb000286b31399a1a60b0d03905e98be"
     },
     {
       "path": "real_operations.py",
@@ -259,8 +259,13 @@
     },
     {
       "path": "real_answer_adapter.py",
-      "bytes": 14683,
-      "sha256": "69c6e8b69f8341888b38e035bd149abc356f969c8339f2876521ca3663e37e05"
+      "bytes": 17890,
+      "sha256": "35e347138f2accf2a0477bec722b37c52e99e64e4930b06659f4f76bc392a543"
+    },
+    {
+      "path": "turn_meaning.py",
+      "bytes": 7346,
+      "sha256": "74c5f79c84a9c1e9e14f4d319afe0549eb433b3bbca2cc7dcdd137571278028c"
     }
   ],
   "provenance": {
