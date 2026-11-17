@@ -183,8 +183,18 @@ def dispatch(settings, repository, event, state, *, http=None):
         return {'status': 'blocked', 'reason': 'invalid_scope', 'events': {}}
     if state.get('opt_out') or cycle.get('opt_out'):
         return {'status': 'blocked', 'reason': 'opt_out', 'events': {}}
-    kinds = ['threshold']
     preference = record.get('preference')
+    if cycle.get('identity_required') is True:
+        from real_journey import _identity_missing
+        if _identity_missing(cycle):
+            if preference == 'specialist' and record.get('handoff_requested') is True:
+                kinds = []  # Specialist request remains actionable without identity.
+            else:
+                return {'status': 'not_requested', 'events': {}}
+        else:
+            kinds = ['threshold']
+    else:
+        kinds = ['threshold']
     if preference == 'machine' or (preference == 'specialist' and record.get('handoff_requested') is True):
         kinds.append(preference)
     statuses = record.setdefault('alert_statuses', {})

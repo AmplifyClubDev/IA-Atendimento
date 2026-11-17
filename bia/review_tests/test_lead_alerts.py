@@ -154,4 +154,43 @@ class AlertTests(unittest.TestCase):
         self.assertEqual(len(self.posts()),1)
 
 
+    def test_identity_pending_defers_normal_alerts_and_releases_with_declared_fields(self):
+        cycle = self.state['cycle']
+        cycle['identity_required'] = True
+        cycle['facts'].pop('nome_declarado')
+        cycle['facts'].pop('tiktok_declarado')
+        self.assertEqual(self.run_alert()['status'], 'not_requested')
+        cycle['bia_validation']['preference'] = 'machine'
+        cycle['facts']['tiktok_declarado'] = '@aurora.synthetic'
+        self.assertEqual(self.run_alert()['status'], 'not_requested')
+        self.assertFalse(self.calls)
+        cycle['facts']['nome_declarado'] = 'Ana Lima'
+        self.assertEqual(set(self.run_alert()['events']), {'threshold', 'machine'})
+        for item in self.posts():
+            self.assertIn('Ana Lima', item['payload']['text'])
+            self.assertIn('@aurora.synthetic', item['payload']['text'])
+        self.run_alert()
+        self.assertEqual(len(self.posts()), 2)
+
+    def test_identity_pending_keeps_only_explicit_specialist_alert_available(self):
+        cycle = self.state['cycle']
+        cycle['identity_required'] = True
+        cycle['facts'].pop('nome_declarado')
+        cycle['facts'].pop('tiktok_declarado')
+        cycle['bia_validation']['preference'] = 'specialist'
+        self.assertEqual(self.run_alert()['status'], 'not_requested')
+        cycle['bia_validation']['handoff_requested'] = True
+        self.assertEqual(set(self.run_alert()['events']), {'specialist'})
+        self.run_alert()
+        self.assertEqual(len(self.posts()), 1)
+
+    def test_invalid_identity_never_appears_in_a_normal_qualified_alert(self):
+        cycle = self.state['cycle']
+        cycle['identity_required'] = True
+        cycle['facts']['nome_declarado'] = '<!channel> +5511999999999'
+        cycle['facts']['tiktok_declarado'] = '<!everyone>'
+        self.assertEqual(self.run_alert()['status'], 'not_requested')
+        self.assertEqual(self.calls, [])
+
+
 if __name__=='__main__': unittest.main()

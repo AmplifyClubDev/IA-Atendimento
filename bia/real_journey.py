@@ -165,6 +165,116 @@ def _qualification_handle(text):
     return _creator(match['handle']), (match['answer'] or '').strip()
 
 
+_IDENTITY_PROMPTS = {
+    'nome_declarado': 'Como posso te chamar?',
+    'tiktok_declarado': 'Qual é seu @ do TikTok?',
+}
+
+
+def _identity_missing(cycle):
+    from nome_contextual import first_name
+    facts = cycle.get('facts') or {}
+    if not first_name(facts.get('nome_declarado')):
+        return 'nome_declarado'
+    if not _creator(facts.get('tiktok_declarado')):
+        return 'tiktok_declarado'
+    return None
+
+
+def invite_identity_required(cycle, settings=None):
+    """Match active production/approved scope without rewriting old cycles."""
+    settings = settings or {}
+    return (cycle.get('identity_required') is True
+            or cycle.get('experience_version') == 'bia-approved-v1'
+            or settings.get('approved_experience_enabled') is True
+            or settings.get('qualification_enabled') is True)
+
+
+def _identity_delivery_matches(cycle, field, reader):
+    if cycle.get('identity_question_pending') != field or not callable(reader):
+        return False
+    try:
+        delivery = reader(cycle['opened_at'])
+        last = delivery.get('last_accepted_reply') or {}
+        return (delivery.get('source') == 'outbox'
+                and delivery.get('latest_attempt_status') == 'accepted'
+                and isinstance(last.get('text'), str)
+                and last['text'].strip().endswith(_IDENTITY_PROMPTS[field]))
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return False
+
+
+def _identity_capture(cycle, text, reader, at):
+    from nome_contextual import extract_name
+    missing = _identity_missing(cycle)
+    if not missing:
+        return False
+    facts = cycle['facts']
+    remaining = text
+    profile, remaining = _qualification_handle(text)
+    if not profile and _identity_delivery_matches(cycle, 'tiktok_declarado', reader):
+        profile = _bare_handle(text)
+        if not profile and re.fullmatch(r'(?:https?://)?(?:www\.|m\.)?tiktok\.com/@[A-Za-z0-9_.]{2,24}/?(?:\?[^\s"“”]*)?',
+                                       text.strip(), re.IGNORECASE):
+            profile = profile_link_handle(text.lower())
+        if profile:
+            remaining = ''
+    name = extract_name(remaining, requested=_identity_delivery_matches(cycle, 'nome_declarado', reader))
+    applied = False
+    for key, value, already in (
+        ('nome_declarado', name, missing != 'nome_declarado'),
+        ('tiktok_declarado', profile, bool(_creator(facts.get('tiktok_declarado')))),
+    ):
+        if not value or already:
+            continue
+        facts[key] = value
+        cycle.setdefault('claim_provenance', []).append({
+            'field': key, 'at': engine._stamp(at), 'source': 'current_inbound_declaration'})
+        applied = True
+    return applied
+
+
+def _identity_turn(state, text, at, reader, assistant_callback, operation_policy, *, fresh=False):
+    cycle = state['cycle']
+    field = _identity_missing(cycle)
+    if field is None:
+        return None, False
+    applied = _identity_capture(cycle, text, reader, at)
+    field = _identity_missing(cycle)
+    if field is None:
+        cycle.pop('identity_question_pending', None)
+        return None, applied
+    answer = ''
+    normal = engine._normal(text)
+    fact_question = (re.match(r'(?:como|onde|qual|quais|o que|por que|porque)\b', normal)
+                     or re.search(r'\b(?:quero|queria|gostaria de) (?:saber|entender|conhecer)\b', normal))
+    if '?' in text or fact_question:
+        context = {'phase': cycle['phase'], 'facts': deepcopy(cycle['facts']),
+                   'history': deepcopy([item for item in state['history'] if item['cycle_id'] == cycle['id']]),
+                   'cycle': {key: cycle[key] for key in ('id', 'number', 'status', 'expires_at', 'opened_at') if key in cycle},
+                   'real_mode': True, 'current_question': _IDENTITY_PROMPTS[field],
+                   'allowed_claim_fields': [], 'allowed_actions': ['question', 'clarify', 'converse']}
+        try:
+            plan = assistant_callback(text, context) if callable(assistant_callback) else None
+        except Exception:
+            plan = None
+        answer = _question_reply(text, plan, cycle, operation_policy, state=state, now=at) or ''
+    elif (not applied and (cycle.get('bia_validation') or {}).get('stage') in {'gmv', 'gmv_zero_confirmation'}):
+        from lead_validation import parse_gmv
+        # Acknowledge the report; don't store or reinterpret an out-of-turn GMV amount.
+        if (parse_gmv(text) == 0 or re.fullmatch(
+                r'(?:eu )?(?:ainda )?nao (?:tenho|tive) (?:nenhuma|qualquer) venda(?:s)?[.!]?', normal)):
+            answer = 'Entendi que você informou que ainda não fez vendas.'
+    cycle.pop('answer_clarification', None)
+    cycle['identity_question_pending'] = field
+    reply = _step_reply(answer, _IDENTITY_PROMPTS[field])
+    if fresh:
+        reply = conversao.OPENING + '\n\n' + reply
+    result = _finish(state, at, reply=reply, buttons=[], exact=True)
+    result['fixed_greeting'] = True  # Do not replace this owned question with an acquisition CTA.
+    return result, applied
+
+
 def _preserve_qualification_handle(cycle, text, at):
     profile, remaining = _qualification_handle(text)
     facts = cycle['facts']
@@ -419,6 +529,8 @@ def _effect(state, operation, at, *, policy=None, retry=False, list_proof=False)
     cycle, creator = state["cycle"], _creator(state["cycle"]["facts"].get("tiktok_declarado"))
     from lead_validation import permitted as validation_permitted
     if not validation_permitted(cycle):
+        return None
+    if operation == 'invite' and cycle.get('identity_required') is True and _identity_missing(cycle):
         return None
     if operation == "invite" and cycle.get("invite_cancellation_reported"):
         return None
@@ -1867,7 +1979,7 @@ def handle_real(session, text, assistant_callback=None, *, resumed=None, **optio
 
 
 def _handle_real_turn(session, text, assistant_callback=None, *, now=None, operation_policy=None, source_event=None,
-                      inactivity_notice=None, relationship_check_in_form=False, qualification_enabled=False, qualification_new_cycles_only=False, approved_experience_enabled=False, same_engine_enabled=False):
+                      inactivity_notice=None, relationship_check_in_form=False, qualification_enabled=False, qualification_new_cycles_only=False, approved_experience_enabled=False, same_engine_enabled=False, identity_delivery=None):
     import conversation
     if not isinstance(text, str) or not 0 < len(text.strip()) <= 4000:
         raise ValueError("text must contain between 1 and 4000 characters")
@@ -1903,6 +2015,8 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
             cycle['experience_version'] = 'bia-approved-v1'
     if cycle.get('experience_version') == 'bia-approved-v1':
         qualification_enabled = True
+    if callable(identity_delivery):
+        cycle['identity_required'] = True
     cycle['answer_engine_active'] = same_engine_enabled is True
     state["real_mode"] = True
     if relationship_check_in_form is True:
@@ -2069,7 +2183,12 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
             pending = current_validation_stage(cycle)
             if cycle.get('answer_clarification'):
                 return {**_finish(state, at, reply=answer, buttons=[], exact=True), 'fixed_greeting': True}
-            if pending and pending != 'complete' and not _is_invite_followthrough(
+            missing = (_identity_missing(cycle) if cycle.get('identity_required') is True
+                       and cycle.get('identity_question_pending') else None)
+            if missing:
+                answer = _step_reply(answer, _IDENTITY_PROMPTS[missing])
+                buttons = []
+            elif pending and pending != 'complete' and not _is_invite_followthrough(
                     cycle, bound_receipt=invite_acceptance_proven(state, at) or _linked_in_cycle(state, at)):
                 from lead_validation import QUESTIONS
                 prompt, buttons = QUESTIONS[pending]
@@ -2101,6 +2220,67 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
         return _finish(state, at, reply=answer or 'Pode explicar um pouco mais sua dúvida?', buttons=[], exact=True)
 
     from lead_validation import stage as validation_stage, advance as validation_advance
+    identity_applicable = (cycle.get('identity_required') is True
+        and not (state.get('human_control') or state.get('opt_out') or cycle.get('opt_out')
+                 or cycle.get('qualification_paused') or cycle.get('form_entry_request')
+                 or (cycle.get('bia_validation') or {}).get('existing_amplify_declared')
+                 or cycle.get('invite_cancellation_reported') or _invite_known(cycle))
+        and cycle.get('phase') in {'intro', 'origin', 'tiktok', 'shop', 'agency', 'validation', 'checking', 'consent_real', 'inviting'}
+        and normal not in {'ja sou amplify', 'sou agenciado pela amplify', 'sou agenciada pela amplify'}
+        and not _direct_form_reason(text))
+    active_validation = validation_stage(cycle)
+    specialist_request = (active_validation == 'choice' and '?' not in text and not any(
+        mark in text for mark in ('"', '“', '”')) and re.fullmatch(
+        r'(?:(?:(?:eu )?(?:quero|prefiro|gostaria de) )?falar com |com )?(?:(?:um|uma) )?especialista[.!]?',
+        normal))
+    machine_request = (active_validation in {'choice', 'specialist'} and normal in {
+        'seguir com a bia', 'continuar com a bia', 'com a bia', 'maquina', 'com a maquina'})
+    if specialist_request:
+        cycle.pop('identity_deferred_machine_choice', None)
+        text, normal = 'Especialista', 'especialista'
+    human_request = (normal in {'especialista', 'atendimento humano'} or not any(mark in text for mark in ('"', '“', '”'))
+                     and re.fullmatch(r'(?:(?:eu )?(?:quero|preciso|prefiro|gostaria de|posso) falar com |falar com )'
+                                      r'(?:(?:um|uma) )?(?:atendente|humano|pessoa|especialista)[?!.]?', normal))
+    identity_applicable = identity_applicable and not human_request
+    identity_captured = False
+    deferred_machine = (active_validation in {'choice', 'specialist'}
+                        and cycle.get('identity_deferred_machine_choice') == active_validation)
+    if identity_applicable and not specialist_request and (active_validation != 'specialist' or machine_request or deferred_machine):
+        carried = _carried_handle(state) if fresh and not _creator(cycle['facts'].get('tiktok_declarado')) else None
+        if carried:
+            cycle['facts'].update(tiktok_declarado=carried, interesse_agenciamento=True)
+            cycle.setdefault('claim_provenance', []).append({
+                'field': 'tiktok_declarado', 'at': engine._stamp(at), 'source': 'previous_cycle_declaration'})
+        joining = (active_validation not in {None, 'complete'}
+                   or cycle['facts'].get('interesse_agenciamento') is True
+                   or conversation._explicit_start(text, text)
+                   or normal in {'quero fazer parte', 'quero entrar'}
+                   or bool(_qualification_handle(text)[0]))
+        if joining:
+            cycle['facts']['interesse_agenciamento'] = True
+            identity_result, identity_captured = _identity_turn(
+                state, text, at, identity_delivery, assistant_callback, operation_policy, fresh=fresh)
+            if identity_result is not None:
+                if machine_request:
+                    cycle['identity_deferred_machine_choice'] = active_validation
+                return identity_result
+            if deferred_machine:
+                cycle.pop('identity_deferred_machine_choice', None)
+                text, normal = 'Seguir com a Bia', 'seguir com a bia'
+            elif identity_captured and active_validation not in {None, 'complete'}:
+                from lead_validation import QUESTIONS
+                question, choices = QUESTIONS[active_validation]
+                return _finish(state, at, reply=question, buttons=choices, exact=True)
+            if identity_captured and cycle['phase'] == 'inviting':
+                # A blocked queue row or old pending effect is not proof of no-send.
+                # Record identity, but leave existing reconciliation/receipt logic intact.
+                return _finish(state, at, reply=(
+                    'Anotei seus dados. Ainda não tenho confirmação de que o convite foi enviado. '
+                    'A conferência está pendente e não vou iniciar outro envio por aqui.'
+                ), buttons=[], exact=True)
+            if identity_captured and cycle['phase'] == 'consent_real':
+                return _finish(state, at, reply=_consent_prompt(cycle, operation_policy), exact=True)
+
     if validation_stage(cycle) not in {None, 'complete'}:
         previous_stage = validation_stage(cycle)
         profile, validation_text = _preserve_qualification_handle(cycle, text, at)
@@ -2553,6 +2733,10 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
             cycle["phase"] = phase
     if qualification_enabled is True:
         from lead_validation import begin as validation_begin
+        if identity_applicable and _identity_missing(cycle) and cycle['facts'].get('interesse_agenciamento') is True:
+            identity_result, _ = _identity_turn(state, text, at, identity_delivery, assistant_callback, operation_policy, fresh=fresh)
+            if identity_result is not None:
+                return identity_result
         validation_question = validation_begin(cycle, at)
         if validation_question is not None:
             question, choices = validation_question

@@ -304,6 +304,14 @@ class RealExecutor:
             if not self._valid(job, state, self.clock()):
                 self.last_guard = 'stale_cycle_or_scope'
                 return False
+            if job.get('operation') == 'invite':
+                from real_journey import _identity_missing, invite_identity_required
+                cycle = state.get('cycle') or {}
+                if invite_identity_required(cycle, self.settings) and _identity_missing(cycle):
+                    # This runs both before execute and at the before_write fence.
+                    # Do not apply it to _apply: a returned/sent receipt still needs reconciliation.
+                    self.last_guard = 'identity_required_before_invite'
+                    return False
             result = self.guard(job['event'])
             self.last_guard = result.get('reason', 'human_control_unverified') if isinstance(result, dict) else 'human_control_unverified'
             return isinstance(result, dict) and result.get('allowed') is True

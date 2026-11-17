@@ -1363,6 +1363,13 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                                         'same_engine_enabled': settings.get('same_engine_enabled') is True,
                                         'qualification_enabled': settings.get('qualification_enabled') is True,
                                         'qualification_new_cycles_only': settings.get('qualification_new_cycles_only') is True}
+                        if turn_options['real_mode']:
+                            def identity_delivery(opened_at):
+                                try:
+                                    return repository.conversation_delivery_context(conv, opened_at)
+                                except Exception:
+                                    return {}
+                            turn_options['identity_delivery'] = identity_delivery
                         if turn_options['real_mode'] and settings.get('relationship_check_in_form') is True:
                             turn_options['relationship_check_in_form'] = True
                         if turn_options['real_mode'] and engine._normal(event.get('text', '')) in {'sim', 'nao'}:
