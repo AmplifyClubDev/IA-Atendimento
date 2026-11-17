@@ -23,6 +23,13 @@ def collect(event, before, cycle):
             and current.get('gmv_at') and current.get('gmv_at') != old.get('gmv_at')
             and type(amount) is int and 0 <= amount <= 100_000_000_000):
         rows.append({**common, 'campo': 'gmv', 'valor': amount, 'moeda': 'BRL', 'periodo_dias': 30})
+    if before.get('id') == cycle.get('id') and old.get('stage') in {'gmv', 'gmv_zero_confirmation'}:
+        from gmv_normalization import normalize_gmv
+        normalized = normalize_gmv(text)
+        if normalized is not None:
+            amount, rule = normalized
+            rows = [{**common, 'campo': 'gmv', 'valor': amount, 'moeda': 'BRL',
+                     'periodo_dias': 30, 'criterio_normalizacao': rule}]
     # Full-message grammar deliberately rejects comparisons, questions and ranges.
     value = ''.join(c for c in unicodedata.normalize('NFD', text.lower().strip())
                     if not unicodedata.combining(c))

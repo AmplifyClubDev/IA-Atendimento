@@ -29,9 +29,12 @@ class Declarations(unittest.TestCase):
         self.assertEqual(row['mensagem_id'], '123')
         self.assertEqual(row['evidencia'], '90 mil')
 
-    def test_zero_and_unknown_are_distinct(self):
+    def test_zero_and_unknown_follow_approved_storage_policy(self):
         self.assertEqual(self.qualified('Sim, nenhuma venda', 'gmv_zero_confirmation')[0]['valor'], 0)
-        for text in ['Não sei', 'mais de 50k', '50-60k', '50000 USD', '50k?']:
+        self.assertEqual(self.qualified('Não sei')[0]['valor'], 0)
+        self.assertEqual(self.qualified('Não sei')[0]['criterio_normalizacao'], 'nao_sabe')
+        self.assertEqual(self.qualified('50-60k')[0]['valor'], 5000000)
+        for text in ['mais de 50k', '50000 USD', '50k?']:
             with self.subTest(text=text): self.assertEqual(self.qualified(text), [])
 
     def test_old_gmv_not_attributed_to_new_message_or_reset(self):

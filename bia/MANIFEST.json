@@ -1,11 +1,11 @@
 {
   "release": "bia-stability-20261110",
-  "source_count": 53,
+  "source_count": 54,
   "files": [
     {
       "path": "Dockerfile",
-      "bytes": 1202,
-      "sha256": "4544cd1e794995332af5d4107d55074d29657cfabe7cf1bc5966996e1e0c0b08"
+      "bytes": 1231,
+      "sha256": "15e6a617dbbd83c6e52e2cf6cb721365ecccaa2554a9d9151a6205707b30e926"
     },
     {
       "path": "answers.py",
@@ -264,8 +264,13 @@
     },
     {
       "path": "chat_declarations.py",
-      "bytes": 2159,
-      "sha256": "a17c4ab57e4c175952bdcdc7ae412c2bbfee55b9e3feabfe612ff7f77f965548"
+      "bytes": 2579,
+      "sha256": "1b593f6a4def5ade605f933ff284737fd5988fccb869780a24cd972d6188b6ec"
+    },
+    {
+      "path": "gmv_normalization.py",
+      "bytes": 3533,
+      "sha256": "e913f3f681083abc6a1e169327cffb24ae9625ab9a695b99fd092007a0c40b1c"
     }
   ],
   "provenance": {

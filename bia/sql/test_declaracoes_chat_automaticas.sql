@@ -31,6 +31,16 @@ BEGIN
   RAISE EXCEPTION 'negative_was_accepted';
  EXCEPTION WHEN invalid_parameter_value THEN NULL;
  END;
+ -- Normalized unknown is stored as zero but cannot erase an informed amount.
+ p:=p||jsonb_build_object('message_id','999999999999999998','event_id','chatwoot:1:999999999999999998','revision',a.revisao+2);
+ d:=jsonb_set(jsonb_set(d,'{0,mensagem_id}','"999999999999999998"'),'{0,valor}','0');
+ d:=jsonb_set(d,'{0,criterio_normalizacao}','"nao_sabe"');
+ d:=jsonb_set(d,'{0,evidencia}','"Não sei"');
+ result:=public.registrar_contato_declaracoes_v5(p,d);
+ IF (SELECT criterio_normalizacao FROM interno.declaracoes_chat WHERE account_id='1' AND mensagem_id='999999999999999998') IS DISTINCT FROM 'nao_sabe' THEN
+  RAISE EXCEPTION 'normalization_metadata_missing'; END IF;
+ IF (SELECT qualificacao#>>'{declaracoes_chat,gmv,valor}' FROM interno.atendimentos WHERE id=a.id) IS DISTINCT FROM '9000000' THEN
+  RAISE EXCEPTION 'unknown_overwrote_informed_amount'; END IF;
  RESET ROLE;
 END;
 $test$;
