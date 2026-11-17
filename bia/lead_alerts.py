@@ -69,22 +69,68 @@ def _safe_name(value):
     return value.replace('&', '&amp;')
 
 
-def _text(event, state, url, kind):
-    cycle = state['cycle']; record = cycle['bia_validation']; facts = cycle.get('facts') or {}
+def _format_fields(event, state, kind):
+    cycle = state['cycle']
+    record = cycle['bia_validation']
+    facts = cycle.get('facts') or {}
     handle = facts.get('tiktok_declarado')
     handle = handle if isinstance(handle, str) and re.fullmatch(r'@[A-Za-z0-9_.]{1,24}', handle) else 'Não informado'
     amount = facts['gmv_30d_declarado_centavos']
     money = f'{amount // 100:,}'.replace(',', '.') + ',' + f'{amount % 100:02}'
-    choice = {'machine': 'Continuar com a Bia', 'specialist': 'Especialista da Amplify'}.get(record.get('preference'), 'Ainda não escolhida')
-    heading = 'Bia: lead com GMV a partir de R$ 50 mil' if kind == 'threshold' else 'Bia: preferência de atendimento registrada'
-    lines = [heading, 'Nome: ' + _safe_name(facts.get('nome_declarado')), 'Perfil: ' + handle,
-             'GMV declarado nos últimos 30 dias: R$ ' + money, 'Preferência: ' + choice]
-    if kind == 'specialist':
-        lines.append('Solicitou especialista. Agenciamento automático pausado; atendimento humano ainda precisa assumir a conversa.')
-    elif kind == 'machine':
-        lines.append('Optou por continuar o agenciamento automático.')
-    lines.append('Conversa: ' + url)
-    return '\n'.join(lines)
+    declared = {True: 'Ativo (declaração do lead)', False: 'Inativo (declaração do lead)'}.get(
+        facts.get('shop_ativo_declarado')) if type(facts.get('shop_ativo_declarado')) is bool else None
+
+    # Use the same receipt binding used by the journey: a declaration or a
+    # different creator/cycle is not official confirmation.
+    from real_journey import _operation_proven
+    try:
+        evidence = cycle.get('real_operations', {}).get('precheck', {}).get('evidence', {})
+        active = (type(evidence.get('shop_account_status')) is int and evidence['shop_account_status'] == 1
+                  and evidence.get('source') == 'partner_precheck'
+                  and _operation_proven(state, 'precheck', 'eligible'))
+    except (AttributeError, KeyError, TypeError, ValueError):
+        active = False
+    verified_shop = 'Ativo (confirmado no TikTok)' if active else 'Não confirmado'
+    pref = {'machine': 'Continuar com a Bia', 'specialist': 'Especialista da Amplify'}.get(
+        record.get('preference'), 'Ainda não escolhida')
+    headings = {'threshold': '📈 Bia | GMV a partir de R$ 50 mil',
+                'specialist': '🎯 Bia | Especialista solicitado',
+                'machine': '🤖 Bia | Escolheu seguir com a Bia'}
+    fields = [('GMV declarado nos últimos 30 dias', 'R$ ' + money),
+              ('Verificação do GMV', 'Não verificado'),
+              ('Atendimento', '#' + str(event['conversation_id'])),
+              ('Nome', _safe_name(facts.get('nome_declarado'))),
+              ('Perfil TikTok', handle), ('Seguidores', 'Não disponíveis'),
+              ('TikTok Shop informado', declared or 'Não informado'),
+              ('Validação do TikTok Shop', verified_shop), ('Preferência', pref)]
+    # No category or verified followers enter today's authoritative alert
+    # state; no deduction from the declared GMV or profile.
+    action = {'specialist': 'Agenciamento automático pausado. A equipe precisa assumir a conversa.',
+              'threshold': 'Acompanhe a conversa e aguarde a escolha do lead.',
+              'machine': 'A Bia segue com o atendimento automático.'}[kind]
+    return headings[kind], fields, action
+
+
+def _text(event, state, url, kind):
+    heading, fields, action = _format_fields(event, state, kind)
+    return '\n'.join([heading, *(f'{label}: {value}' for label, value in fields),
+                      action, 'Abrir conversa no Chatwoot: ' + url])
+
+
+def _presentation(event, state, url, kind):
+    heading, fields, action = _format_fields(event, state, kind)
+    text = '\n'.join([heading, *(f'{label}: {value}' for label, value in fields),
+                      action, 'Abrir conversa no Chatwoot: ' + url])
+    plain = lambda value: {'type': 'plain_text', 'text': value, 'emoji': True}
+    blocks = [{'type': 'header', 'text': plain(heading)},
+              {'type': 'section', 'fields': [plain(label + '\n' + value) for label, value in fields]},
+              {'type': 'context', 'elements': [plain(action)]}]
+    # Only use Slack link markup for our trusted, constrained Chatwoot URL.
+    # A link needs no Slack interactions endpoint or new permissions.
+    if re.fullmatch(r'https://[A-Za-z0-9.-]+(?::[0-9]{1,5})?/app/accounts/[1-9][0-9]{0,19}/conversations/[1-9][0-9]{0,19}', url):
+        blocks.append({'type': 'section', 'text': {'type': 'mrkdwn',
+                       'text': '<' + url + '|Abrir conversa no Chatwoot>', 'verbatim': True}})
+    return {'text': text, 'blocks': blocks}
 
 
 def probe(settings, *, http=None):
@@ -169,7 +215,7 @@ def dispatch(settings, repository, event, state, *, http=None):
             old = repository.get_operation(key) or {}
             results[kind] = statuses[kind] = old.get('result') or {'status': 'outcome_unknown', 'reason': 'reserved_without_receipt'}
             continue
-        payload = {'channel': channel, 'text': _text(event, state, url, kind), 'mrkdwn': False,
+        payload = {'channel': channel, **_presentation(event, state, url, kind), 'mrkdwn': False,
                    'parse': 'none', 'link_names': False, 'unfurl_links': False, 'unfurl_media': False}
         try:
             response = send(method='POST', url='https://slack.com/api/chat.postMessage', headers=headers, payload=payload)
