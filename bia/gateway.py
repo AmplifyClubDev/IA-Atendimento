@@ -193,7 +193,13 @@ class Gateway:
         """Exactly one server-owned contact/cycle operation; never a blind retry."""
         if not isinstance(entrada, dict):
             raise SubmissionRejected('contact_payload_invalid')
-        value = self._rpc('registrar_contato_v5', {'p_entrada': entrada})
+        declarations = entrada.get('declaracoes_chat')
+        if declarations:
+            payload = {key: item for key, item in entrada.items() if key != 'declaracoes_chat'}
+            value = self._rpc('registrar_contato_declaracoes_v5',
+                              {'p_entrada': payload, 'p_declaracoes': declarations})
+        else:
+            value = self._rpc('registrar_contato_v5', {'p_entrada': entrada})
         try:
             creator = str(UUID(value['creator_id']))
             valid = (isinstance(value, dict) and value['creator_id'] == creator

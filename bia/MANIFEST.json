@@ -1,11 +1,11 @@
 {
   "release": "bia-stability-20261110",
-  "source_count": 52,
+  "source_count": 53,
   "files": [
     {
       "path": "Dockerfile",
-      "bytes": 1173,
-      "sha256": "39a297ca5674104a448e6e036fa0d60d5e2eacfd28d91507e30287ba3fee167f"
+      "bytes": 1202,
+      "sha256": "4544cd1e794995332af5d4107d55074d29657cfabe7cf1bc5966996e1e0c0b08"
     },
     {
       "path": "answers.py",
@@ -124,8 +124,8 @@
     },
     {
       "path": "gateway.py",
-      "bytes": 13283,
-      "sha256": "3d6cac253f33ff92e35dda0b16c5161a872257695aa9a973f610c0cea20a1d18"
+      "bytes": 13628,
+      "sha256": "8b43aa3368636849018ae9734d5292e42fca13ebacfbfd0d62450938ee7a12df"
     },
     {
       "path": "guided_ai.py",
@@ -219,8 +219,8 @@
     },
     {
       "path": "server.py",
-      "bytes": 105693,
-      "sha256": "9d988ce729174153bb8fc037204acbe03431c95f9000413da2642769fb9ec272"
+      "bytes": 106345,
+      "sha256": "90d133b0b3df64b4228cc9859c0b010ea0faedd44ebf02a4fba0194e904f8dc2"
     },
     {
       "path": "smtp.py",
@@ -261,6 +261,11 @@
       "path": "real_answer_adapter.py",
       "bytes": 14683,
       "sha256": "69c6e8b69f8341888b38e035bd149abc356f969c8339f2876521ca3663e37e05"
+    },
+    {
+      "path": "chat_declarations.py",
+      "bytes": 2159,
+      "sha256": "a17c4ab57e4c175952bdcdc7ae412c2bbfee55b9e3feabfe612ff7f77f965548"
     }
   ],
   "provenance": {

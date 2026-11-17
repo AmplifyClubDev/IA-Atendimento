@@ -420,6 +420,11 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                 allowed = {field["id"] for field in contract["fields"] if field.get("type") != "file"}
                 entrada["rascunho"] = {name: value for name, value in draft.items() if name in allowed}
         operation = inbound_key(event) + ":contact:" + str(revision)
+        if not before:
+            pending = cycle.get('chat_declarations_pending') or []
+            declarations = [row for row in pending if row.get('mensagem_id') == str(event['message_id'])]
+            if declarations:
+                entrada['declaracoes_chat'] = declarations
         if not repository.reserve_operation(operation, inbound_key(event), "contact_sync"):
             previous = repository.get_operation(operation)
             if not previous or previous.get("status") != "completed" or not isinstance(previous.get("result"), dict):
@@ -1355,6 +1360,8 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                                                      'text': marker['text']})
                         return answer
 
+                    from copy import deepcopy
+                    declaration_before = deepcopy(state.get('cycle') or {})
                     if conversational:
                         import conversation
                         turn_options = {'real_mode': _get(settings, 'tiktok_mode') == 'real',
@@ -1381,6 +1388,10 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                             and cycle.get('phase') == 'intro' and cycle.get('id') != previous_cycle_id):
                         state['chat_reset_boundary'] = {'source': key, 'message_id': str(event['message_id']),
                             'cycle_id': cycle.get('id'), 'previous_cycle_id': previous_cycle_id}
+                    from chat_declarations import collect
+                    declarations = collect(event, declaration_before, cycle)
+                    if declarations:
+                        cycle['chat_declarations_pending'] = declarations
                     state = sync_contact(event, state)
                     progress_proof = None
                     if progress is not None:
