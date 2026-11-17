@@ -272,7 +272,7 @@ const consentTitle=document.createElement('h2');consentTitle.id='consent-title';
 consent.paragraphs.forEach((text,index)=>{const p=document.createElement('p');p.textContent=text;if(index===2)p.className='sensitive';el('consent').append(p);});
 const lawLink=document.createElement('a');lawLink.href=consent.lawUrl;lawLink.target='_blank';lawLink.rel='noopener noreferrer';lawLink.textContent='Consultar a Lei nº 13.709/2018 (LGPD)';el('consent').append(lawLink);
 const consentLabel=document.createElement('label');const consentCheck=document.createElement('input');consentCheck.type='checkbox';consentCheck.id='consentimento-dados';consentCheck.required=true;consentCheck.checked=false;consentCheck.setAttribute('aria-describedby','consent-required');consentLabel.append(consentCheck,document.createTextNode(consent.label));el('consent').append(consentLabel);const consentHint=document.createElement('p');consentHint.id='consent-required';consentHint.className='consent-required';consentHint.textContent=consent.requirement;el('consent').append(consentHint);
-function uploadControl(f,c){const box=document.createElement('div');box.className='upload-box';const visual=document.createElement('div');visual.className='upload-visual';visual.setAttribute('aria-hidden','true');visual.textContent='↑';const copy=document.createElement('div');copy.className='upload-copy';const title=document.createElement('strong');const caption=document.createElement('p');caption.textContent='JPG, PNG ou WebP · até 5 MB';const actions=document.createElement('div');actions.className='upload-actions';const picker=document.createElement('label');picker.className='upload-picker';const pickerText=document.createElement('span');picker.append(pickerText,c);const remove=document.createElement('button');remove.type='button';remove.className='upload-remove';remove.textContent='Remover';remove.setAttribute('aria-label','Remover '+(f.id==='foto_perfil'?'foto de perfil':'print do GMV'));const name=document.createElement('div');name.className='upload-name';const status=document.createElement('div');status.className='upload-error';status.setAttribute('role','status');actions.append(picker,remove);copy.append(title,caption,actions,name,status);box.append(visual,copy);
+function uploadControl(f,c){const box=document.createElement('div');box.className='upload-box';const visual=document.createElement('div');visual.className='upload-visual';visual.setAttribute('aria-hidden','true');visual.textContent='↑';const copy=document.createElement('div');copy.className='upload-copy';const title=document.createElement('strong');const caption=document.createElement('p');caption.textContent='JPG, PNG ou WebP · até 5 MB';const actions=document.createElement('div');actions.className='upload-actions';const picker=document.createElement('label');picker.className='upload-picker';const pickerText=document.createElement('span');picker.append(pickerText,c);const remove=document.createElement('button');remove.type='button';remove.className='upload-remove';remove.textContent='Remover';remove.setAttribute('aria-label','Remover '+(f.id==='foto_perfil'?'foto de perfil':'print do GMV'));const name=document.createElement('div');name.className='upload-name';const status=document.createElement('div');status.className='upload-error';status.id='upload-status-'+f.id;status.setAttribute('role','status');c.setAttribute('aria-describedby',status.id);actions.append(picker,remove);copy.append(title,caption,actions,name,status);box.append(visual,copy);
 let reader=null;function update(){if(reader){reader.abort();reader=null;}const file=c.files[0];const valid=file&&['image/jpeg','image/png','image/webp'].includes(file.type)&&file.size>0&&file.size<=5*1024*1024;visual.replaceChildren(document.createTextNode('↑'));box.classList.toggle('has-file',Boolean(valid));title.textContent=valid?'Imagem selecionada':f.id==='foto_perfil'?'Mostre quem está por trás do conteúdo':'Adicione seu comprovante de GMV';pickerText.textContent=file?'Trocar imagem':f.id==='foto_perfil'?'Escolher foto':'Escolher print';remove.hidden=!file;name.textContent=file?file.name+' · '+(file.size/1024/1024).toFixed(2)+' MB':'';status.textContent=file&&!valid?'Escolha uma imagem JPG, PNG ou WebP de até 5 MB.':'';if(valid){reader=new FileReader();reader.onload=()=>{if(c.files[0]!==file)return;const img=document.createElement('img');img.alt='';img.src=reader.result;visual.replaceChildren(img);};reader.readAsDataURL(file);}}
 c.addEventListener('input',update);remove.onclick=()=>{c.value='';c.dispatchEvent(new Event('input',{bubbles:true}));c.focus();};update();return box;}
 function visible(f){const c=f.conditionProposed;if(!c)return true;const parent=fields.find(x=>x.id===c.field);if(parent&&!visible(parent))return false;const v=answers[c.field];return c.equals?v===c.equals:Array.isArray(v)?v.includes(c.includes):v===c.includes;}
@@ -324,7 +324,27 @@ if(f.id==='cpf'&&!/^\d{11}$/.test(String(v||'')))return 'Informe o CPF no format
 if(f.id==='cep'&&!/^\d{8}$/.test(String(v||'')))return 'Informe o CEP no formato 00000-000.';
 if(f.id==='tiktok'&&!/^[a-z0-9._]{2,24}$/.test(String(v||'')))return 'Informe seu nome de usuário no TikTok. Exemplo: @maria.silva (2 a 24 caracteres).';
 const control=fieldNodes.get(f.id)?.querySelector('input:not([type=checkbox]),select,textarea');if(control&&!control.checkValidity())return 'Confira o formato da resposta: '+f.label;return '';}
-el('form').onsubmit=async e=>{e.preventDefault();if(busy)return;const final=current===sections.length-1,agencyGate=agencyGateActive();const invalid=(agencyGate?fields.filter(f=>f.id==='tiktok'):fields).find(f=>(final||agencyGate||f.section===sections[current].id)&&problem(f));if(invalid){const message=problem(invalid);if(!agencyGate&&invalid.section!==sections[current].id){current=sections.findIndex(s=>s.id===invalid.section);show();}el('error').textContent=message;const wrapper=fieldNodes.get(invalid.id);wrapper.scrollIntoView({block:'center'});wrapper.querySelector('input:not([hidden]),button,select,textarea')?.focus();return;}if(agencyGate){busy=true;el('form').inert=true;el('next').textContent='Verificando…';try{await validateAgencyGate();show(false);document.querySelector('.card').scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});}catch(error){el('error').textContent=error.message;el('next').textContent='Verificar';}finally{busy=false;el('form').inert=false;}return;}if(!final){busy=true;el('form').inert=true;el('next').textContent=current===0?'Validando…':'Salvando…';try{if(current===0){await persist(false,current);await validateInitialAccess();}const result=await persist(false,current+1);if(result.submitted){received(result);return;}current++;show();}catch(error){el('error').textContent=error.message;el('next').textContent='Continuar →';}finally{busy=false;el('form').inert=false;}return;}if(!consentCheck.checked){el('error').textContent='Leia o termo e marque sua concordância para concluir.';consentCheck.focus();return;}busy=true;el('form').inert=true;el('next').textContent='Enviando…';try{const result=await persist(true,current);received(result);}catch(error){el('error').textContent=error.message;el('next').textContent='Enviar cadastro';}finally{busy=false;el('form').inert=false;}};
+function showSaveError(error,label){
+ const form=el('form');
+ form.inert=false;
+ el('next').textContent=label;
+ const field=error.attachmentField;
+ if(field){
+  const index=sections.findIndex(section=>section.id===field.section);
+  if(index>=0&&index!==current){current=index;show(false);}
+  const status=el('upload-status-'+field.id);
+  const input=el(field.id);
+  if(status&&input){
+   el('error').textContent='';
+   status.textContent=error.message;
+   fieldNodes.get(field.id)?.scrollIntoView({block:'center'});
+   input.focus({preventScroll:true});
+   return;
+  }
+ }
+ el('error').textContent=error.message;
+}
+el('form').onsubmit=async e=>{e.preventDefault();if(busy)return;const final=current===sections.length-1,agencyGate=agencyGateActive();const invalid=(agencyGate?fields.filter(f=>f.id==='tiktok'):fields).find(f=>(final||agencyGate||f.section===sections[current].id)&&problem(f));if(invalid){const message=problem(invalid);if(!agencyGate&&invalid.section!==sections[current].id){current=sections.findIndex(s=>s.id===invalid.section);show();}el('error').textContent=message;const wrapper=fieldNodes.get(invalid.id);wrapper.scrollIntoView({block:'center'});wrapper.querySelector('input:not([hidden]),button,select,textarea')?.focus();return;}if(agencyGate){busy=true;el('form').inert=true;el('next').textContent='Verificando…';try{await validateAgencyGate();show(false);document.querySelector('.card').scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});}catch(error){el('error').textContent=error.message;el('next').textContent='Verificar';}finally{busy=false;el('form').inert=false;}return;}if(!final){busy=true;el('form').inert=true;el('next').textContent=current===0?'Validando…':'Salvando…';try{if(current===0){await persist(false,current);await validateInitialAccess();}const result=await persist(false,current+1);if(result.submitted){received(result);return;}current++;show();}catch(error){showSaveError(error,'Continuar →');}finally{busy=false;el('form').inert=false;}return;}if(!consentCheck.checked){el('error').textContent='Leia o termo e marque sua concordância para concluir.';consentCheck.focus();return;}busy=true;el('form').inert=true;el('next').textContent='Enviando…';try{const result=await persist(true,current);received(result);}catch(error){showSaveError(error,'Enviar cadastro');}finally{busy=false;el('form').inert=false;}};
 // Confirma somente o e-mail desta sessão. Nenhum dado de categoria vem do navegador.
 let emailRequired=false,emailVerifiedFor='',emailWaitUntil=0,emailTimer=null,emailAction=false,emailCodeRequestedFor='';
 let emailPoll=null,emailPollAttempts=0,emailObserved='',emailPollGeneration=0,emailPollingPaused=false;
@@ -743,7 +763,23 @@ async function persist(final,nextStep){
   const value=answers[f.id];
   if(value==null||value==='')continue;
   if(f.type==='file'){
-   if(!fileReceipts.has(value))fileReceipts.set(value,await apiRequest('anexos?campo='+encodeURIComponent(f.id),{method:'POST',body:value,raw:true}));
+   if(!fileReceipts.has(value)){
+    const status=el('upload-status-'+f.id);if(status)status.textContent='';
+    try{
+     fileReceipts.set(value,await apiRequest('anexos?campo='+encodeURIComponent(f.id),{method:'POST',body:value,raw:true}));
+    }catch(error){
+     // Keep the selected file and any earlier attachments' receipts for manual retry.
+     cacheDraft();
+     let message;
+     if(error.name==='TimeoutError'){
+      message='O envio demorou mais de 45 segundos e não foi confirmado. A imagem continua selecionada. Confira sua conexão e toque em Continuar para tentar de novo.';
+     }else if(error.status===400||error.status===413){
+      message='O envio da imagem foi recusado. '+error.message;
+     }
+     if(!message)throw error;
+     throw Object.assign(Error(f.label+': '+message),{attachmentField:f});
+    }
+   }
    clean[f.id]=fileReceipts.get(value);
   }else clean[f.id]=value;
  }
