@@ -21,7 +21,7 @@ AGENCY_URL = "https://tiktok-agenciamento-production.up.railway.app/bridge"
 class AgencyChecker:
     def __init__(self, token, *, transport=None, max_parallel=2, wait_seconds=38, cache_seconds=6 * 3600):
         self.client = PlaywrightClient({"tiktok_agency_url": AGENCY_URL, "tiktok_agency_token": token or "",
-                                        "tiktok_timeout_seconds": 30, "tiktok_status_timeout_seconds": 5},
+                                        "tiktok_timeout_seconds": 35, "tiktok_status_timeout_seconds": 5},
                                        transport=transport)
         self.pool = ThreadPoolExecutor(max_workers=max_parallel, thread_name_prefix="agenciamento")
         self.wait_seconds = wait_seconds
