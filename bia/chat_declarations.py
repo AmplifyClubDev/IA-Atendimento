@@ -41,3 +41,23 @@ def collect(event, before, cycle):
         if quantity == quantity.to_integral_value() and 0 <= quantity <= 1_000_000_000:
             rows.append({**common, 'campo': 'seguidores', 'valor': int(quantity), 'moeda': None, 'periodo_dias': None})
     return rows
+
+
+def remember_profile(event, before, cycle):
+    """Bounded latest self-declaration metadata, never a verification claim."""
+    from lead_validation import profile_handle
+    handle = profile_handle((cycle.get('facts') or {}).get('tiktok_declarado'))
+    previous = profile_handle((before.get('facts') or {}).get('tiktok_declarado'))
+    if not handle or str(event.get('account_id')) != '1' or str(event.get('inbox_id')) != '3':
+        return
+    if handle != previous or (before.get('bia_validation') or {}).get('stage') == 'priority_profile':
+        if not re.fullmatch(r'[1-9][0-9]{0,19}', str(event.get('message_id', ''))) or not event.get('created_at'):
+            return
+        cycle['perfil_tiktok'] = {'handle': handle, 'url': 'https://www.tiktok.com/' + handle,
+            'origem': 'chat_declarado', 'declarado_em': engine._stamp(engine._clock(event['created_at'])),
+            'mensagem_id': str(event['message_id']), 'verificado': False}
+    elif not cycle.get('perfil_tiktok'):
+        # A known profile may predate this release. Never manufacture its
+        # declaration timestamp or attribute it to the current message.
+        cycle['perfil_tiktok'] = {'handle': handle, 'url': 'https://www.tiktok.com/' + handle,
+            'origem': 'contexto_anterior', 'declarado_em': None, 'mensagem_id': None, 'verificado': False}

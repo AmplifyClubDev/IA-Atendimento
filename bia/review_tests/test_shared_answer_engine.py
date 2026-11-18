@@ -132,7 +132,11 @@ class RealStageRouting(unittest.TestCase):
     def test_specialist_50k_uses_backend_not_test_denial(self):
         state=self.start();state['cycle']['bia_validation']['stage']='gmv'
         result=real_journey.handle_real(state,'50 mil',now=NOW,same_engine_enabled=True)
-        self.assertIn('Especialista',result['buttons'])
+        self.assertEqual(result['state']['cycle']['bia_validation']['stage'],'priority_profile')
+        result=real_journey.handle_real(result['state'],'@synthetic',now=NOW,same_engine_enabled=True)
+        result['state']['cycle']['bia_validation']['alert_statuses']={'threshold':{'status':'accepted'}}
+        from lead_validation import release_priority_choice
+        self.assertIn('Especialista', release_priority_choice(result['state'])[1])
         result=real_journey.handle_real(result['state'],'Especialista',now=NOW,same_engine_enabled=True)
         from lead_validation import permitted
         self.assertFalse(permitted(result['state']['cycle']))
@@ -253,7 +257,7 @@ class GmvFirstUseConfirmation(unittest.TestCase):
         advance(c,'Já tive vendas',at)
         self.assertEqual(c['bia_validation']['stage'],'gmv')
         advance(c,'50 mil',at)
-        self.assertEqual(c['bia_validation']['stage'],'choice')
+        self.assertEqual(c['bia_validation']['stage'],'priority_profile')
     def test_no_model_called_for_dedicated_confirmation(self):
         t=RealStageRouting();c=t.start();c['cycle']['bia_validation']['stage']='gmv'
         callback=Mock(side_effect=AssertionError('not needed'))

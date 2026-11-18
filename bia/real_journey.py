@@ -2104,7 +2104,11 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
     if validation_stage(cycle) not in {None, 'complete'}:
         previous_stage = validation_stage(cycle)
         profile, validation_text = _preserve_qualification_handle(cycle, text, at)
-        if previous_stage == 'existing_profile':
+        if previous_stage == 'priority_profile':
+            # The priority gate accepts only the explicit profile, not the
+            # remaining qualification text stripped by the generic collector.
+            validation_text = profile or text
+        elif previous_stage == 'existing_profile':
             if profile:
                 validation_text = profile
             elif cycle.get('experience_version') == 'bia-approved-v1' and not re.fullmatch(r'[A-ZÀ-Ý][a-zà-ÿ]+', text.strip()):

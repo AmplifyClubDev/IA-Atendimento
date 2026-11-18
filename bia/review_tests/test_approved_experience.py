@@ -45,13 +45,18 @@ class ApprovedExperience(unittest.TestCase):
         r=self.start(); r=self.send(r['state'],'Quero fazer parte',enabled=False)
         self.assertEqual(stage(r['state']['cycle']),'agency'); self.assertFalse(r['effects'])
     def test_join_validation_and_threshold(self):
-        for value, expected in [('49.999','complete'),('50 mil','choice'),('60 mil','choice')]:
+        for value, expected in [('49.999','complete'),('50 mil','priority_profile'),('60 mil','priority_profile')]:
             r=self.start()
             for message in ['Quero fazer parte','Não sou agenciado','Sim',value]:
                 r=self.send(r['state'],message)
                 self.assertFalse(r['effects'])
             self.assertEqual(stage(r['state']['cycle']),expected)
-            if expected=='choice':
+            if expected=='priority_profile':
+                r=self.send(r['state'],'@qa_example')
+                rec=r['state']['cycle']['bia_validation']
+                rec['alert_statuses']={'threshold':{'status':'accepted'}}
+                from lead_validation import release_priority_choice
+                release_priority_choice(r['state'])
                 self.assertTrue(r['state']['cycle']['bia_validation']['alert_requested'])
                 r=self.send(r['state'],'Especialista')
                 self.assertEqual(stage(r['state']['cycle']),'specialist'); self.assertFalse(r['effects'])

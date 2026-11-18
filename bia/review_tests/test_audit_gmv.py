@@ -38,5 +38,5 @@ class AuditedGMV(unittest.TestCase):
         self.assertEqual(self.c['bia_validation']['stage'], 'complete')
 
     def test_large_declared_value_still_prompts_existing_choice(self):
-        self.assertEqual(lv.advance(self.c, 'R$ 60.000', self.now), lv.QUESTIONS['choice'])
+        self.assertEqual(lv.advance(self.c, 'R$ 60.000', self.now), lv.QUESTIONS['priority_profile'])
         self.assertEqual(self.c['facts']['gmv_30d_declarado_centavos'], 6_000_000)

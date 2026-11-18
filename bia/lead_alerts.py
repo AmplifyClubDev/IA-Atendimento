@@ -16,6 +16,7 @@ from contracts import inbound_key
 
 CHANNEL_NAMES = frozenset({'alerta-bia', 'alertas-bia'})
 THRESHOLD_CENTS = 5_000_000
+RESPONSIBLES = ('U0AF0DWMD1U', 'U0CA10SDPDJ')  # Bruno Zardo / Keize Passos, resolved in Slack.
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -93,14 +94,20 @@ def _format_fields(event, state, kind):
     verified_shop = 'Ativo (confirmado no TikTok)' if active else 'Não confirmado'
     pref = {'machine': 'Continuar com a Bia', 'specialist': 'Especialista da Amplify'}.get(
         record.get('preference'), 'Ainda não escolhida')
-    headings = {'threshold': '📈 Bia | GMV a partir de R$ 50 mil',
+    headings = {'threshold': '🚨 LEAD PRIORITÁRIO — GMV ALTO',
                 'specialist': '🎯 Bia | Especialista solicitado',
                 'machine': '🤖 Bia | Escolheu seguir com a Bia'}
-    fields = [('GMV declarado nos últimos 30 dias', 'R$ ' + money),
+    phone = event.get('sender_phone')
+    phone = re.sub(r'[+ ()-]', '', phone) if isinstance(phone, str) else ''
+    phone = '+' + phone if re.fullmatch(r'[1-9][0-9]{9,14}', phone) else 'Não informado'
+    followers = facts.get('seguidores_declarados')
+    followers = (f'{followers:,}'.replace(',', '.') + ' — declarado pelo criador'
+                 if type(followers) is int and 0 <= followers <= 1_000_000_000 else 'Não disponíveis')
+    fields = [('Nome', _safe_name(facts.get('nome_declarado'))), ('WhatsApp', phone),
+              ('GMV declarado nos últimos 30 dias', 'R$ ' + money),
               ('Verificação do GMV', 'Não verificado'),
               ('Atendimento', '#' + str(event['conversation_id'])),
-              ('Nome', _safe_name(facts.get('nome_declarado'))),
-              ('Perfil TikTok', handle), ('Seguidores', 'Não disponíveis'),
+              ('Perfil TikTok', handle), ('Seguidores', followers),
               ('TikTok Shop informado', declared or 'Não informado'),
               ('Validação do TikTok Shop', verified_shop), ('Preferência', pref)]
     # No category or verified followers enter today's authoritative alert
@@ -130,7 +137,21 @@ def _presentation(event, state, url, kind):
     if re.fullmatch(r'https://[A-Za-z0-9.-]+(?::[0-9]{1,5})?/app/accounts/[1-9][0-9]{0,19}/conversations/[1-9][0-9]{0,19}', url):
         blocks.append({'type': 'section', 'text': {'type': 'mrkdwn',
                        'text': '<' + url + '|Abrir conversa no Chatwoot>', 'verbatim': True}})
-    return {'text': text, 'blocks': blocks}
+    handle = (state.get('cycle', {}).get('facts') or {}).get('tiktok_declarado')
+    from lead_validation import profile_handle
+    handle = profile_handle(handle)
+    links = []
+    if handle:
+        links.append('<https://www.tiktok.com/' + handle + '|Perfil TikTok>')
+    phone = dict(fields).get('WhatsApp', '')
+    if re.fullmatch(r'\+[1-9][0-9]{9,14}', phone):
+        links.append('<https://wa.me/' + phone[1:] + '|Falar com o lead>')
+    if links:
+        blocks.append({'type': 'section', 'text': {'type': 'mrkdwn', 'text': ' · '.join(links), 'verbatim': True}})
+        text += '\n' + ' · '.join(links)
+    mentions = '👥 *Responsáveis:* ' + ' '.join('<@' + user + '>' for user in RESPONSIBLES)
+    blocks.append({'type': 'section', 'text': {'type': 'mrkdwn', 'text': mentions, 'verbatim': True}})
+    return {'text': text + '\n' + mentions, 'blocks': blocks}
 
 
 def probe(settings, *, http=None):
@@ -176,6 +197,13 @@ def dispatch(settings, repository, event, state, *, http=None):
             or isinstance(amount, bool) or not isinstance(amount, int) or amount < THRESHOLD_CENTS
             or amount > 100_000_000_000 or facts.get('gmv_30d_moeda') != 'BRL'):
         return {'status': 'not_requested', 'events': {}}
+    from lead_validation import profile_handle
+    if not profile_handle(facts.get('tiktok_declarado')):
+        return {'status': 'pending_profile', 'events': {}}
+    # v1 cycles retain their old pause/choice state but never acquire a new
+    # retroactive threshold alert or preference notification after deployment.
+    if record.get('priority_flow_version') != 2:
+        return {'status': 'legacy_cycle', 'events': {}}
     url = _conversation_url(settings, event)
     source = inbound_key(event)
     cycle_id = cycle.get('id')
@@ -184,9 +212,6 @@ def dispatch(settings, repository, event, state, *, http=None):
     if state.get('opt_out') or cycle.get('opt_out'):
         return {'status': 'blocked', 'reason': 'opt_out', 'events': {}}
     kinds = ['threshold']
-    preference = record.get('preference')
-    if preference == 'machine' or (preference == 'specialist' and record.get('handoff_requested') is True):
-        kinds.append(preference)
     statuses = record.setdefault('alert_statuses', {})
     results = {}
     send = http or _http

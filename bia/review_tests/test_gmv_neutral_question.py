@@ -19,7 +19,7 @@ class NeutralGMV(unittest.TestCase):
     self.assertNotIn('gmv_30d_declarado_centavos',r['state']['cycle']['facts'])
  def test_internal_inclusive_threshold_unchanged(self):
   self.assertEqual(THRESHOLD_CENTS,5_000_000)
-  for amount,expected in [('49.999,99','complete'),('50.000','choice'),('50.000,01','choice')]:
+  for amount,expected in [('49.999,99','complete'),('50.000','priority_profile'),('50.000,01','priority_profile')]:
    r=self.start();r=inbound(amount,r['state'],approved_experience_enabled=True,same_engine_enabled=True)
    self.assertEqual(stage(r['state']['cycle']),expected)
  def test_same_profile_instructions_neutral_in_test_and_real(self):

@@ -139,13 +139,13 @@
     },
     {
       "path": "lead_alerts.py",
-      "bytes": 13194,
-      "sha256": "5cebf936f7a7914b4f39a5ee1207fd995b944d87f036ecf6ba193083348d16a3"
+      "bytes": 14817,
+      "sha256": "30f24fd07f31621bc574a68fa95727f78621d933a96bcf018a42000d6206f8ab"
     },
     {
       "path": "lead_validation.py",
-      "bytes": 10356,
-      "sha256": "8781d78062ca56aa268d69ccc8c6eaa339c53cbbb18b3207e0ebd8abed504353"
+      "bytes": 12426,
+      "sha256": "a9ce969272e9d90e168f4750a3838465476a119d1a34b74465b0c622b2c9804e"
     },
     {
       "path": "nome_contextual.py",
@@ -174,8 +174,8 @@
     },
     {
       "path": "real_journey.py",
-      "bytes": 210921,
-      "sha256": "cb6afe92a43ee7d652f9b87a1185c22efbef95ee8d51077e80d09153592ebd49"
+      "bytes": 211171,
+      "sha256": "0a544275795e93b8403f98e3a32c72290db675c3996f81b750ad4f30da08f952"
     },
     {
       "path": "real_operations.py",
@@ -219,8 +219,8 @@
     },
     {
       "path": "server.py",
-      "bytes": 106345,
-      "sha256": "90d133b0b3df64b4228cc9859c0b010ea0faedd44ebf02a4fba0194e904f8dc2"
+      "bytes": 107865,
+      "sha256": "ef7b93aeed7f8bce6f6297d2092e2a0dd98aec1b20f7332d4408b1f2bca9f7ec"
     },
     {
       "path": "smtp.py",
@@ -264,8 +264,8 @@
     },
     {
       "path": "chat_declarations.py",
-      "bytes": 2579,
-      "sha256": "1b593f6a4def5ade605f933ff284737fd5988fccb869780a24cd972d6188b6ec"
+      "bytes": 3926,
+      "sha256": "549b30066c9e5ac7061ee659014e004b01d6ea778622597b031ee020b2e493f9"
     },
     {
       "path": "gmv_normalization.py",

@@ -24,6 +24,10 @@ class Flow(unittest.TestCase):
     def send(self,text,enabled=True):
         r=real_journey.handle_real(self.state,text,now=NOW,qualification_enabled=enabled)
         self.state=r['state'];return r
+    def release_alert(self):
+        from lead_validation import release_priority_choice
+        self.state['cycle']['bia_validation']['alert_statuses']={'threshold':{'status':'accepted'}}
+        self.assertIsNotNone(release_priority_choice(self.state))
     def test_demo_join_starts_questions(self):
         r=self.send('Quero fazer parte');self.assertEqual(stage(self.state['cycle']),'agency');self.assertFalse(r['effects'])
     def test_three_questions_before_any_provider(self):
@@ -34,12 +38,14 @@ class Flow(unittest.TestCase):
     def test_handle_does_not_skip_validation(self):
         r=self.send('@synthetic');self.assertEqual(stage(self.state['cycle']),'agency');self.assertFalse(r['effects'])
         for text in ['Não','Sim','50k']:r=self.send(text);self.assertFalse(r['effects'])
-        self.assertEqual(stage(self.state['cycle']),'choice')
+        self.assertEqual(stage(self.state['cycle']),'priority_alert')
+        self.release_alert()
         self.assertTrue(self.state['cycle']['bia_validation']['alert_requested'])
         r=self.send('Seguir com a Bia');self.assertEqual(self.state['cycle']['phase'],'checking');self.assertTrue(r['effects'])
     def test_exact_threshold_specialist_pauses_no_effects(self):
-        for text in ['Quero me agenciar','Não','Sim','50000','Especialista']:
+        for text in ['Quero me agenciar','Não','Sim','50000','@synthetic']:
             r=self.send(text);self.assertFalse(r['effects'])
+        self.release_alert(); self.send('Especialista')
         self.assertEqual(stage(self.state['cycle']),'specialist')
         for text in ['@synthetic','Pode mandar','sim','aceitei']:
             r=self.send(text);self.assertFalse(r['effects']);self.assertEqual(stage(self.state['cycle']),'specialist')
@@ -64,6 +70,7 @@ class Flow(unittest.TestCase):
         for _,buttons in QUESTIONS.values():
             for label in buttons:self.assertLessEqual(len(label),20)
         for text in ['Quero me agenciar','Não','Sim','50k']:self.send(text)
+        self.send('@synthetic'); self.release_alert()
         label=QUESTIONS['choice'][1][1][:20]
         self.send(label);self.assertEqual(stage(self.state['cycle']),'specialist')
     def test_bare_yes_requires_identify_agency(self):

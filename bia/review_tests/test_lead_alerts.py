@@ -22,7 +22,7 @@ class AlertTests(unittest.TestCase):
                          'gate':{'account_id':'1','inbox_id':'3'},'chatwoot_base_url':'https://chat.example'}
         self.state = {'cycle': {'id':'cycle-a','facts':{'nome_declarado':'Ana','tiktok_declarado':'@ana',
                  'gmv_30d_declarado_centavos':5_000_000,'gmv_30d_moeda':'BRL'},
-                 'bia_validation':{'high_gmv':True,'alert_requested':True}}}
+                 'bia_validation':{'high_gmv':True,'alert_requested':True,'priority_flow_version':2}}}
         self.calls=[]
         self.info = {'ok':True,'channel':{'id':CHANNEL,'name':'alerta-bia','is_member':True,'is_archived':False}}
         self.reply = {'ok':True,'channel':CHANNEL,'ts':'123.456'}
@@ -44,7 +44,8 @@ class AlertTests(unittest.TestCase):
         text=self.posts()[0]['payload']['text']
         self.assertIn('R$ 50.000,00',text); self.assertIn('últimos 30 dias',text)
         self.assertIn('/app/accounts/1/conversations/7',text)
-        self.assertNotIn(self.event['sender_phone'],text)
+        self.assertIn(self.event['sender_phone'],text)
+        self.assertIn('<@U0AF0DWMD1U>', text); self.assertIn('<@U0CA10SDPDJ>', text)
 
     def test_below_threshold_and_invalid_amounts_never_send(self):
         for amount in (4_999_999,None,True,'5000000',float('nan'),-100,100_000_000_001):
@@ -87,24 +88,28 @@ class AlertTests(unittest.TestCase):
             self.assertEqual(self.run_alert()['events']['threshold']['status'],expected)
             count=len(self.posts()); self.run_alert(); self.assertEqual(len(self.posts()),count)
 
-    def test_independent_preferences_are_bounded_and_specialist_is_explicit(self):
+    def test_preference_does_not_send_another_alert(self):
         self.run_alert()
-        rec=self.state['cycle']['bia_validation']; rec['preference']='specialist'
-        self.run_alert(); self.assertEqual(len(self.posts()),1)
-        rec['handoff_requested']=True
-        result=self.run_alert(); self.assertEqual(result['events']['specialist']['status'],'accepted')
-        self.assertIn('precisa assumir',self.posts()[-1]['payload']['text'])
-        rec['preference']='machine'; self.run_alert(); self.assertEqual(len(self.posts()),3)
-        for choice in ('specialist','machine','specialist','machine'):
-            rec['preference']=choice; self.run_alert()
-        self.assertEqual(len(self.posts()),3)
+        rec=self.state['cycle']['bia_validation']
+        for preference in ('specialist', 'machine', 'specialist'):
+            rec['preference']=preference; rec['handoff_requested']=True
+            self.run_alert()
+        self.assertEqual(len(self.posts()),1)
 
-    def test_untrusted_name_handle_never_mentions_or_leaks_contact(self):
-        self.state['cycle']['facts'].update(nome_declarado='<!channel> +5511999999999',tiktok_declarado='<!everyone>')
+    def test_invalid_profile_and_legacy_never_send(self):
+        self.state['cycle']['facts']['tiktok_declarado']='<!everyone>'
+        self.assertEqual(self.run_alert()['status'],'pending_profile'); self.assertFalse(self.posts())
+        self.state['cycle']['facts']['tiktok_declarado']='@ana'
+        self.state['cycle']['bia_validation'].pop('priority_flow_version')
+        self.assertEqual(self.run_alert()['status'],'legacy_cycle'); self.assertFalse(self.posts())
+
+    def test_name_injection_and_phone_link_safety(self):
+        self.state['cycle']['facts']['nome_declarado']='<!channel> +5511999999999'
         self.run_alert(); payload=self.posts()[0]['payload']
-        self.assertNotIn('<!',payload['text']); self.assertNotIn('5511999999999',payload['text'])
-        self.assertFalse(payload['mrkdwn']); self.assertFalse(payload['link_names'])
-        self.assertFalse(payload['unfurl_links']); self.assertFalse(payload['unfurl_media'])
+        self.assertNotIn('<!',payload['text'])
+        self.assertIn('https://wa.me/5511999999999',payload['text'])
+        self.assertIn('https://www.tiktok.com/@ana',payload['text'])
+        self.assertFalse(payload['link_names']); self.assertFalse(payload['unfurl_links'])
 
     def test_scope_and_chatwoot_base_validation(self):
         for url in ('http://chat.example','https://user:pass@chat.example','https://chat.example?q=x','https://chat.example/path'):

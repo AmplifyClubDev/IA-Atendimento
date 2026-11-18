@@ -7,6 +7,8 @@ import tutorial_videos
 
 THRESHOLD_CENTS = 5_000_000
 QUESTIONS = {
+    'priority_profile': ('Obrigada por compartilhar! Para nossa equipe conhecer melhor seu trabalho e fazer uma análise prévia do seu perfil, você pode me enviar o @ ou o link do seu TikTok? Isso não autoriza nenhum vínculo com a Amplify 😊', []),
+    'priority_alert': ('Obrigada! Seu perfil ficou registrado para a análise prévia da nossa equipe. Estou preparando seu encaminhamento.', []),
     'agency': ('Você já é agenciado por alguma agência?', ['Sim', 'Não']),
     'agency_kind': ('Seu vínculo atual é com a Amplify ou com outra agência?', ['Já sou Amplify', 'Outra agência']),
     'existing_profile': ('Se você já é agenciado pela Amplify, não precisa se desvincular nem receber outro convite. Qual é seu @ do TikTok para seguir com o cadastro?', []),
@@ -150,10 +152,20 @@ def advance(cycle, text, at):
             facts['gmv_30d_moeda'] = 'BRL'
             record['gmv_source'] = 'lead_declaration'
             record['gmv_at'] = engine._stamp(at)
-            next_stage = 'choice' if amount is not None and amount >= THRESHOLD_CENTS else 'complete'
-            if next_stage == 'choice':
+            next_stage = 'priority_alert' if amount is not None and amount >= THRESHOLD_CENTS else 'complete'
+            if next_stage == 'priority_alert':
                 record['high_gmv'] = True
                 record['alert_requested'] = True
+                record['priority_flow_version'] = 2
+                if not profile_handle(facts.get('tiktok_declarado', '')):
+                    next_stage = 'priority_profile'
+    elif current == 'priority_profile':
+        handle = profile_handle(text)
+        previous = profile_handle(facts.get('tiktok_declarado', ''))
+        if handle and (not previous or previous == handle):
+            facts['tiktok_declarado'] = handle
+            record['profile_at'] = engine._stamp(at)
+            next_stage = 'priority_alert'
     elif current in {'choice','specialist'}:
         if value in {'seguir com a bia','continuar com a bia','com a bia','maquina','com a maquina'}:
             record['preference'] = 'machine'
@@ -171,3 +183,29 @@ def advance(cycle, text, at):
                 'O vídeo mostra como ativar, caso ainda não esteja ativo.\n\n' + QUESTIONS['gmv'][0])
         return tutorial_videos.activation_help(text), []
     return None if next_stage == 'complete' else QUESTIONS[next_stage]
+
+
+def profile_handle(text):
+    """Only an explicit @ or exact TikTok profile URL; no redirects or guesses."""
+    if not isinstance(text, str):
+        return None
+    value = text.strip()
+    match = re.fullmatch(r'(?:https://)?(?:(?:www|m)\.)?tiktok\.com/(@[A-Za-z0-9_][A-Za-z0-9_.]{1,23})/?(?:\?[^\s<>]*)?', value, re.I)
+    value = match[1] if match else value
+    if re.fullmatch(r'@[A-Za-z0-9_][A-Za-z0-9_.]{1,23}', value) and not value.endswith('.'):
+        return value.lower()
+    return None
+
+
+def release_priority_choice(state):
+    cycle = state.get('cycle') or {}
+    record = cycle.get('bia_validation') or {}
+    receipt = (record.get('alert_statuses') or {}).get('threshold') or {}
+    if record.get('priority_flow_version') != 2 or record.get('stage') != 'priority_alert' or receipt.get('status') != 'accepted':
+        return None
+    record['stage'] = 'choice'
+    for item in reversed(state.get('history', [])):
+        if item.get('direction') == 'outbound' and item.get('cycle_id') == cycle.get('id'):
+            item['text'] = QUESTIONS['choice'][0]
+            break
+    return QUESTIONS['choice']

@@ -403,6 +403,9 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                       "consentimento_convite", "aceite_declarado"}
             entrada["qualificacao"] = {name: value for name, value in _mapping(cycle.get("facts")).items()
                                        if name in fields and type(value) in (str, bool, type(None))}
+            profile = cycle.get('perfil_tiktok')
+            if isinstance(profile, dict) and profile.get('handle') == _mapping(cycle.get('facts')).get('tiktok_declarado'):
+                entrada['qualificacao']['perfil_tiktok'] = profile
             if cycle.get('mode') == 'real':
                 from gateway import tiktok_projection
                 verified = tiktok_projection(state)
@@ -1388,11 +1391,28 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                             and cycle.get('phase') == 'intro' and cycle.get('id') != previous_cycle_id):
                         state['chat_reset_boundary'] = {'source': key, 'message_id': str(event['message_id']),
                             'cycle_id': cycle.get('id'), 'previous_cycle_id': previous_cycle_id}
-                    from chat_declarations import collect
+                    from chat_declarations import collect, remember_profile
                     declarations = collect(event, declaration_before, cycle)
+                    remember_profile(event, declaration_before, cycle)
                     if declarations:
                         cycle['chat_declarations_pending'] = declarations
+                        for declaration in declarations:
+                            if declaration['campo'] == 'seguidores':
+                                cycle.setdefault('facts', {})['seguidores_declarados'] = declaration['valor']
                     state = sync_contact(event, state)
+                    priority = (state.get('cycle') or {}).get('bia_validation') or {}
+                    if priority.get('priority_flow_version') == 2 and priority.get('stage') == 'priority_alert':
+                        # Contact/profile persistence precedes Slack; the lead's
+                        # choice is released only on a durable Slack receipt.
+                        from lead_alerts import dispatch
+                        from lead_validation import release_priority_choice
+                        dispatched = dispatch(settings, repository, event, state)
+                        threshold = dispatched.get('events', {}).get('threshold', {})
+                        if threshold.get('status') == 'accepted':
+                            released = release_priority_choice(state)
+                            if released:
+                                reply, buttons = released
+                        repository.save_session(conv, state)
                     progress_proof = None
                     if progress is not None:
                         confirmed = repository.get_operation(key + ":contact:" + str(max(1, int(state.get("revision", 1)))))
