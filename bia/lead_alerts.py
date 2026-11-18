@@ -104,12 +104,11 @@ def _format_fields(event, state, kind):
     followers = (f'{followers:,}'.replace(',', '.') + ' — declarado pelo criador'
                  if type(followers) is int and 0 <= followers <= 1_000_000_000 else 'Não disponíveis')
     fields = [('Nome', _safe_name(facts.get('nome_declarado'))), ('WhatsApp', phone),
-              ('GMV declarado nos últimos 30 dias', 'R$ ' + money),
-              ('Verificação do GMV', 'Não verificado'),
-              ('Atendimento', '#' + str(event['conversation_id'])),
+              ('GMV declarado', 'R$ ' + money + ' / últimos 30 dias'),
               ('Perfil TikTok', handle), ('Seguidores', followers),
-              ('TikTok Shop informado', declared or 'Não informado'),
-              ('Validação do TikTok Shop', verified_shop), ('Preferência', pref)]
+              ('TikTok Shop', verified_shop if active else declared or 'Não informado'),
+              ('Verificação do GMV', 'Pendente — declarado, não verificado'),
+              ('Atendimento', '#' + str(event['conversation_id']))]
     # No category or verified followers enter today's authoritative alert
     # state; no deduction from the declared GMV or profile.
     action = {'specialist': 'Agenciamento automático pausado. A equipe precisa assumir a conversa.',
@@ -130,7 +129,7 @@ def _presentation(event, state, url, kind):
                       action, 'Abrir conversa no Chatwoot: ' + url])
     plain = lambda value: {'type': 'plain_text', 'text': value, 'emoji': True}
     blocks = [{'type': 'header', 'text': plain(heading)},
-              {'type': 'section', 'fields': [plain(label + '\n' + value) for label, value in fields]},
+              {'type': 'section', 'text': plain('\n'.join(label + ': ' + value for label, value in fields))},
               {'type': 'context', 'elements': [plain(action)]}]
     # Only use Slack link markup for our trusted, constrained Chatwoot URL.
     # A link needs no Slack interactions endpoint or new permissions.
