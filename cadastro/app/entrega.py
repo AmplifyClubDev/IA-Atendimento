@@ -13,6 +13,8 @@ import threading
 from decimal import Decimal
 from types import SimpleNamespace
 
+from chatwoot_access_label import project_access_label
+
 from legado.cadastro_delivery import Circle, category, notify_access_released, send_welcome
 
 
@@ -109,6 +111,7 @@ class Entrega:
                 member_id = self.circle_factory(self.token).provision(email=job["email"], name=job["name"], tier=tier,
                                                                       before_write=lambda: None)
                 mark("circle_confirmado", p_categoria=tier, p_circle_member_id=member_id)
+            access_label_status = project_access_label(self.v5, event_id)
             welcome = {"name": job["name"], "email": job["email"], "onboarding_id": event_id, "revision": 1,
                        "conversation_id": job.get("conversation_id")}
             if not job.get("email_feito"):
@@ -119,7 +122,10 @@ class Entrega:
                 notice = self.notify(welcome)
             except Exception as error:
                 notice = {"notice_status": "aviso_chatwoot_pendente", "notice_error_type": type(error).__name__}
-            return {"status": "acessos_liberados", "category": tier, "email": job["email"], **notice}
+            result = {"status": "acessos_liberados", "category": tier, "email": job["email"], **notice}
+            if access_label_status != "disabled":
+                result["access_label_status"] = access_label_status
+            return result
         except Exception as error:
             # Mesmo critério do worker antigo: só códigos fixos, sem conteúdo externo/PII.
             reason = str(error) if type(error) is RuntimeError and re.fullmatch(r"(?:circle|smtp|gmail)_[a-z0-9_]+", str(error)) else type(error).__name__
