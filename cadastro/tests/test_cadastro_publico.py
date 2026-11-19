@@ -507,3 +507,33 @@ def test_chatwoot_ignora_conversa_com_atendente(monkeypatch):
          "last_non_activity_message": {"message_type": 0, "created_at": 5000}}]}}
     monkeypatch.setattr(va, "_get", lambda url, headers=None, timeout=30: pagina if "page=1" in url else {"data": {"payload": []}})
     assert [c["conversa"] for c in va.Chatwoot("https://c", "1", "t").sem_resposta(9000)] == [2]
+
+
+def test_etiqueta_localiza_conversa_exata_de_acesso_confirmado(pg):
+    creator, matched, newer, event = (str(uuid.uuid4()) for _ in range(4))
+    with psycopg.connect(pg.dsn) as conn:
+        conn.execute("select set_config('app.v5_explicit_event','on',false)")
+        conn.execute("insert into interno.creators(id,whatsapp,origem_instancia,origem_account_id,origem_contact_id,"
+                     "canal_entrada,etapa_atual,situacao_atual) values(%s,'554766660129',"
+                     "'chatwoot-amplify-prod','1','40129','whatsapp','form','em_atendimento')", (creator,))
+        for attendance, conversation, offset in ((matched, "40129", 2), (newer, "40130", 1)):
+            conn.execute("insert into interno.atendimentos(id,creator_id,instancia,account_id,contact_id,conversation_id,"
+                         "revisao,etapa,situacao,qualificacao,rascunho,marcos,mensagens_recebidas,criado_em,atualizado_em) "
+                         "values(%s,%s,'chatwoot-amplify-prod','1','40129',%s,1,'form','encerrado','{}','{}','{}',3,"
+                         "now()-make_interval(mins=>%s),now()-make_interval(mins=>%s))",
+                         (attendance, creator, conversation, offset, offset))
+        assert conn.execute("select has_function_privilege('anon',"
+                            "'public.destino_etiqueta_acesso_circle_v5(uuid)','EXECUTE'),"
+                            "has_function_privilege('authenticated',"
+                            "'public.destino_etiqueta_acesso_circle_v5(uuid)','EXECUTE')").fetchone() == (False, False)
+        conn.execute("set local role service_role")
+        assert conn.execute("select public.destino_etiqueta_acesso_circle_v5(%s::uuid)", (event,)).fetchone() == ({},)
+        conn.execute("reset role")
+        conn.execute("insert into interno.eventos(creator_id,atendimento_id,tipo,instancia,referencia,"
+                     "revisao,ocorrido_em,dados) values(%s,%s,'acesso_entregue','formulario_publico',%s,3,now(),"
+                     "'{\"circle_member_id\":123456,\"categoria\":\"Start\"}')", (creator, matched, event))
+        conn.execute("set local role service_role")
+        assert conn.execute("select public.destino_etiqueta_acesso_circle_v5(%s::uuid)", (event,)).fetchone() == (
+            {"conversation_id": "40129", "account_id": "1"},
+        )
+        conn.rollback()
