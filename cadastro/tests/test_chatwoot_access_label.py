@@ -1,4 +1,5 @@
 """Metadata-only Chatwoot projection on a verified Circle access."""
+from threading import Event, Thread
 from unittest.mock import patch
 
 from chatwoot_access_label import AccessLabel
@@ -124,7 +125,7 @@ def test_v5_metadata_failure_does_not_replay_or_block_notice():
         result = adapter.executar("synthetic")
     assert result["status"] == "acessos_liberados"
     assert result["access_label_status"] == "pending"
-    assert timeline == ["circle", "circle_confirmado", "lookup", "email", "email_confirmado", "notice"]
+    assert timeline == ["circle", "circle_confirmado", "email", "email_confirmado", "notice", "lookup"]
 
 
 def test_v5_labels_only_after_circle_and_in_both_paths():
@@ -137,6 +138,59 @@ def test_v5_labels_only_after_circle_and_in_both_paths():
         with patch("entrega.project_access_label", side_effect=lambda _, event_id: timeline.append("label") or "applied"):
             result = adapter.executar("synthetic")
         assert result["access_label_status"] == "applied"
-        assert timeline == (["label", "email_confirmado", "notice"] if circle_done else
-                            ["circle", "circle_confirmado", "label", "email_confirmado", "notice"])
+        assert timeline == (["email_confirmado", "notice", "label"] if circle_done else
+                            ["circle", "circle_confirmado", "email_confirmado", "notice", "label"])
 
+
+def test_v5_slow_label_does_not_block_second_delivery_notices():
+    timeline = []
+    first_label = Event()
+    release_first = Event()
+    second_notice = Event()
+    results = {}
+
+    def apply(_, event_id):
+        if event_id == "first":
+            first_label.set()
+            release_first.wait(10)
+        return "pending"
+
+    def notify(job):
+        if job["onboarding_id"] == "second":
+            second_notice.set()
+        return {}
+
+    adapter = Entrega(Gateway(timeline), circle_token="test", settings={}, enabled=True,
+                      circle_factory=lambda _: Circle(timeline), send=lambda *args: "receipt", notify=notify)
+    first = Thread(target=lambda: results.update(first=adapter.executar("first")), daemon=True)
+    second = Thread(target=lambda: results.update(second=adapter.executar("second")), daemon=True)
+    with patch("entrega.project_access_label", side_effect=apply):
+        try:
+            first.start()
+            assert first_label.wait(3)
+            second.start()
+            assert second_notice.wait(3), "Aviso do segundo cadastro bloqueado pela etiqueta do primeiro"
+            assert first.is_alive()
+        finally:
+            release_first.set()
+            first.join(3)
+            if second.ident is not None:
+                second.join(3)
+    assert results["first"]["status"] == results["second"]["status"] == "acessos_liberados"
+    assert results["first"]["access_label_status"] == "pending"
+
+
+def test_v5_circle_confirmed_email_failed_still_projects_label():
+    timeline = []
+
+    def send(*args):
+        timeline.append("email")
+        raise RuntimeError("smtp_indisponivel")
+
+    adapter = Entrega(Gateway(timeline), circle_token="test", settings={}, enabled=True,
+                      circle_factory=lambda _: Circle(timeline), send=send,
+                      notify=lambda job: timeline.append("notice") or {})
+    with patch("entrega.project_access_label", side_effect=lambda *_: timeline.append("label") or "pending"):
+        result = adapter.executar("synthetic")
+    assert result == {"status": "revisao_manual", "reason": "smtp_indisponivel", "access_label_status": "pending"}
+    assert timeline == ["circle", "circle_confirmado", "email", "revisao_manual", "label"]
