@@ -57,3 +57,18 @@ Como decodificar uma variável base64 para conferir (no seu computador, com o Ra
 ```bash
 railway variables --service Cadastro --json | python3 -c "import json,sys,base64; v=json.load(sys.stdin); open('pilot.py','wb').write(base64.b64decode(v['CADASTRO_PILOT_MODULE_B64']))"
 ```
+
+## Sessão de continuação (20/11/2026) — acessos testados
+
+Branch desta sessão: `claude/festive-rubin-aip1ug` (avanço direto da `claude/blissful-brown-nq8qug`).
+
+- **Railway** (`https://backboard.railway.com/graphql/v2`, token injetado pelo proxy):
+  a API responde, mas `me`, `projects`, `projects(workspaceId)` e `projectToken` voltam
+  "Not Authorized" / "Project Token not found". `workspace(workspaceId: X)` volta
+  "Workspace not found" (e não "Not Authorized"), sinal de token de **workspace**.
+  Falta o **ID do projeto AmplifyOS** (está na URL do painel: `railway.com/project/<ID>`)
+  para consultar `project(id: <ID>) { services ... }` e `variables(...)`.
+- **Supabase**: nenhum host do Supabase está liberado na rede desta sessão
+  (`*.supabase.co` e `api.supabase.com` → 403 do proxy). Sem isso não dá para conferir a
+  migration 010.
+- Nada foi alterado em produção.
