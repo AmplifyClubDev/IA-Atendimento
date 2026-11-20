@@ -149,8 +149,11 @@ class ChatwootProgress:
             confirmed_labels = (state.get("chatwoot_progress") or {}).get("confirmed_labels") or []
             prior = state.get("processed_inbound") or []
             event_key = prior[-1] if prior else None
-            valid = ('encerrado' in _progress_owned(self.gate) and cycle.get("status") == "open"
-                     and _window_closed(cycle, proof.get("now"))
+            # Auditoria 20/11: o 2º lembrete fecha o ciclo (inactivity_timeout) ANTES de marcar
+            # "parado"; exigir ciclo aberto fazia o "encerrado" nunca ser aplicado nesse caminho.
+            inactive = (cycle.get("status") == "open" and _window_closed(cycle, proof.get("now"))
+                        or cycle.get("status") == "closed" and cycle.get("reason") in _INACTIVITY_REASONS)
+            valid = ('encerrado' in _progress_owned(self.gate) and inactive
                      and bool(set(confirmed_labels) & _PROGRESS_OWNED))
         elif form:
             form_receipt = cycle.get("form_receipt") or {}
@@ -204,6 +207,8 @@ class ChatwootProgress:
             return {"status": "failed", "reason": "target_unverified"}
         if actual == desired:
             self._persist(event, state, {"confirmed_signature": signature, "confirmed_labels": desired})
+            if 'encerrado' in desired:
+                self._resolve(event, cycle, event_key)
             return {"status": "confirmed", "changed": False}
         if not self._live(event, state):
             return {"status": "ignored", "reason": "stale_snapshot"}
@@ -229,8 +234,26 @@ class ChatwootProgress:
             self.repository.complete_operation(operation, {"labels": actual}, "completed")
             if not self._persist(event, state, {"confirmed_signature": signature, "confirmed_labels": desired}):
                 return {"status": "ignored", "reason": "stale_snapshot"}
+            if 'encerrado' in desired:
+                self._resolve(event, cycle, event_key)
             return {"status": "confirmed", "changed": True}
         return {"status": "outcome_unknown", "reason": "readback_unconfirmed"}
+
+    def _resolve(self, event, cycle, event_key):
+        """Auditoria 20/11: com "encerrado" confirmado, marca a conversa como resolvida (uma vez por ciclo).
+
+        Só com V5_RESOLVE_ON_CLOSE_ENABLED; o adaptador só aceita a caixa 3. Opcional: nunca falha a etapa.
+        Quando o lead volta a escrever, o próprio Chatwoot reabre a conversa."""
+        if self.gate.get('resolve_on_close_enabled') is not True or not callable(getattr(self.adapter, 'resolve', None)):
+            return
+        operation = f"chatwoot:{event['account_id']}:{event['conversation_id']}:resolved:{cycle['id']}"
+        try:
+            if self.repository.reserve_operation(operation, event_key, "chatwoot_resolve"):
+                outcome = self.adapter.resolve(event, operation)
+                self.repository.complete_operation(operation, outcome if isinstance(outcome, dict) else {},
+                                                   'completed' if (outcome or {}).get('status') == 'accepted' else 'failed')
+        except Exception:
+            pass
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -396,6 +419,23 @@ class ChatwootTransport:
         except Exception:
             return {"status": "outcome_unknown", "reason": "stage_write_unconfirmed"}
         return {"status": "outcome_unknown", "reason": "stage_job_enqueued"}
+
+    def resolve(self, event, operation_key):
+        """Auditoria 20/11: marca a conversa como resolvida. Só conta 1, caixa 3, contato conferido."""
+        if not self._progress_allowed(event):
+            return {"status": "failed", "reason": "outside_stage_pilot"}
+        try:
+            if not self._read_target(event, require_reply_window=False, timeout=3, require_contact=True):
+                return {"status": "failed", "reason": "resolve_recipient_unverified"}
+            self.http(method="POST", url=self._conversation_url(event) + "/toggle_status",
+                      headers={"api_access_token": self.token, "Content-Type": "application/json",
+                               "Idempotency-Key": operation_key}, json_body={"status": "resolved"}, timeout=3)
+        except HTTPError as error:
+            error.close()
+            return {"status": "failed", "reason": "resolve_rejected"}
+        except Exception:
+            return {"status": "outcome_unknown", "reason": "resolve_unconfirmed"}
+        return {"status": "accepted"}
 
     def send_reply(self, event, text, buttons, idempotency_key, *, before_write=None, image_only=False):
         allowed = (allow_image_inbound(self.gate, event) and text == IMAGE_ONLY_REPLY and not buttons

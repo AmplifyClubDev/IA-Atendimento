@@ -228,6 +228,8 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
     gate = _mapping(_get(settings, "gate", {}))
     if _get(settings, 'inactivity_close_enabled', False) is True:
         gate = {**gate, 'inactivity_close_enabled': True}
+    if _get(settings, 'resolve_on_close_enabled', False) is True:
+        gate = {**gate, 'resolve_on_close_enabled': True}
     conversational = _get(settings, "conversation_enabled", False) is True
     contact_sync = _get(settings, "contact_sync_enabled", False) is True
     repository = repository or Repository(Path(_get(settings, "state_dir", Path(__file__).with_name("data"))) / "atendimento.sqlite3")

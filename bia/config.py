@@ -92,6 +92,8 @@ def load_settings(environ=None):
         'followup_delay_seconds': get('V5_FOLLOWUP_DELAY_SECONDS', '300'),
         'followup_start_at': get('V5_FOLLOWUP_START_AT'),
         'inactivity_close_enabled': get('V5_INACTIVITY_CLOSE_ENABLED').lower() == 'true',
+        # Auditoria 20/11: conversa com "encerrado" vira "resolvida" no Chatwoot (só caixa 3). Desligado por padrão.
+        'resolve_on_close_enabled': get('V5_RESOLVE_ON_CLOSE_ENABLED').lower() == 'true',
         'inactivity_close_delay_seconds': get('V5_INACTIVITY_CLOSE_DELAY_SECONDS', '300'),
         'relationship_check_in_form': get('V5_RELATIONSHIP_CHECK_IN_FORM').lower() == 'true',
         # Release 39: on unless explicitly switched off; no new variable is needed to publish.

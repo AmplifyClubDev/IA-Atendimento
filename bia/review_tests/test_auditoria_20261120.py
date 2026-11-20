@@ -196,5 +196,67 @@ class LogDeFalhaTests(unittest.TestCase):
         self.assertNotIn('texto do lead', linha)
 
 
+from transport import ChatwootProgress
+
+
+class _AdapterComResolver(test_etiquetas48.Adapter):
+    def __init__(self):
+        super().__init__()
+        self.resolvidas = []
+
+    def resolve(self, event, key):
+        self.resolvidas.append(key)
+        return {'status': 'accepted'}
+
+
+class EncerradoEResolvidoTests(test_etiquetas48.Etiquetas48Tests):
+    """15.644 conversas "abertas": o encerrado falhava após o 2º lembrete e nada era resolvido."""
+
+    def setUp(self):
+        super().setUp()
+        self.adapter = _AdapterComResolver()
+        self.adapter.labels = ['convite', 'outra-equipe']
+        self.progress = ChatwootProgress(self.repo, self.gate, self.adapter)
+
+    def ligar_resolver(self):
+        self.progress = ChatwootProgress(self.repo, {**self.gate, 'resolve_on_close_enabled': True}, self.adapter)
+
+    def test_ciclo_fechado_pelo_2o_lembrete_ganha_encerrado(self):
+        self.state['cycle'].update(status='closed', reason='inactivity_timeout',
+                                   expires_at=(test_etiquetas48.NOW + test_etiquetas48.timedelta(hours=5)).isoformat())
+        self.repo.state = deepcopy(self.state)
+        self.assertEqual(self.parado()['status'], 'confirmed')
+        self.assertIn('encerrado', self.adapter.labels)
+
+    def test_ciclo_fechado_por_outro_motivo_nao_ganha_encerrado(self):
+        self.state['cycle'].update(status='closed', reason='validated_form')
+        self.repo.state = deepcopy(self.state)
+        self.assertEqual(self.parado()['status'], 'ignored')
+
+    def test_sem_a_chave_nao_resolve(self):
+        self.parado()
+        self.assertIn('encerrado', self.adapter.labels)
+        self.assertEqual(self.adapter.resolvidas, [])
+
+    def test_com_a_chave_resolve_uma_vez_por_ciclo(self):
+        self.ligar_resolver()
+        self.parado()
+        self.assertEqual(len(self.adapter.resolvidas), 1)
+        self.state = self.repo.load_session('x')
+        self.parado()
+        self.assertEqual(len(self.adapter.resolvidas), 1)
+
+    def test_especialista_nunca_e_resolvido(self):
+        self.ligar_resolver()
+        self.state['cycle']['bia_validation'] = {'stage': 'specialist'}
+        self.repo.state = deepcopy(self.state)
+        self.parado()
+        self.assertEqual(self.adapter.resolvidas, [])
+
+
+for _name in [n for n in vars(test_etiquetas48.Etiquetas48Tests) if n.startswith('test_')]:
+    setattr(EncerradoEResolvidoTests, _name, None)
+
+
 if __name__ == '__main__':
     unittest.main()
