@@ -157,3 +157,34 @@ Branch desta sessão: `claude/festive-rubin-aip1ug` (avanço direto da `claude/b
 - (B) Instalar o Railway CLI, `railway login`, e eu rodo os comandos daqui (só leitura).
 - Supabase: Access Token (Account › Access Tokens) em `SUPABASE_ACCESS_TOKEN`, **ou** você roda
   `conferir-migration-010.sql` no SQL Editor e me manda o resultado.
+
+### Quinta sessão (20/11/2026) — com token de projeto do Railway e chave do Supabase
+
+**Resultado em 1 linha:** o código do Cadastro que roda está no repositório (`cadastro/producao/`), a migration 010
+**não foi aplicada**, e o código das 3 pontes continua fora (só sai com login de conta no Railway).
+
+1. **Acessos (1 teste de cada):**
+   - Railway, token de projeto (header `Project-Access-Token`): ✅ lê serviços, variáveis e logs.
+     `railway ssh` ❌ ("Please login first"): precisa de login de **conta**.
+   - Supabase, chave secreta via REST: ✅ (`GET /rest/v1/` → 200). O MCP do Supabase foi adicionado em
+     `.mcp.json` com `read_only=true`; só funciona depois de reiniciar o app e fazer login.
+   - Nada foi alterado em produção.
+2. **Cadastro:** o comando de início roda 3 patches e depois o `gunicorn`. Os patches estão decodificados em
+   `cadastro/producao/patches/`, e os arquivos como ficam no ar em `cadastro/producao/efetivo/`.
+   Detalhes e a tabela produção × repositório: [`cadastro/producao/README.md`](../../cadastro/producao/README.md).
+   - A imagem é de **03/11** (`cadastro.html` = commit `dd947e1`, `pontes.py` base = `769257f`).
+   - **No ar, mas fora do repositório:** tentativas do código zeradas a cada novo envio (`store.py`), mensagem
+     de "código incorreto" que some ao digitar (`cadastro.html`), JPG até 40 MP (`publico.py`), `pontes.py` novo (461 linhas).
+   - **No repositório, mas fora do ar:** erro de anexo e retomada do formulário (17/11, `cadastro.html`), etiqueta
+     de acesso no Chatwoot (`chatwoot_access_label.py`), espera de 35 s na conferência do @.
+   - `CADASTRO_PILOT_MODULE_B64` e `CADASTRO_SAFE_IMAGE_PATCH_B64` **não são usadas** pelo comando de início.
+   - Correção da sessão anterior: o `pontes.py` do repositório **é** a base de produção (a diferença de hash era CRLF).
+   - Os motivos `caixa_cheia` / `dominio_sem_email` também não aparecem nos patches. Se existem, estão no `emailer.py` da imagem (não visto).
+3. **Pontes (Pré-validação, Agenciamento, Partner Bridge):** publicadas em 30/10 com `railway up`, sem
+   repositório e sem código em variáveis. Para baixar: `railway login` (conta) e `railway ssh` em cada uma.
+4. **Migration 010:** **não aplicada.** `GET /rest/v1/rpc/destino_etiqueta_acesso_circle_v5` → 404 `PGRST202`
+   ("função não encontrada"), e ela não aparece entre as 26 rotas do banco. Impacto hoje: nenhum, porque a
+   variável `CADASTRO_CHATWOOT_ETIQUETA_ACESSO` não existe no serviço e o código da etiqueta nem está na imagem.
+
+**Falta para fechar a Fase 1:** um login de conta no Railway (`railway login`) para copiar, por SSH e só leitura,
+o `/app` do Cadastro e o código das 3 pontes.
