@@ -131,3 +131,29 @@ Branch desta sessão: `claude/festive-rubin-aip1ug` (avanço direto da `claude/b
   Essa parte deve vir do `CADASTRO_OTP_UI_PATCH_B64`.
 - Como a Fase 1 não avança sem acesso, a sessão seguiu para a **Fase 2 só com o código**
   (`docs/auditoria/fase-2-caixa-3-e-formulario.md`).
+
+### Quarta sessão (20/11/2026) — rodando no computador do Vitor
+
+**Resultado em 1 linha:** continua bloqueado. O código do Cadastro em produção e das 3 pontes não está nem no Railway acessível, nem no GitHub, nem neste computador.
+
+1. **Acessos (1 teste de cada):**
+   - Railway: `project(id: "896b1a40-…")` → **"Not Authorized"**. Nesta máquina não há `RAILWAY_API_TOKEN`,
+     `RAILWAY_TOKEN`, Railway CLI nem pasta `~/.railway`. O plugin do Railway manda `Bearer dummy` (só funciona na nuvem, com proxy).
+   - Supabase: `GET https://api.supabase.com/v1/projects` → **401**. Sem token e sem Supabase CLI/psql.
+   - Nada foi alterado em produção.
+2. **Busca no computador (opção C da sessão anterior):**
+   - Procurei em `C:\Users\vitor` (até 7 níveis) por `claude-cadastro-v5*`, `pilot_module`, `pontes_bootstrap`,
+     `otp_ui_patch`, `partner*bridge`, `agenciamento`, `pre*valid`.
+   - Procurei texto (`CADASTRO_PILOT_MODULE_B64`, `CADASTRO_PONTES_BOOTSTRAP`, `partner bridge`, `cadastro_pilot`)
+     em `Programação\` (CliniVet, Hub-AmplifyClub).
+   - Única coisa achada: `Hub-AmplifyClub/supabase/03_fluxo_agenciamento.sql` (SQL de outro projeto, não é código de ponte).
+3. **Observação:** o "Complemento" acima cita `docs/auditoria/fase-2-caixa-3-e-formulario.md`, mas esse arquivo
+   **não existe em nenhuma branch nem no histórico**. A sessão paralela não chegou a fazer push.
+4. **Migration 010:** continua sem conferência. A consulta pronta é `docs/auditoria/conferir-migration-010.sql`.
+
+**Para destravar (escolha uma):**
+- (A) Criar um token no Railway (Account Settings › Tokens, ou Project Settings › Tokens) e colocar em
+  `RAILWAY_API_TOKEN` (conta) ou `RAILWAY_TOKEN` (projeto) nas variáveis de ambiente do Windows. Reiniciar o app.
+- (B) Instalar o Railway CLI, `railway login`, e eu rodo os comandos daqui (só leitura).
+- Supabase: Access Token (Account › Access Tokens) em `SUPABASE_ACCESS_TOKEN`, **ou** você roda
+  `conferir-migration-010.sql` no SQL Editor e me manda o resultado.
