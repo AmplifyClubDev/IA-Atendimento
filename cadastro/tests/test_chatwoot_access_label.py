@@ -1,0 +1,196 @@
+"""Metadata-only Chatwoot projection on a verified Circle access."""
+from threading import Event, Thread
+from unittest.mock import patch
+
+from chatwoot_access_label import AccessLabel
+from entrega import Entrega
+
+
+ENV = {
+    "CADASTRO_CHATWOOT_ETIQUETA_ACESSO": "acesso-liberado",
+    "CHATWOOT_BASE_URL": "https://chatwoot.example",
+    "CHATWOOT_ACCOUNT_ID": "1",
+    "CHATWOOT_API_TOKEN": "test-only",
+}
+JOB = {"conversation_id": "4321", "account_id": "1"}
+CONVERSATION = {"id": 4321, "account_id": 1, "inbox_id": 3}
+
+
+class Response:
+    def __init__(self, body, status=200):
+        self.body = body
+        self.status_code = status
+
+    def json(self):
+        return self.body
+
+
+class FakeSession:
+    def __init__(self, labels, *, detail=CONVERSATION, lost_ack=False, pending=False):
+        self.labels = list(labels)
+        self.detail = detail
+        self.lost_ack = lost_ack
+        self.pending = pending
+        self.calls = []
+
+    def request(self, method, url, **kwargs):
+        assert kwargs["allow_redirects"] is False
+        self.calls.append((method, url, kwargs.get("json")))
+        if method == "POST":
+            if not self.pending:
+                self.labels += [item for item in kwargs["json"]["labels"]["add"] if item not in self.labels]
+            if self.lost_ack:
+                raise TimeoutError
+            return Response({}, status=202)
+        if url.endswith("/labels"):
+            return Response({"payload": self.labels.copy()})
+        return Response(self.detail)
+
+
+def projection(session, env=ENV):
+    return AccessLabel(env, session=session, sleep=lambda _: None)
+
+
+def test_additive_metadata_only_and_already_present():
+    session = FakeSession(["cadastro", "prioridade"])
+    adapter = projection(session)
+    assert adapter.apply(JOB) == "applied"
+    assert adapter.apply(JOB) == "already_present"
+    assert session.labels == ["cadastro", "prioridade", "acesso-liberado"]
+    assert [c for c in session.calls if c[0] == "POST"] == [
+        ("POST", "https://chatwoot.example/api/v1/accounts/1/bulk_actions",
+         {"type": "Conversation", "ids": [4321], "labels": {"add": ["acesso-liberado"]}}),
+    ]
+    assert all("/messages" not in call[1] for call in session.calls)
+
+
+def test_lost_ack_checks_readback_without_second_write():
+    session = FakeSession(["cadastro"], lost_ack=True)
+    assert projection(session).apply(JOB) == "applied"
+    assert sum(c[0] == "POST" for c in session.calls) == 1
+
+
+def test_enqueue_without_readback_not_success():
+    session = FakeSession(["cadastro"], pending=True)
+    assert projection(session).apply(JOB) == "pending"
+    assert sum(c[0] == "POST" for c in session.calls) == 1
+
+
+def test_wrong_inbox_and_missing_account_never_write():
+    session = FakeSession(["cadastro"], detail={**CONVERSATION, "inbox_id": 4})
+    assert projection(session).apply(JOB) == "unverified_conversation"
+    assert projection(session).apply({"conversation_id": "4321"}) == "unverified_conversation"
+    assert not any(call[0] == "POST" for call in session.calls)
+
+
+def test_no_label_config_is_kill_switch():
+    session = FakeSession([])
+    assert projection(session, {}).apply(JOB) == "disabled"
+    assert session.calls == []
+
+
+class Gateway:
+    def __init__(self, timeline, circle_done=False):
+        self.timeline = timeline
+        self.circle_done = circle_done
+
+    def rpc(self, name, params):
+        if name == "destino_etiqueta_acesso_circle_v5":
+            self.timeline.append("lookup")
+            return JOB.copy()
+        if "preparar" in name:
+            return {**JOB, "ready": True, "name": "Synthetic", "email": "test@example.invalid",
+                    "onboarding_id": "synthetic", "attempt": 1, "gmv": 0,
+                    "gmv_verificado": 0, "circle_feito": self.circle_done, "categoria_entregue": "Start"}
+        self.timeline.append(params["p_etapa"])
+        return {}
+
+
+class Circle:
+    def __init__(self, timeline):
+        self.timeline = timeline
+
+    def provision(self, **kwargs):
+        self.timeline.append("circle")
+        return 100
+
+
+def test_v5_metadata_failure_does_not_replay_or_block_notice():
+    timeline = []
+    adapter = Entrega(Gateway(timeline), circle_token="test", settings={}, enabled=True,
+                      circle_factory=lambda _: Circle(timeline),
+                      send=lambda *args: timeline.append("email") or "receipt",
+                      notify=lambda job: timeline.append("notice") or {})
+    with patch.dict("os.environ", ENV), patch("chatwoot_access_label.AccessLabel.apply", side_effect=OSError):
+        result = adapter.executar("synthetic")
+    assert result["status"] == "acessos_liberados"
+    assert result["access_label_status"] == "pending"
+    assert timeline == ["circle", "circle_confirmado", "email", "email_confirmado", "notice", "lookup"]
+
+
+def test_v5_labels_only_after_circle_and_in_both_paths():
+    for circle_done in (False, True):
+        timeline = []
+        adapter = Entrega(Gateway(timeline, circle_done=circle_done), circle_token="test", settings={}, enabled=True,
+                          circle_factory=lambda _: Circle(timeline),
+                          send=lambda *args: "receipt",
+                          notify=lambda job: timeline.append("notice") or {})
+        with patch("entrega.project_access_label", side_effect=lambda _, event_id: timeline.append("label") or "applied"):
+            result = adapter.executar("synthetic")
+        assert result["access_label_status"] == "applied"
+        assert timeline == (["email_confirmado", "notice", "label"] if circle_done else
+                            ["circle", "circle_confirmado", "email_confirmado", "notice", "label"])
+
+
+def test_v5_slow_label_does_not_block_second_delivery_notices():
+    timeline = []
+    first_label = Event()
+    release_first = Event()
+    second_notice = Event()
+    results = {}
+
+    def apply(_, event_id):
+        if event_id == "first":
+            first_label.set()
+            release_first.wait(10)
+        return "pending"
+
+    def notify(job):
+        if job["onboarding_id"] == "second":
+            second_notice.set()
+        return {}
+
+    adapter = Entrega(Gateway(timeline), circle_token="test", settings={}, enabled=True,
+                      circle_factory=lambda _: Circle(timeline), send=lambda *args: "receipt", notify=notify)
+    first = Thread(target=lambda: results.update(first=adapter.executar("first")), daemon=True)
+    second = Thread(target=lambda: results.update(second=adapter.executar("second")), daemon=True)
+    with patch("entrega.project_access_label", side_effect=apply):
+        try:
+            first.start()
+            assert first_label.wait(3)
+            second.start()
+            assert second_notice.wait(3), "Aviso do segundo cadastro bloqueado pela etiqueta do primeiro"
+            assert first.is_alive()
+        finally:
+            release_first.set()
+            first.join(3)
+            if second.ident is not None:
+                second.join(3)
+    assert results["first"]["status"] == results["second"]["status"] == "acessos_liberados"
+    assert results["first"]["access_label_status"] == "pending"
+
+
+def test_v5_circle_confirmed_email_failed_still_projects_label():
+    timeline = []
+
+    def send(*args):
+        timeline.append("email")
+        raise RuntimeError("smtp_indisponivel")
+
+    adapter = Entrega(Gateway(timeline), circle_token="test", settings={}, enabled=True,
+                      circle_factory=lambda _: Circle(timeline), send=send,
+                      notify=lambda job: timeline.append("notice") or {})
+    with patch("entrega.project_access_label", side_effect=lambda *_: timeline.append("label") or "pending"):
+        result = adapter.executar("synthetic")
+    assert result == {"status": "revisao_manual", "reason": "smtp_indisponivel", "access_label_status": "pending"}
+    assert timeline == ["circle", "circle_confirmado", "email", "revisao_manual", "label"]

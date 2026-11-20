@@ -225,3 +225,11 @@ Ficou para depois: o print de GMV, que precisa de `OPENAI_API_KEY` e `GMV_PRINT_
 - trocar o link da Bia para `/cadastro` e abrir a Bia para todos (sessão da Bia);
 - Turnstile, que precisa de uma chave da Cloudflare;
 - consentimento separado para dados sensíveis, que precisa do texto revisado pelo jurídico.
+
+## Etiqueta de acesso no Chatwoot
+
+Aplique `sql/010_destino_etiqueta_acesso_circle.sql` antes de ativar a projeção. Ative `CADASTRO_CHATWOOT_ETIQUETA_ACESSO=acesso-liberado` somente após confirmar a etiqueta no catálogo da conta de produção. O valor vazio desativa a projeção. A conta vem de `CHATWOOT_ACCOUNT_ID`; a caixa esperada pode ser definida em `CADASTRO_CHATWOOT_ETIQUETA_CAIXA` (padrão: `3`). São usados o mesmo endereço e token do Chatwoot já configurados.
+
+O fluxo acrescenta apenas a etiqueta de acesso após confirmação no Circle, sem tocar nas outras etiquetas ou nas mensagens. O retorno da ação em lote é apenas uma entrada na fila. Confirme a etiqueta pela leitura independente; se a falha persistir, reconcilie a etiqueta a partir dos eventos de acesso confirmados, sem reprocessar a entrega.
+
+Para desligar a escrita, remova o valor de `CADASTRO_CHATWOOT_ETIQUETA_ACESSO` e reaplique a configuração. Isso não remove etiquetas existentes. Para desfazer uma aplicação específica, retire só a etiqueta de acesso da conversa verificada, sem alterar as demais.

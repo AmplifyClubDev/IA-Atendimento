@@ -111,8 +111,8 @@ class LocalPostgres:
         if migration:
             self.runfile(migration)
             # Migrations seguintes (002_, 003_...), na ordem, como foram aplicadas em produção.
-            for later in sorted(Path(migration).parent.glob("00[2-9]_*.sql")):
-                if "reverter" not in later.name:
+            for later in sorted(Path(migration).parent.glob("[0-9][0-9][0-9]_*.sql")):
+                if later.name[:3] > Path(migration).name[:3] and "reverter" not in later.name:
                     self.runfile(later)
         return self
 

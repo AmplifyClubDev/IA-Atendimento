@@ -13,6 +13,8 @@ import threading
 from decimal import Decimal
 from types import SimpleNamespace
 
+from chatwoot_access_label import project_access_label
+
 from legado.cadastro_delivery import Circle, category, notify_access_released, send_welcome
 
 
@@ -90,17 +92,25 @@ class Entrega:
 
     def executar(self, event_id, gmv_lido=None):
         with self._lock:  # uma entrega por vez: poupa a cota da Circle e evita corrida com a retomada
-            return self._executar(event_id, gmv_lido)
+            result, circle_confirmed = self._executar(event_id, gmv_lido)
+        # A projeção ocorre depois dos avisos e fora da trava de entrega.
+        # Ela não muda o estado da entrega nem reabre tentativas concluídas.
+        if circle_confirmed:
+            label_status = project_access_label(self.v5, event_id)
+            if label_status != "disabled":
+                result["access_label_status"] = label_status
+        return result
 
     def _executar(self, event_id, gmv_lido):
         job = self.v5.rpc("preparar_entrega_circle_v5", {"p_evento": event_id})
         if not job.get("ready"):
-            return {"status": job.get("reason")}
+            return {"status": job.get("reason")}, False
 
         def mark(stage, **extra):
             params = {"p_evento": event_id, "p_etapa": stage, "p_categoria": None, "p_circle_member_id": None,
                       "p_email_message_id": None, "p_motivo": None}
             return self.v5.rpc("confirmar_entrega_circle_v5", {**params, **extra})
+        circle_confirmed = False
         try:
             if job.get("circle_feito"):
                 tier = job["categoria_entregue"]
@@ -109,6 +119,7 @@ class Entrega:
                 member_id = self.circle_factory(self.token).provision(email=job["email"], name=job["name"], tier=tier,
                                                                       before_write=lambda: None)
                 mark("circle_confirmado", p_categoria=tier, p_circle_member_id=member_id)
+            circle_confirmed = True
             welcome = {"name": job["name"], "email": job["email"], "onboarding_id": event_id, "revision": 1,
                        "conversation_id": job.get("conversation_id")}
             if not job.get("email_feito"):
@@ -119,7 +130,7 @@ class Entrega:
                 notice = self.notify(welcome)
             except Exception as error:
                 notice = {"notice_status": "aviso_chatwoot_pendente", "notice_error_type": type(error).__name__}
-            return {"status": "acessos_liberados", "category": tier, "email": job["email"], **notice}
+            return {"status": "acessos_liberados", "category": tier, "email": job["email"], **notice}, circle_confirmed
         except Exception as error:
             # Mesmo critério do worker antigo: só códigos fixos, sem conteúdo externo/PII.
             reason = str(error) if type(error) is RuntimeError and re.fullmatch(r"(?:circle|smtp|gmail)_[a-z0-9_]+", str(error)) else type(error).__name__
@@ -130,7 +141,7 @@ class Entrega:
                 pass
             if job.get("tentativa", 1) >= 3 and self.alert:
                 self.alert(event_id, reason)
-            return {"status": "revisao_manual", "reason": reason}
+            return {"status": "revisao_manual", "reason": reason}, circle_confirmed
 
     def retomar_pendentes(self):
         """Refaz entregas que não terminaram (reinício do serviço, Circle lento)."""
