@@ -1447,6 +1447,11 @@ def _known_faq_unavailable(text):
     return None
 
 
+def _already_says(reply, *notes):
+    """A resposta já traz um destes avisos (evita a mesma ideia duas vezes na mesma mensagem)."""
+    return any(note and note in (reply or '') for note in notes)
+
+
 def _step_reply(answer, prompt):
     """Keep the answer, then state the current question/explanation once."""
     for sentence in re.split(r'(?<=[.!?])\s+', prompt):
@@ -1603,9 +1608,13 @@ def _question_reply(text, plan, cycle, policy=None, *, state=None, now=None, all
         if bridge_waiting(cycle) and re.search(r'\b(time|equipe|pessoal)\b', reply, re.I):
             # Ninguém confere à mão: quem destrava é a volta da consulta.
             return _BRIDGE_STILL
-        if invite_waiting(cycle) and 'anotada' not in reply:
+        # Auditoria 20/11: a trava procurava "anotada"/"anotado", palavras que os textos
+        # já não usavam; a mesma frase saía duas vezes. Agora confere a própria frase.
+        if invite_waiting(cycle) and not _already_says(reply, conversao.INVITE_STILL, conversao.INVITE_WAIT,
+                                                       conversao.INVITING, conversao.PRIOR_INVITE_RESENT):
             return reply + '\n\n' + conversao.INVITE_STILL
-        if bridge_waiting(cycle) and 'anotado' not in reply:
+        if bridge_waiting(cycle) and not _already_says(reply, conversao.BRIDGE_NOTE, conversao.BRIDGE_WAIT,
+                                                       conversao.BRIDGE_STILL):
             # Release 41: a dúvida é respondida e o lead sabe que a conferência segue sozinha (priscila, 30/10).
             return reply + '\n\n' + conversao.BRIDGE_NOTE
         return reply

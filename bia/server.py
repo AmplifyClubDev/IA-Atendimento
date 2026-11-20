@@ -204,6 +204,18 @@ class _InboundReplyFence:
             return any(not row['settled'] for row in rows.values())
 
 
+def _log_inbound_failure(error):
+    """Auditoria 20/11: uma linha de log por falha, só com tipo e ponto do código (sem dados do lead)."""
+    try:
+        import os
+        import traceback
+        frame = traceback.extract_tb(error.__traceback__)[-1] if error.__traceback__ else None
+        where = f'{os.path.basename(frame.filename)}:{frame.lineno}:{frame.name}' if frame else 'desconhecido'
+        print(f'[bia] inbound_falhou tipo={type(error).__name__} onde={where}', flush=True)
+    except Exception:
+        pass
+
+
 def create_app(settings=None, repository=None, transport=None, answerer=None, planner=None,
                real_client=None, real_guard=None, demo_gateway=None):
     if settings is None:
@@ -278,6 +290,8 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
         # The concrete transport checks again after its recipient GET, directly
         # before POST. Trusted legacy test adapters keep their original contract.
         options = {'before_write': authority} if getattr(transport, 'supports_reply_fencing', False) is True else {}
+        import conversao
+        text = conversao.without_repeated_paragraphs(text)
         receipt = transport.send_reply(event, text, buttons, outbox_key, **options)
         if (isinstance(receipt, dict) and receipt.get('status') == 'failed'
                 and receipt.get('reason') == 'send_cancelled_before_post' and not authority()):
@@ -1503,7 +1517,10 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                         except Exception:
                             pass
                     return dict(accepted=True, duplicate=False, status=final), 200
-                except Exception:
+                except Exception as error:
+                    # Auditoria 20/11 (conversa 55626): o erro era engolido sem log. Registra só o
+                    # tipo e o ponto do código (sem texto do lead, telefone ou payload).
+                    _log_inbound_failure(error)
                     # Reservation survives every uncertain effect; do not ask Chatwoot to retry it.
                     try:
                         repository.finish_event(key, "outcome_unknown")

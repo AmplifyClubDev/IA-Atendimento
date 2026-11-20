@@ -39,8 +39,8 @@
     },
     {
       "path": "conversao.py",
-      "bytes": 12901,
-      "sha256": "83ed3673060478bc17514076018faf2fdb4139ed12325a1d2de24c6277cf957c"
+      "bytes": 13438,
+      "sha256": "bef8238f8a3021b1a1ed80b6052aad41e9ad3b965cffa2f51dbd25cb8a493da5"
     },
     {
       "path": "conversation.py",
@@ -174,8 +174,8 @@
     },
     {
       "path": "real_journey.py",
-      "bytes": 212068,
-      "sha256": "ad012e1d0529cab915a8b84808ac57c814d7ae724719540d9de73013d7236aea"
+      "bytes": 212730,
+      "sha256": "b2f6b1f1f69d9fb703ee843e32dc0c9b81cef900a657a84ad8946ccca92b4998"
     },
     {
       "path": "real_operations.py",
@@ -219,8 +219,8 @@
     },
     {
       "path": "server.py",
-      "bytes": 108662,
-      "sha256": "bd042a9a48dd732516fcda28b1da815d7446f636c22eca6ea53221d30a0b15f0"
+      "bytes": 109521,
+      "sha256": "2abec1328cc9a4edd8e676e5a2649a31e703332c1e92872e599e479dcf9a8641"
     },
     {
       "path": "smtp.py",
@@ -259,8 +259,8 @@
     },
     {
       "path": "real_answer_adapter.py",
-      "bytes": 14683,
-      "sha256": "69c6e8b69f8341888b38e035bd149abc356f969c8339f2876521ca3663e37e05"
+      "bytes": 14641,
+      "sha256": "11a957ba4209c3bd3a99a1c97f9608ce182882ea24dc5d003626512f484bfc23"
     },
     {
       "path": "chat_declarations.py",

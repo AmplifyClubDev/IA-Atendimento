@@ -145,5 +145,56 @@ for _name in [n for n in vars(test_lead_alerts.AlertTests) if n.startswith('test
     setattr(AlertaLeadParadoTests, _name, None)
 
 
+import real_journey
+
+
+class FrasesTests(unittest.TestCase):
+    """Conversas 50149 e 53534: frase repetida na mesma resposta e textos frios."""
+
+    def test_paragrafo_repetido_sai_uma_vez_so(self):
+        texto = 'Oi!\n\n' + conversao.SHOP_UNKNOWN + '\n\n' + conversao.SHOP_UNKNOWN
+        self.assertEqual(conversao.without_repeated_paragraphs(texto), 'Oi!\n\n' + conversao.SHOP_UNKNOWN)
+        self.assertEqual(conversao.without_repeated_paragraphs('A\n\n  a  \n\nB'), 'A\n\nB')
+        for intacto in ('', None, 'Uma linha', 'Linha 1\nLinha 1'):
+            self.assertEqual(conversao.without_repeated_paragraphs(intacto), intacto)
+
+    def test_trava_reconhece_os_avisos_atuais(self):
+        self.assertTrue(real_journey._already_says('Combinado!\n\n' + conversao.INVITE_WAIT,
+                                                   conversao.INVITE_STILL, conversao.INVITE_WAIT))
+        self.assertFalse(real_journey._already_says('Combinado!', conversao.INVITE_STILL))
+
+    def test_avisos_de_espera_sao_diferentes_e_humanos(self):
+        self.assertNotEqual(conversao.INVITE_WAIT, conversao.INVITE_STILL)
+        frias = ('validação necessária', 'não está confirmado', 'confirmação necessária', 'está registrad')
+        for texto in (conversao.BRIDGE_WAIT, conversao.BRIDGE_STILL, conversao.BRIDGE_NOTE, conversao.INVITE_WAIT,
+                      conversao.INVITE_STILL, conversao.PRIOR_INVITE_RESENT, conversao.INVITE_FAILED_TEAM):
+            with self.subTest(texto=texto):
+                self.assertFalse([f for f in frias if f in texto])
+                palavras = texto.lower().replace('!', ' ').replace('.', ' ').split()
+                self.assertFalse({'time', 'equipe', 'humano'} & set(palavras))  # release 51
+
+
+import contextlib
+import io
+
+import server
+
+
+class LogDeFalhaTests(unittest.TestCase):
+    """Conversa 55626: "Tive uma instabilidade" saía sem nenhum log da causa."""
+
+    def test_registra_tipo_e_ponto_do_codigo_sem_dados_do_lead(self):
+        try:
+            {}['+5511999999999 texto do lead']
+        except KeyError as error:
+            saida = io.StringIO()
+            with contextlib.redirect_stdout(saida):
+                server._log_inbound_failure(error)
+        linha = saida.getvalue()
+        self.assertIn('[bia] inbound_falhou tipo=KeyError onde=test_auditoria_20261120.py:', linha)
+        self.assertNotIn('5511999999999', linha)
+        self.assertNotIn('texto do lead', linha)
+
+
 if __name__ == '__main__':
     unittest.main()
