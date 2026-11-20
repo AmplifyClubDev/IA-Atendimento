@@ -32,7 +32,9 @@ CREATE INDEX IF NOT EXISTS hits_bucket ON hits(bucket, at);
 """
 FIELDS = {"agency_handle", "agency_json", "agency_at", "otp_email_hash", "otp_code_hash", "otp_expires_at",
           "otp_attempts", "otp_sent_json", "otp_status", "email_hash", "email_sha256", "email_verified_at",
-          "initial_hash", "submitted_json"}
+          "initial_hash", "submitted_json", "otp_prev_json"}
+# Auditoria 20/11: códigos anteriores ainda válidos (o e-mail atrasado continua funcionando).
+OTP_PREVIOUS_KEPT = 2
 
 
 class Store:
@@ -42,6 +44,9 @@ class Store:
         self._lock = threading.Lock()
         with self.db() as db:
             db.executescript(SCHEMA)
+            columns = {row[1] for row in db.execute("PRAGMA table_info(sessions)")}
+            if 'otp_prev_json' not in columns:
+                db.execute("ALTER TABLE sessions ADD COLUMN otp_prev_json TEXT NOT NULL DEFAULT '[]'")
 
     @contextmanager
     def db(self):
@@ -92,10 +97,19 @@ class Store:
                 return 'waiting'
             if len(sent) >= 5:
                 return 'limited'
-            attempts = row['otp_attempts'] if row['otp_email_hash'] == email_hash else 0
+            # Cada nova geração tem tentativas próprias; limites de envio preservados.
+            attempts = 0
+            # Auditoria 20/11: o código anterior (mesmo e-mail, ainda no prazo) continua valendo.
+            previous = [item for item in json.loads(row.get('otp_prev_json') or '[]')
+                        if item.get('email') == email_hash and item.get('expires', 0) > now]
+            if (row['otp_code_hash'] and row['otp_email_hash'] == email_hash
+                    and row['otp_status'] in {'enviado', 'incerto'} and (row['otp_expires_at'] or 0) > now):
+                previous.append({'email': email_hash, 'code': row['otp_code_hash'], 'expires': row['otp_expires_at']})
+            previous = previous[-OTP_PREVIOUS_KEPT:]
             db.execute("""UPDATE sessions SET otp_email_hash=?,otp_code_hash=?,otp_expires_at=?,
-                          otp_attempts=?,otp_sent_json=?,otp_status='enviando' WHERE form_id=?""",
-                       (email_hash, code_hash, now + ttl, attempts, json.dumps(sent + [now]), form_id))
+                          otp_attempts=?,otp_sent_json=?,otp_status='enviando',otp_prev_json=? WHERE form_id=?""",
+                       (email_hash, code_hash, now + ttl, attempts, json.dumps(sent + [now]),
+                        json.dumps(previous), form_id))
             return 'claimed'
 
     def finish_email_code(self, form_id, code_hash, status):
@@ -113,17 +127,23 @@ class Store:
             row = dict(db.execute('SELECT * FROM sessions WHERE form_id=?', (form_id,)).fetchone())
             if row['email_hash'] == email_hash and row['email_verified_at']:
                 return 'confirmado'
-            if row['otp_email_hash'] != email_hash or (row['otp_expires_at'] or 0) <= now:
+            previous = [item.get('code') or '' for item in json.loads(row.get('otp_prev_json') or '[]')
+                        if item.get('email') == email_hash and item.get('expires', 0) > now]
+            current = (row['otp_email_hash'] == email_hash and (row['otp_expires_at'] or 0) > now)
+            if not current and not previous:
                 return 'expirado'
-            if row['otp_status'] not in {'enviado', 'incerto'}:
+            if current and row['otp_status'] not in {'enviado', 'incerto'} and not previous:
                 return row['otp_status'] or 'expirado'
             if row['otp_attempts'] >= maximum:
                 return 'tentativas_esgotadas'
             db.execute('UPDATE sessions SET otp_attempts=otp_attempts+1 WHERE form_id=?', (form_id,))
-            if not secrets.compare_digest(row['otp_code_hash'] or '', code_hash):
+            valid = previous + ([row['otp_code_hash'] or ''] if current and row['otp_status'] in {'enviado', 'incerto'} else [])
+            # Compara com todos (sem sair no primeiro) para não vazar qual código bateu.
+            matched = [secrets.compare_digest(item, code_hash) for item in valid]
+            if not any(matched):
                 return 'codigo_incorreto'
             db.execute("""UPDATE sessions SET email_hash=?,email_sha256=?,email_verified_at=?,
-                          otp_code_hash=NULL,otp_status='confirmado' WHERE form_id=?""",
+                          otp_code_hash=NULL,otp_prev_json='[]',otp_status='confirmado' WHERE form_id=?""",
                        (email_hash, email_sha256, verified_at, form_id))
             return 'confirmado'
 

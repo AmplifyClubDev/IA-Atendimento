@@ -382,8 +382,18 @@ def sanitize_image(data):
         with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
             with Image.open(io.BytesIO(data), formats=["JPEG", "PNG", "WEBP"]) as img:
-                if img.width * img.height > 20_000_000 or getattr(img, "n_frames", 1) != 1:
+                # Bounded JPEG draft downsamples before loading the pixel buffer.
+                source_pixels = img.width * img.height
+                if getattr(img, "n_frames", 1) != 1:
                     raise ValueError()
+                if source_pixels > 20_000_000:
+                    if (img.format != "JPEG" or source_pixels > 40_000_000
+                            or img.info.get("progressive") or img.info.get("progression")):
+                        raise CadastroError("Esta imagem tem resolução muito alta. Envie uma cópia menor ou uma captura de tela legível, em JPG, PNG ou WebP de até 5 MB. JPG comum aceita até 40 megapixels; PNG, WebP e JPG progressivo, até 20 megapixels.")
+                    scale = 2400 / max(img.width, img.height)
+                    img.draft("RGB", (max(1, int(img.width * scale)), max(1, int(img.height * scale))))
+                    if img.width * img.height > 20_000_000:
+                        raise CadastroError("Não foi possível reduzir esta imagem com segurança. Envie uma cópia com resolução menor ou uma captura de tela legível de até 5 MB.")
                 img.load()
                 clean = ImageOps.exif_transpose(img).convert("RGB")
                 clean.thumbnail((2400, 2400))

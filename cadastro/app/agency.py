@@ -19,13 +19,18 @@ AGENCY_URL = "https://tiktok-agenciamento-production.up.railway.app/bridge"
 
 
 class AgencyChecker:
-    def __init__(self, token, *, transport=None, max_parallel=2, wait_seconds=38, cache_seconds=6 * 3600):
+    def __init__(self, token, *, transport=None, max_parallel=2, wait_seconds=38, cache_seconds=6 * 3600,
+                 fresh_seconds=60):
         self.client = PlaywrightClient({"tiktok_agency_url": AGENCY_URL, "tiktok_agency_token": token or "",
                                         "tiktok_timeout_seconds": 35, "tiktok_status_timeout_seconds": 5},
                                        transport=transport)
         self.pool = ThreadPoolExecutor(max_workers=max_parallel, thread_name_prefix="agenciamento")
         self.wait_seconds = wait_seconds
         self._inflight = {}
+        # Auditoria 20/11: uma consulta que terminou depois da espera fica guardada só por 60 s.
+        # Depois disso (ex.: a pessoa foi aceitar o convite e voltou), uma nova consulta é feita.
+        self.fresh_seconds = fresh_seconds
+        self._finished = {}
         # "Vinculado" confirmado fica guardado por 6 h: poupa a ponte (Chromium) quando muitos leads
         # entram ao mesmo tempo. Pendente/não encontrado nunca ficam guardados (a pessoa pode aceitar agora).
         self._linked = {}
@@ -41,6 +46,10 @@ class AgencyChecker:
         result["job_id"] = "formulario-publico:relationship:" + str(uuid.uuid4())
         return result
 
+    def _mark_finished(self, future):
+        # Sem self._lock: o callback pode rodar na hora, dentro de check() com a trava já fechada.
+        self._finished[future] = time.monotonic()
+
     def check(self, handle):
         """Devolve o resultado da ponte ou None se ainda não terminou dentro da espera."""
         with self._lock:
@@ -48,8 +57,12 @@ class AgencyChecker:
             if cached and time.monotonic() - cached[0] < self.cache_seconds:
                 return dict(cached[1])
             future = self._inflight.get(handle)
-            if future is None or future.done() and future.exception() is not None:
+            stale = (future is not None and future.done()
+                     and time.monotonic() - self._finished.get(future, time.monotonic()) > self.fresh_seconds)
+            if future is None or stale or future.done() and future.exception() is not None:
+                self._finished.pop(future, None)
                 future = self.pool.submit(self._run, handle)
+                future.add_done_callback(self._mark_finished)
                 self._inflight[handle] = future
         try:
             result = future.result(timeout=self.wait_seconds)
@@ -60,6 +73,7 @@ class AgencyChecker:
         with self._lock:
             if self._inflight.get(handle) is future:
                 del self._inflight[handle]
+            self._finished.pop(future, None)
             if result.get("status") == "linked" and proof(result):
                 self._linked[handle] = (time.monotonic(), dict(result))
         return result

@@ -1,18 +1,14 @@
-"""Pontes do TikTok: um link só para refazer o login, e a ponte se ativa sozinha depois.
+"""Painel de recuperação das pontes, com sessões e espera compartilhadas.
 
-- O link (`/pontes/<PONTES_LINK_SEGREDO>`) mostra as 3 pontes. Ao abrir, toda ponte que pediu
-  login já é posta em modo de login (o navegador dela abre o Partner Center); se só uma caiu,
-  o link vai direto para a tela de login dela.
-- As chaves dos painéis ficam nas variáveis do Railway (referências às próprias pontes) e nunca
-  aparecem na página: o redirecionamento leva a chave depois do "#", que não sai do navegador.
-- Ativador: enquanto uma ponte está em modo de login, tenta ativar a cada 30 s. Nas pontes de
-  agenciamento e pré-validação o "ativar" só confere a sessão já aberta (lista 1 relação) e,
-  sem login, recusa sem fechar a janela; então a ponte fecha sozinha quando o login termina.
-  A ponte de convites roda uma versão em que ativar fecha a janela: nela o ativador fica desligado.
+O GET do painel só observa; o usuário abre o console explicitamente. O ativador
+existente de agenciamento/pré-validação reutiliza a mesma sessão do painel.
+Convites não é ativada nem reiniciada por este módulo.
 """
 from __future__ import annotations
 
+import hashlib
 import hmac
+import math
 import html
 import http.cookiejar
 import json
@@ -20,8 +16,10 @@ import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from email.utils import parsedate_to_datetime
+from urllib.error import HTTPError
 from urllib.parse import quote
-from urllib.request import HTTPCookieProcessor, ProxyHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, HTTPCookieProcessor, ProxyHandler, Request, build_opener
 
 from flask import Blueprint, abort, current_app, make_response, redirect
 
@@ -36,43 +34,240 @@ PONTES = (
     ("convites", "Convites", "https://tiktok-partner-bridge-production.up.railway.app",
      "PONTE_CONVITES_TOKEN", "PONTE_CONVITES_CONSOLE_TOKEN", False),
 )
+PREVALIDACAO_BASE = next(base for chave, _, base, *_ in PONTES if chave == "prevalidacao")
 LOGIN = {"human_login_required", "login_required", "session_or_partner_context_invalid",
          "partner_probe_rejected", "captcha_required", "mfa_required", "human_verification_required"}
 
 
 def ler_status(base, token, timeout=10):
-    """status do /bridge/ready; a ponte que pede login responde erro HTTP com o status no corpo."""
+    """Readiness não confunde HTTP 429/401/503 com necessidade de login."""
     request_ = Request(base + "/bridge/ready", headers={"Authorization": "Bearer " + token, "Accept": "application/json"})
     try:
-        with build_opener(ProxyHandler({})).open(request_, timeout=timeout) as response:
-            return json.loads(response.read(65536)).get("status") or "desconhecido"
-    except Exception as error:
+        response = build_opener(ProxyHandler({}), SemRedirecionamento()).open(request_, timeout=timeout)
+    except HTTPError as error:
+        response = error
+    except Exception:
+        return "inacessivel"
+    try:
+        if response.code == 429:
+            return "rate_limited"
+        if response.code in {401, 403}:
+            return "credencial_invalida"
+        corpo = json.loads(response.read(65536))
+        status = corpo.get("status") if isinstance(corpo, dict) else None
+        return status if isinstance(status, str) and status else "desconhecido"
+    except Exception:
+        return "inacessivel"
+    finally:
         try:
-            return json.loads(error.read(65536)).get("status") or "desconhecido"
+            response.close()
         except Exception:
-            return "inacessivel"
+            pass
+
+
+class SemRedirecionamento(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None  # nunca encaminhar Authorization/cookies para outro destino
+
+
+class _Sessao:
+    def __init__(self):
+        self.lock = threading.RLock()
+        self.credencial = None
+        self.opener = None
+        self.autenticada = False
+        self.aguardar_ate = 0
+        self.falhas = 0
+        self.erro = None
+        self.ativacao_aguardar_ate = 0
+        self.ativacao_falhas = 0
+        self.ativacao_erro = None
+
+
+# Um worker/uma réplica do Cadastro: estado compartilhado por todas as threads,
+# tanto do ativador quanto das requisições HTTP. Cookies só ficam em memória.
+_SESSOES = {}
+_SESSOES_LOCK = threading.Lock()
+
+
+def _sessao(base):
+    with _SESSOES_LOCK:
+        return _SESSOES.setdefault(base, _Sessao())
+
+
+def _retry_after(valor):
+    try:
+        segundos = float(valor)
+        if math.isfinite(segundos) and segundos >= 0:
+            return segundos
+    except (TypeError, ValueError):
+        pass
+    try:
+        return max(0, parsedate_to_datetime(valor).timestamp() - time.time())
+    except (TypeError, ValueError, OverflowError):
+        return None
 
 
 class Painel:
-    """Cliente do /console da ponte (o mesmo que os botões do painel usam)."""
+    """Uma sessão por ponte; serializa chamadas e nunca repete um POST na falha."""
 
     def __init__(self, base, chave, timeout=120):
-        self.base, self.chave, self.timeout = base, chave, timeout
+        self.base, self.chave, self.timeout = base.rstrip("/"), chave, timeout
+        self._estado = _sessao(self.base)
+
+    def _espera(self):
+        return max(0, math.ceil(self._estado.aguardar_ate - time.monotonic()))
+
+    def _espera_ativacao(self):
+        estado = self._estado
+        if estado.ativacao_erro == "requires_reconciliation":
+            return 1  # pausa sem prazo; só readiness autenticada ou ativação bem-sucedida limpa
+        return max(0, math.ceil(estado.ativacao_aguardar_ate - time.monotonic()))
+
+    def _limpar_ativacao(self):
+        estado = self._estado
+        estado.ativacao_falhas, estado.ativacao_erro, estado.ativacao_aguardar_ate = 0, None, 0
+
+    def confirmar_pronta(self):
+        if self.base == PREVALIDACAO_BASE and self._estado.lock.acquire(timeout=1):
+            try:
+                self._limpar_ativacao()
+            finally:
+                self._estado.lock.release()
+
+    def requer_reconciliacao(self):
+        if self.base != PREVALIDACAO_BASE:
+            return False
+        if not self._estado.lock.acquire(timeout=1):
+            return True  # não iniciar outro login enquanto há uma operação em andamento
+        try:
+            return self._estado.ativacao_erro == "requires_reconciliation"
+        finally:
+            self._estado.lock.release()
+
+    def situacao(self):
+        if not self._estado.lock.acquire(timeout=1):
+            return {"erro": "console_busy", "aguardar": 1}
+        try:
+            espera = self._espera()
+            erro = self._estado.ativacao_erro
+            if erro == "requires_reconciliation" and not (
+                    espera and self._estado.erro in {"rate_limited", "console_unauthorized"}):
+                return {"erro": erro, "aguardar": 1}
+            espera_ativacao = self._espera_ativacao()
+            if not espera and espera_ativacao:
+                return {"erro": "activation_backoff", "aguardar": 0, "ativar_em": espera_ativacao}
+            return {"erro": self._estado.erro, "aguardar": espera}
+        finally:
+            self._estado.lock.release()
+
+    def _falhou(self, codigo, headers=None, *, reconcilia=False, ativacao=False):
+        estado = self._estado
+        if ativacao and (codigo == 409 or codigo >= 500):
+            estado.ativacao_falhas += 1
+            espera = min(300, 30 * 2 ** min(estado.ativacao_falhas - 1, 4))
+            erro = "requires_reconciliation" if reconcilia else "console_unavailable"
+            estado.ativacao_erro = erro
+            estado.ativacao_aguardar_ate = time.monotonic() + espera
+            return codigo, {"erro": erro, "retry_after": espera}
+        estado.falhas += 1
+        if codigo == 429:
+            informado = _retry_after((headers or {}).get("Retry-After"))
+            # Sem cabeçalho, espera conservadora crescente; nunca um retry imediato.
+            espera = informado if informado is not None else min(1800, 300 * 2 ** min(estado.falhas - 1, 3))
+            espera = max(30, espera)
+            erro = "rate_limited"
+        elif codigo in {401, 403}:
+            espera, erro = 300, "console_unauthorized"
+            estado.autenticada = False
+        else:
+            espera = min(300, 30 * 2 ** min(estado.falhas - 1, 4))
+            erro = "requires_reconciliation" if reconcilia else "console_unavailable"
+        estado.erro = erro
+        estado.aguardar_ate = time.monotonic() + espera
+        return codigo, {"erro": erro, "retry_after": self._espera()}
+
+    def _pedir(self, path, method, *, autenticar=False):
+        ativacao = self.base == PREVALIDACAO_BASE and path == "/console/activate" and method == "POST"
+        headers = {"Origin": self.base, "Accept": "application/json"}
+        if autenticar:
+            headers["Authorization"] = "Bearer " + self.chave
+        try:
+            response = self._estado.opener.open(
+                Request(self.base + path, method=method, headers=headers),
+                timeout=20 if autenticar else self.timeout)
+        except HTTPError as error:
+            response = error
+        except Exception:
+            return self._falhou(503, ativacao=ativacao)
+        try:
+            codigo = response.code
+            if codigo not in {200, 204}:
+                reconcilia = False
+                if codigo == 409 and path == "/console/activate" and method == "POST":
+                    raw = response.read(65537)
+                    try:
+                        corpo_erro = json.loads(raw) if len(raw) <= 65536 else None
+                    except (UnicodeError, ValueError):
+                        corpo_erro = None
+                    if isinstance(corpo_erro, dict):
+                        reconcilia = corpo_erro.get("requires_reconciliation") is True or any(
+                            corpo_erro.get(k) == "requires_reconciliation" for k in ("code", "error", "status")
+                        )
+                return self._falhou(codigo, response.headers, reconcilia=reconcilia, ativacao=ativacao)
+            raw = response.read(65537)
+            if len(raw) > 65536:
+                return self._falhou(502, ativacao=ativacao)
+            corpo = json.loads(raw or b"{}")
+            if not isinstance(corpo, dict):
+                return self._falhou(502, ativacao=ativacao)
+            return codigo, corpo
+        except Exception:
+            return self._falhou(502, ativacao=ativacao)
+        finally:
+            try:
+                response.close()
+            except Exception:
+                pass
 
     def _abrir(self, path, method="GET"):
-        opener = build_opener(ProxyHandler({}), HTTPCookieProcessor(http.cookiejar.CookieJar()))
-        origem = {"Origin": self.base}
-        opener.open(Request(self.base + "/console/session", method="POST",
-                            headers={**origem, "Authorization": "Bearer " + self.chave}), timeout=20).read()
+        estado = self._estado
+        if not estado.lock.acquire(timeout=1):
+            return 503, {"erro": "console_busy", "retry_after": 1}
         try:
-            with opener.open(Request(self.base + path, method=method, headers=origem), timeout=self.timeout) as response:
-                return response.status, json.loads(response.read(65536) or b"{}")
-        except Exception as error:
-            return getattr(error, "code", 0), {}
+            fingerprint = hashlib.sha256(self.chave.encode()).digest()
+            if estado.credencial != fingerprint:
+                estado.credencial = fingerprint
+                estado.opener = build_opener(ProxyHandler({}), SemRedirecionamento(),
+                    HTTPCookieProcessor(http.cookiejar.CookieJar()))
+                estado.autenticada = False
+                # Trocar a chave não apaga a espera imposta pela ponte.
+            if self._espera():
+                codigo = 429 if estado.erro == "rate_limited" else 503
+                return codigo, {"erro": estado.erro, "retry_after": self._espera()}
+            if self.base == PREVALIDACAO_BASE and path == "/console/activate" and method == "POST":
+                espera = self._espera_ativacao()
+                if espera:
+                    return 503, {"erro": estado.ativacao_erro, "retry_after": espera}
+            if not estado.autenticada:
+                codigo, corpo = self._pedir("/console/session", "POST", autenticar=True)
+                if codigo not in {200, 204}:
+                    return codigo, corpo
+                estado.autenticada = True
+            codigo, corpo = self._pedir(path, method)
+            if codigo in {200, 204}:
+                estado.falhas, estado.erro, estado.aguardar_ate = 0, None, 0
+                if path == "/console/activate" and method == "POST":
+                    self._limpar_ativacao()
+            # 401 invalida a sessão, mas só uma chamada futura poderá reautenticar.
+            return codigo, corpo
+        finally:
+            estado.lock.release()
 
     def modo(self):
         status, corpo = self._abrir("/console/status")
-        return (corpo.get("process") or {}).get("mode") if status == 200 else None
+        processo = corpo.get("process")
+        return processo.get("mode") if status == 200 and isinstance(processo, dict) else None
 
     def login(self):
         return self._abrir("/console/login", "POST")[0] == 200
@@ -88,18 +283,7 @@ def pontes(env=None):
 
 
 class Ativador:
-    """A cada 30 s, cuida sozinho das pontes que reabrem sem fechar a janela (agenciamento e pré-validação).
-
-    - Ponte pedindo login por 2 leituras seguidas: reabre o Partner Center no navegador dela (modo de
-      login). Se o TikTok ainda reconhece o navegador, a página abre logada e a próxima rodada ativa;
-      só quando o TikTok pede senha de verdade é que a ponte segue fora e o vigia manda o e-mail.
-    - Ponte em modo de login: tenta ativar (sem login, recusa e a janela continua aberta).
-
-    A ponte de Convites (versão antiga) não tem o "ativar" que só confere: lá ativar reinicia a ponte.
-    Para ela, só com a ponte em modo normal e pedindo login por 2 leituras: reabre e reinicia na hora
-    (o mesmo que "Recuperar autenticação" + "Concluí"). Se o navegador seguia logado, ela volta sozinha.
-    Nunca mexe nela em modo de login (alguém pode estar digitando) e espera 30 min entre tentativas.
-    """
+    """Recuperação já existente de agenciamento/pré-validação; Convites é manual."""
 
     def __init__(self, lista, *, painel=Painel, ler=None, intervalo=30, confirmacoes=2, espera_reinicio=1800,
                  relogio=time.time, dormir=time.sleep):
@@ -109,47 +293,34 @@ class Ativador:
         self.intervalo, self.confirmacoes, self.falhas = intervalo, confirmacoes, {}
         self.espera_reinicio, self.relogio, self.dormir, self.ultimo_reinicio = espera_reinicio, relogio, dormir, {}
 
-    def _reiniciar(self, nome, painel):
-        """Ponte antiga: reabrir + ativar seguidos, no máximo 1 vez a cada 30 min."""
-        agora = self.relogio()
-        if agora - self.ultimo_reinicio.get(nome, -self.espera_reinicio) < self.espera_reinicio:
-            return None
-        self.ultimo_reinicio[nome] = agora
-        if not painel.login():
-            return None
-        self.dormir(20)  # o navegador abre o Partner Center com o perfil salvo
-        ok = painel.ativar()
-        print(f"[cadastro-publico-v5] ponte {nome} pediu login; reiniciada sozinha ({'ok' if ok else 'sem sucesso'})")
-        return ("reiniciada", nome) if ok else ("reinicio_sem_sucesso", nome)
-
     def rodada(self):
         feitos = []
         for nome, base, token, painel, ativa_sozinha in self.pontes:
-            modo = painel.modo()
             if not ativa_sozinha:
-                if modo != "bridge":
-                    self.falhas[nome] = 0  # em modo de login fica com quem está fazendo o login
+                continue
+            try:
+                modo = painel.modo()
+                if modo == "login":
+                    self.falhas[nome] = 0
+                    if painel.ativar():
+                        feitos.append(("ativada", nome))
                     continue
-                self.falhas[nome] = self.falhas.get(nome, 0) + 1 if self.ler(base, token) in LOGIN else 0
-                if self.falhas[nome] >= self.confirmacoes:
-                    feito = self._reiniciar(nome, painel)
-                    if feito:
+                if modo != "bridge":
+                    continue
+                status = self.ler(base, token)
+                if base == PREVALIDACAO_BASE:
+                    if status == "ready":
+                        painel.confirmar_pronta()
+                    if painel.requer_reconciliacao():
                         self.falhas[nome] = 0
-                        feitos.append(feito)
-                continue
-            if modo == "login":
-                self.falhas[nome] = 0
-                if painel.ativar():
-                    feitos.append(("ativada", nome))
-                    print(f"[cadastro-publico-v5] ponte {nome} ativada sozinha")
-                continue
-            if modo != "bridge":
-                continue
-            self.falhas[nome] = self.falhas.get(nome, 0) + 1 if self.ler(base, token) in LOGIN else 0
-            if self.falhas[nome] >= self.confirmacoes and painel.login():
-                self.falhas[nome] = 0
-                feitos.append(("reaberta", nome))
-                print(f"[cadastro-publico-v5] ponte {nome} pediu login; Partner Center reaberto sozinho")
+                        continue
+                self.falhas[nome] = self.falhas.get(nome, 0) + 1 if status in LOGIN else 0
+                if self.falhas[nome] >= self.confirmacoes and painel.login():
+                    self.falhas[nome] = 0
+                    feitos.append(("reaberta", nome))
+            except Exception as error:
+                # Uma ponte com erro nunca impede as próximas de serem verificadas.
+                print(f"[cadastro-publico-v5] ponte {nome} indisponivel: {type(error).__name__}")
         return feitos
 
     def iniciar(self):
@@ -183,6 +354,7 @@ small{color:#64728a;line-height:1.5}</style></head>
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Robots-Tag"] = "noindex"
+    response.headers["X-Amplify-Pontes-Revision"] = "recovery-20261114-activation-v2"
     response.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
     return response
 
@@ -204,24 +376,57 @@ def painel(segredo):
     with ThreadPoolExecutor(len(lista) or 1) as pool:
         status = list(pool.map(lambda p: ler_status(p["base"], p["token"]), lista))
     caidas = [p for p, s in zip(lista, status) if s != "ready"]
-    for ponte in caidas:  # já deixa o navegador da ponte aberto na tela de login do TikTok
-        if ponte["console"] and Painel(ponte["base"], ponte["console"], timeout=60).modo() != "login":
-            Painel(ponte["base"], ponte["console"], timeout=60).login()
-    if len(caidas) == 1 and caidas[0]["console"]:
-        response = redirect(_destino(caidas[0]), code=303)
-        response.headers["Cache-Control"] = "no-store"
-        response.headers["Referrer-Policy"] = "no-referrer"
-        return response
+    def consultar(item):
+        p, s = item
+        try:
+            cliente = Painel(p["base"], p["console"], timeout=20) if p["console"] else None
+            # Apenas leitura; no máximo 20 s de sessão + 20 s de status por ponte.
+            if cliente and s in LOGIN:
+                cliente.modo()
+            return cliente.situacao() if cliente else {"erro": None, "aguardar": 0}
+        except Exception:
+            return {"erro": "console_unavailable", "aguardar": 30}
+
+    # O pior caso não soma os timeouts de três pontes na mesma requisição.
+    with ThreadPoolExecutor(len(lista) or 1) as pool:
+        consoles = list(pool.map(consultar, zip(lista, status)))
     linhas = ""
-    for p, s in zip(lista, status):
+    for p, s, console in zip(lista, status, consoles):
         no_ar = s == "ready"
-        selo = '<span class="s ok">NO AR</span>' if no_ar else '<span class="s no">PRECISA DE LOGIN</span>'
-        botao = "" if no_ar else f'<a class="b" href="/pontes/{quote(segredo)}/{p["chave"]}" target="_blank" rel="noreferrer">Fazer login</a>'
-        linhas += f'<div class="p"><div><b>{html.escape(p["nome"])}</b><br>{selo}</div>{botao}</div>'
+        bloqueado = bool(console["aguardar"])
+        detalhe = ""
+        if no_ar:
+            texto = "NO AR"
+        elif s in LOGIN:
+            texto = "PRECISA DE LOGIN"
+        elif s in {"busy", "starting", "initializing"}:
+            texto = "PONTE OCUPADA"
+        elif s == "rate_limited":
+            texto = "LIMITE TEMPORÁRIO"
+        else:
+            texto = "STATUS INDISPONÍVEL"
+        if console["erro"] == "rate_limited":
+            detalhe = f'Limite temporário do painel (HTTP 429). Aguarde {console["aguardar"]} s.' if bloqueado else "A espera terminou. Atualize para conferir o painel."
+        elif console["erro"] == "console_unauthorized":
+            detalhe = "O painel recusou a credencial (HTTP 401/403). Confira a configuração."
+        elif console["erro"] == "requires_reconciliation":
+            detalhe = "Conclua a verificação na página de conexão para retomar esta ponte."
+        elif console["erro"] == "activation_backoff":
+            detalhe = f'Nova tentativa automática em {console["ativar_em"]} s. Você pode conectar agora.'
+        elif console["erro"] == "console_busy":
+            detalhe = "Há uma operação em andamento no painel desta ponte. Aguarde."
+        elif console["erro"]:
+            detalhe = "Não foi possível consultar o painel desta ponte. Uma nova leitura será feita após a espera."
+        selo = f'<span class="s {"ok" if no_ar else "no"}">{texto}</span>'
+        botao = ""
+        if not no_ar and p["console"] and (not bloqueado or console["erro"] == "requires_reconciliation"):
+            rotulo = "Conectar" if console["erro"] in {"requires_reconciliation", "activation_backoff"} else ("Fazer login" if s in LOGIN else "Abrir painel")
+            botao = f'<a class="b" href="/pontes/{quote(segredo)}/{p["chave"]}" target="_blank" rel="noreferrer">{rotulo}</a>'
+        linhas += f'<div class="p"><div><b>{html.escape(p["nome"])}</b><br>{selo}<br><small>{html.escape(detalhe)}</small></div>{botao}</div>'
     topo = ("Todas as pontes estão no ar. ✅" if not caidas else
-            "Clique em <b>Fazer login</b> e entre no TikTok na janela que abrir. A ponte se ativa sozinha "
-            "quando o login termina (na de Convites, clique em “Concluí a verificação — ativar”).")
-    return _pagina(f"<p>{topo}</p>{linhas}<p><small>Esta página se atualiza sozinha.</small></p>", recarregar=bool(caidas))
+            "Confira o estado de cada ponte. Para refazer o login, abra o painel da ponte indicada. "
+            "Em Convites, a ativação é manual.")
+    return _pagina(f"<p>{topo}</p>{linhas}<p><small>Esta página se atualiza sozinha, respeitando a espera de cada ponte.</small></p>", recarregar=bool(caidas))
 
 
 @bp.get("/pontes/<segredo>/<chave>")
@@ -230,6 +435,13 @@ def abrir(segredo, chave):
     ponte = next((p for p in pontes(_cfg()["env"]) if p["chave"] == chave and p["console"]), None)
     if ponte is None:
         abort(404)
+    situacao = Painel(ponte["base"], ponte["console"]).situacao()
+    if situacao["aguardar"] and situacao["erro"] != "requires_reconciliation":
+        espera = situacao["aguardar"]
+        response = _pagina(f"<p>O painel de {html.escape(ponte['nome'])} está em espera. Aguarde {espera} s e volte à lista de pontes.</p>",
+                           429 if situacao["erro"] == "rate_limited" else 503)
+        response.headers["Retry-After"] = str(espera)
+        return response
     response = redirect(_destino(ponte), code=303)
     response.headers["Cache-Control"] = "no-store"
     response.headers["Referrer-Policy"] = "no-referrer"

@@ -347,6 +347,7 @@ function showSaveError(error,label){
 el('form').onsubmit=async e=>{e.preventDefault();if(busy)return;const final=current===sections.length-1,agencyGate=agencyGateActive();const invalid=(agencyGate?fields.filter(f=>f.id==='tiktok'):fields).find(f=>(final||agencyGate||f.section===sections[current].id)&&problem(f));if(invalid){const message=problem(invalid);if(!agencyGate&&invalid.section!==sections[current].id){current=sections.findIndex(s=>s.id===invalid.section);show();}el('error').textContent=message;const wrapper=fieldNodes.get(invalid.id);wrapper.scrollIntoView({block:'center'});wrapper.querySelector('input:not([hidden]),button,select,textarea')?.focus();return;}if(agencyGate){busy=true;el('form').inert=true;el('next').textContent='Verificando…';try{await validateAgencyGate();show(false);document.querySelector('.card').scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});}catch(error){el('error').textContent=error.message;el('next').textContent='Verificar';}finally{busy=false;el('form').inert=false;}return;}if(!final){busy=true;el('form').inert=true;el('next').textContent=current===0?'Validando…':'Salvando…';try{if(current===0){await persist(false,current);await validateInitialAccess();}const result=await persist(false,current+1);if(result.submitted){received(result);return;}current++;show();}catch(error){showSaveError(error,'Continuar →');}finally{busy=false;el('form').inert=false;}return;}if(!consentCheck.checked){el('error').textContent='Leia o termo e marque sua concordância para concluir.';consentCheck.focus();return;}busy=true;el('form').inert=true;el('next').textContent='Enviando…';try{const result=await persist(true,current);received(result);}catch(error){showSaveError(error,'Enviar cadastro');}finally{busy=false;el('form').inert=false;}};
 // Confirma somente o e-mail desta sessão. Nenhum dado de categoria vem do navegador.
 let emailRequired=false,emailVerifiedFor='',emailWaitUntil=0,emailTimer=null,emailAction=false,emailCodeRequestedFor='';
+let emailConfirmationError='',emailRequestKey='';
 let emailPoll=null,emailPollAttempts=0,emailObserved='',emailPollGeneration=0,emailPollingPaused=false;
 // Reads may advance polling without invalidating an action for the same email context.
 let emailContextGeneration=0;
@@ -398,6 +399,9 @@ function pollEmail(){
 }
 function emailState(state,email){
  if(email!==currentEmail())return;
+ const nextRequestKey=String(state.requested_at||state.request_reference||'');
+ if(state.verified||(nextRequestKey&&nextRequestKey!==emailRequestKey)||['expirado','tentativas_esgotadas','devolvido'].includes(state.status))emailConfirmationError='';
+ if(nextRequestKey)emailRequestKey=nextRequestKey;
  emailRequired=state.required??emailRequired;
  emailVerifiedFor=state.verified?email:'';
  if(state.verified)emailCodeRequestedFor='';
@@ -422,6 +426,7 @@ function emailState(state,email){
  else if(state.status==='incerto')emailNotice('Não conseguimos confirmar o envio. Se o código não chegar em alguns minutos, veja as dicas abaixo.');
  else if(state.status==='expirado'||state.status==='tentativas_esgotadas')emailNotice('Solicite um novo código para confirmar seu e-mail.',true);
  else emailNotice('Clique em “Receber código” para confirmar seu e-mail.');
+ if(emailConfirmationError&&['pendente','enviando','enviado','incerto'].includes(state.status))emailNotice(emailConfirmationError,true);
  updateEmailButtons();
  if(['pendente','enviando','enviado'].includes(state.status)&&!state.verified)pollEmail();else stopEmailPolling();
 }
@@ -444,7 +449,7 @@ el('email-code-send').onclick=async()=>{
  if(emailAction||emailWaitUntil>Date.now()||!validEmail())return;
  emailPollAttempts=0;
  const email=currentEmail(),generation=emailContextGeneration;emailAction=true;el('email-code-send').setAttribute('aria-busy','true');updateEmailButtons();
- emailCodeRequestedFor=email;el('email-code-entry').hidden=false;
+ emailConfirmationError='';emailCodeRequestedFor=email;el('email-code-entry').hidden=false;
  try{const state=await apiRequest('email/solicitar',{method:'POST',body:{email}});
   if(!emailActionCurrent(generation,email)||emailVerifiedFor===email&&!state.verified)return;
   emailState(state,email);
@@ -459,16 +464,17 @@ el('email-code-confirm').onclick=async()=>{
  try{const state=await apiRequest('email/confirmar',{method:'POST',body:{email,code}});
   if(!emailActionCurrent(generation,email)||emailVerifiedFor===email&&!state.verified)return;
   if(state.verified)emailState(state,email);
-  else emailNotice(state.status==='codigo_incorreto'?'Código incorreto. Confira o e-mail e tente novamente.':'Este código expirou ou atingiu o limite de tentativas. Solicite outro.',true);
+  else{emailConfirmationError=state.status==='codigo_incorreto'?'Código incorreto. Confira o e-mail e tente novamente.':'Este código expirou ou atingiu o limite de tentativas. Solicite outro.';emailNotice(emailConfirmationError,true);}
  }catch(error){if(emailActionCurrent(generation,email)&&emailVerifiedFor!==email)emailNotice(error.message,true);}finally{emailAction=false;el('email-code-confirm').removeAttribute('aria-busy');updateEmailButtons();}
 };
+el('email-code').addEventListener('input',()=>{if(emailConfirmationError){emailConfirmationError='';emailNotice('');}});
 el('email-code').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();el('email-code-confirm').click();}});
 el('form').addEventListener('input',event=>{
  if(event.target.id!=='email')return;
  const email=currentEmail();
  if(email===emailObserved)return;
  emailContextGeneration++;emailObserved=email;emailVerifiedFor='';emailPollAttempts=0;stopEmailPolling();
- emailCodeRequestedFor='';emailWaitUntil=0;clearInterval(emailTimer);emailTimer=null;
+ emailConfirmationError='';emailRequestKey='';emailCodeRequestedFor='';emailWaitUntil=0;clearInterval(emailTimer);emailTimer=null;
  el('email-code').value='';el('email-code-entry').hidden=true;
  el('email-confirm-address').textContent=email;
  el('email-request-details').textContent='';emailNotice('Confira o endereço e clique em “Receber código”.');updateEmailButtons();
