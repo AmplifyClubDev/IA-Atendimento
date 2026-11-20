@@ -162,6 +162,8 @@ def _message(state, step, policy, *, now=None):
     if phase == 'blocked':
 
         # (ponte, convite em conferência) dependem do sistema, não do lead: sem lembrete.
+        if (cycle.get('team_alert') or {}).get('reason') == 'shop_unknown_limit':
+            return None  # Auditoria 20/11: a Bia já disse que acompanha; sem pedir "pronto" de novo.
         if isinstance(cycle.get('shop_unknown'), dict) and not _invite_known(cycle):
             return hello + conversao.shop_reminder(step), ['Pronto']
         return None

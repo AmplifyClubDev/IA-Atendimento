@@ -109,6 +109,10 @@ PROFILE_INELIGIBLE = ('Conferi seu perfil e, por enquanto, ele ainda não pode e
                       'Shop Creator estiver ativo e liberado, é só me chamar aqui que eu confiro de novo 💙')
 SHOP_RECHECK_SOON = ('Acabei de conferir há pouquinho 😊 Me manda “pronto” de novo daqui a uns 10 minutos que eu '
                      'confiro outra vez.')
+# Auditoria 20/11: depois de 2 reconferências sem resposta do TikTok (sem citar equipe, release 51).
+SHOP_LIMIT = ('Já conferi algumas vezes e o TikTok ainda não liberou essa informação. '
+              'Agora vou acompanhar por aqui e te chamo até amanhã, combinado? Não precisa mandar “pronto” de novo 💙')
+SHOP_LIMIT_STILL = 'Tô acompanhando seu perfil por aqui e te chamo até amanhã 💙'
 
 CONSENT_BUTTONS = ['Pode mandar', 'Tenho uma dúvida']
 CONSENT_QUESTION = 'Posso te mandar o convite no TikTok?'

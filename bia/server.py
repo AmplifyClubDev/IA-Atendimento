@@ -464,6 +464,20 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
         repository.save_session(conversation_key(event), state)
         return state
 
+    def send_team_alert(event, conv, state):
+        """Auditoria 20/11: cycle['team_alert'] vira alerta no canal da Bia (uma vez por motivo e ciclo).
+
+        Opcional: uma falha aqui nunca muda a resposta ao lead nem o estado da conversa."""
+        alert = (state.get('cycle') or {}).get('team_alert') if isinstance(state, dict) else None
+        if not isinstance(alert, dict) or alert.get('status') == 'accepted':
+            return
+        try:
+            from lead_alerts import dispatch_team
+            if dispatch_team(settings, repository, event, state).get('status') != 'not_requested':
+                repository.save_session(conv, state)
+        except Exception:
+            pass
+
     def apply_real(job, state, result, result_event_key):
         """Called under the same conversation lock as inbound handling."""
         import conversation
@@ -541,6 +555,7 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
             mark_linked_notice(conv, state, reply, status)
             final = 'completed' if status == 'accepted' or safe.get('reason') == 'reply_superseded_by_new_inbound' else status
         repository.finish_event(result_event_key, final)
+        send_team_alert(event, conv, state)
         if progress is not None:
             revision = max(1, int(state.get('revision', 1)))
             confirmed = repository.get_operation(inbound_key(event) + ':contact:' + str(revision))
@@ -1478,6 +1493,7 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
                             repository.save_session(conv, state)
                         except Exception:
                             pass
+                    send_team_alert(event, conv, state)
                     if real_jobs:
                         executor.wake()
                     if progress_proof is not None and reply_fence.current(event):

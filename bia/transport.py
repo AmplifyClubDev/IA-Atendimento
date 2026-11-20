@@ -176,7 +176,10 @@ class ChatwootProgress:
             return {"status": "ignored", "reason": "stale_snapshot"}
         if cycle.get("status") not in {"open", "closed", "expired"}:
             return {"status": "ignored", "reason": "unmapped_state"}
-        closed = 'encerrado' in _progress_owned(self.gate) and (
+        # Auditoria 20/11: pedido de especialista em aberto nunca vira "encerrado";
+        # a conversa fica visível para o time assumir.
+        specialist = ((cycle.get('bia_validation') or {}).get('stage') == 'specialist')
+        closed = 'encerrado' in _progress_owned(self.gate) and not specialist and (
             stopped or cycle.get('status') == 'expired'
             or cycle.get('status') == 'closed' and cycle.get('reason') in _INACTIVITY_REASONS)
         desired = sorted({_stage_label(state)} | ({'encerrado'} if closed else set()))

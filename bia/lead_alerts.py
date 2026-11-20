@@ -211,47 +211,111 @@ def dispatch(settings, repository, event, state, *, http=None):
     if state.get('opt_out') or cycle.get('opt_out'):
         return {'status': 'blocked', 'reason': 'opt_out', 'events': {}}
     kinds = ['threshold']
+    # Auditoria 20/11: o pedido de especialista avisa o time uma vez por ciclo
+    # (antes ninguém sabia e a janela de 24 h do WhatsApp fechava). "Seguir com a
+    # Bia" continua sem alerta extra.
+    if record.get('preference') == 'specialist' and record.get('handoff_requested') is True:
+        kinds.append('specialist')
     statuses = record.setdefault('alert_statuses', {})
     results = {}
+    for kind in kinds:
+        results[kind] = statuses[kind] = _deliver(
+            settings, repository, event, cycle_id, kind, source,
+            lambda kind=kind: _presentation(event, state, url, kind), http=http)
+    return {'status': 'processed', 'events': results}
+
+
+def _deliver(settings, repository, event, cycle_id, kind, source, render, *, http=None):
+    """One receipt-backed Slack post per (conversation, cycle, kind); a reserved send is never retried."""
     send = http or _http
     token, channel = settings.get('slack_bot_token'), settings.get('slack_gmv_channel_id')
     valid_config = (isinstance(token, str) and bool(token.strip()) and isinstance(channel, str)
                     and bool(re.fullmatch(r'[CG][A-Z0-9]{8,}', channel)))
-    for kind in kinds:
-        digest = hashlib.sha256((str(event['account_id']) + ':' + str(event['conversation_id']) + ':' + cycle_id + ':' + kind).encode()).hexdigest()
-        key = 'bia_gmv_alert:' + digest
-        old = repository.get_operation(key)
-        if old:
-            result = old.get('result') or {'status': 'outcome_unknown', 'reason': 'reserved_without_receipt'}
-            results[kind] = statuses[kind] = result
-            continue
-        if not valid_config:
-            results[kind] = statuses[kind] = {'status': 'blocked', 'reason': 'slack_not_configured'}
-            continue
-        headers = {'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json; charset=utf-8'}
-        # Read-only verification is safe to retry; a failed read never consumes the
-        # send reservation, and never implies a delivered alert or human assignment.
-        verified = probe(settings, http=send)['verified']
-        if not verified:
-            results[kind] = statuses[kind] = {'status': 'blocked', 'reason': 'slack_channel_unverified'}
-            continue
-        if not repository.reserve_operation(key, source, 'bia_gmv_alert'):
-            old = repository.get_operation(key) or {}
-            results[kind] = statuses[kind] = old.get('result') or {'status': 'outcome_unknown', 'reason': 'reserved_without_receipt'}
-            continue
-        payload = {'channel': channel, **_presentation(event, state, url, kind), 'mrkdwn': False,
-                   'parse': 'none', 'link_names': False, 'unfurl_links': False, 'unfurl_media': False}
-        try:
-            response = send(method='POST', url='https://slack.com/api/chat.postMessage', headers=headers, payload=payload)
-            if (isinstance(response, dict) and response.get('ok') is True and response.get('channel') == channel
-                    and isinstance(response.get('ts'), str) and re.fullmatch(r'\d+\.\d+', response['ts'])):
-                result = {'status': 'accepted', 'channel_id': channel, 'message_ts': response['ts']}
-            elif isinstance(response, dict) and response.get('ok') is False:
-                result = {'status': 'failed', 'reason': 'slack_rejected'}
-            else:
-                result = {'status': 'outcome_unknown', 'reason': 'receipt_unconfirmed'}
-        except Exception:
-            result = {'status': 'outcome_unknown', 'reason': 'send_unconfirmed'}
-        repository.complete_operation(key, result, status='outcome_unknown' if result['status'] == 'outcome_unknown' else 'completed')
-        results[kind] = statuses[kind] = result
-    return {'status': 'processed', 'events': results}
+    digest = hashlib.sha256((str(event['account_id']) + ':' + str(event['conversation_id']) + ':' + cycle_id + ':' + kind).encode()).hexdigest()
+    key = 'bia_gmv_alert:' + digest
+    old = repository.get_operation(key)
+    if old:
+        return old.get('result') or {'status': 'outcome_unknown', 'reason': 'reserved_without_receipt'}
+    if not valid_config:
+        return {'status': 'blocked', 'reason': 'slack_not_configured'}
+    headers = {'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json; charset=utf-8'}
+    # Read-only verification is safe to retry; a failed read never consumes the
+    # send reservation, and never implies a delivered alert or human assignment.
+    verified = probe(settings, http=send)['verified']
+    if not verified:
+        return {'status': 'blocked', 'reason': 'slack_channel_unverified'}
+    if not repository.reserve_operation(key, source, 'bia_gmv_alert'):
+        old = repository.get_operation(key) or {}
+        return old.get('result') or {'status': 'outcome_unknown', 'reason': 'reserved_without_receipt'}
+    payload = {'channel': channel, **render(), 'mrkdwn': False,
+               'parse': 'none', 'link_names': False, 'unfurl_links': False, 'unfurl_media': False}
+    try:
+        response = send(method='POST', url='https://slack.com/api/chat.postMessage', headers=headers, payload=payload)
+        if (isinstance(response, dict) and response.get('ok') is True and response.get('channel') == channel
+                and isinstance(response.get('ts'), str) and re.fullmatch(r'\d+\.\d+', response['ts'])):
+            result = {'status': 'accepted', 'channel_id': channel, 'message_ts': response['ts']}
+        elif isinstance(response, dict) and response.get('ok') is False:
+            result = {'status': 'failed', 'reason': 'slack_rejected'}
+        else:
+            result = {'status': 'outcome_unknown', 'reason': 'receipt_unconfirmed'}
+    except Exception:
+        result = {'status': 'outcome_unknown', 'reason': 'send_unconfirmed'}
+    repository.complete_operation(key, result, status='outcome_unknown' if result['status'] == 'outcome_unknown' else 'completed')
+    return result
+
+
+# Auditoria 20/11: lead parado que depende do time. Antes, cycle['team_alert'] era gravado
+# e nada lia. Vale para qualquer GMV; um alerta por motivo e por ciclo.
+TEAM_REASONS = {
+    'invite_failed_twice': 'O convite no TikTok falhou duas vezes.',
+    'creator_binding_not_permitted': 'O TikTok não permite vincular este perfil a uma agência.',
+    'shop_unknown_limit': ('O TikTok não traz o status do Shop depois de 2 reconferências. '
+                           'A Bia disse ao lead que retorna até amanhã.'),
+}
+
+
+def _team_presentation(event, state, url, reason):
+    cycle = state['cycle']
+    facts = cycle.get('facts') or {}
+    from lead_validation import profile_handle
+    handle = profile_handle(facts.get('tiktok_declarado')) or 'Não informado'
+    phone = event.get('sender_phone')
+    phone = re.sub(r'[+ ()-]', '', phone) if isinstance(phone, str) else ''
+    phone = '+' + phone if re.fullmatch(r'[1-9][0-9]{9,14}', phone) else 'Não informado'
+    heading = '⚠️ Bia | Lead parado precisa do time'
+    fields = [('Nome', _safe_name(facts.get('nome_declarado'))), ('WhatsApp', phone),
+              ('Perfil TikTok', handle), ('Motivo', TEAM_REASONS[reason]),
+              ('Atendimento', '#' + str(event['conversation_id']))]
+    action = 'Assuma a conversa no Chatwoot e responda o lead.'
+    text = '\n'.join([heading, *(f'{label}: {value}' for label, value in fields),
+                      action, 'Abrir conversa no Chatwoot: ' + url])
+    plain = lambda value: {'type': 'plain_text', 'text': value, 'emoji': True}
+    blocks = [{'type': 'header', 'text': plain(heading)},
+              {'type': 'section', 'text': plain('\n'.join(label + ': ' + value for label, value in fields))},
+              {'type': 'context', 'elements': [plain(action)]}]
+    if re.fullmatch(r'https://[A-Za-z0-9.-]+(?::[0-9]{1,5})?/app/accounts/[1-9][0-9]{0,19}/conversations/[1-9][0-9]{0,19}', url):
+        blocks.append({'type': 'section', 'text': {'type': 'mrkdwn',
+                       'text': '<' + url + '|Abrir conversa no Chatwoot>', 'verbatim': True}})
+    mentions = '👥 *Responsáveis:* ' + ' '.join('<@' + user + '>' for user in RESPONSIBLES)
+    blocks.append({'type': 'section', 'text': {'type': 'mrkdwn', 'text': mentions, 'verbatim': True}})
+    return {'text': text + '\n' + mentions, 'blocks': blocks}
+
+
+def dispatch_team(settings, repository, event, state, *, http=None):
+    """Alerta do time para cycle['team_alert'], uma vez por motivo e ciclo."""
+    cycle = state.get('cycle') if isinstance(state, dict) else None
+    alert = cycle.get('team_alert') if isinstance(cycle, dict) else None
+    reason = alert.get('reason') if isinstance(alert, dict) else None
+    if reason not in TEAM_REASONS:
+        return {'status': 'not_requested'}
+    if state.get('opt_out') or cycle.get('opt_out'):
+        return {'status': 'blocked', 'reason': 'opt_out'}
+    url = _conversation_url(settings, event)
+    source = inbound_key(event)
+    cycle_id = cycle.get('id')
+    if not url or not source or not isinstance(cycle_id, str) or not cycle_id or len(cycle_id) > 200:
+        return {'status': 'blocked', 'reason': 'invalid_scope'}
+    result = _deliver(settings, repository, event, cycle_id, 'team:' + reason, source,
+                      lambda: _team_presentation(event, state, url, reason), http=http)
+    alert['status'] = result.get('status')
+    return result

@@ -88,12 +88,30 @@ class AlertTests(unittest.TestCase):
             self.assertEqual(self.run_alert()['events']['threshold']['status'],expected)
             count=len(self.posts()); self.run_alert(); self.assertEqual(len(self.posts()),count)
 
-    def test_preference_does_not_send_another_alert(self):
+    def test_machine_preference_does_not_send_another_alert(self):
         self.run_alert()
         rec=self.state['cycle']['bia_validation']
-        for preference in ('specialist', 'machine', 'specialist'):
-            rec['preference']=preference; rec['handoff_requested']=True
+        rec['preference']='machine'
+        self.run_alert(); self.run_alert()
+        self.assertEqual(len(self.posts()),1)
+
+    def test_specialist_request_sends_one_alert_per_cycle(self):
+        self.run_alert()
+        rec=self.state['cycle']['bia_validation']
+        rec['preference']='specialist'; rec['handoff_requested']=True
+        result=self.run_alert()
+        self.assertEqual(result['events']['specialist']['status'],'accepted')
+        self.assertIn('Especialista solicitado',self.posts()[-1]['payload']['text'])
+        self.assertIn('A equipe precisa assumir a conversa',self.posts()[-1]['payload']['text'])
+        for preference in ('machine','specialist'):
+            rec['preference']=preference
             self.run_alert()
+        self.assertEqual(len(self.posts()),2)
+
+    def test_specialist_without_handoff_flag_does_not_alert(self):
+        self.run_alert()
+        self.state['cycle']['bia_validation']['preference']='specialist'
+        self.run_alert()
         self.assertEqual(len(self.posts()),1)
 
     def test_invalid_profile_and_legacy_never_send(self):

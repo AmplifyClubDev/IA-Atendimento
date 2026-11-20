@@ -39,8 +39,8 @@
     },
     {
       "path": "conversao.py",
-      "bytes": 12491,
-      "sha256": "0bf3a4e1d7e228b1388c2a87af7b186994ee6b43ca691d7ff9e295427916e665"
+      "bytes": 12901,
+      "sha256": "83ed3673060478bc17514076018faf2fdb4139ed12325a1d2de24c6277cf957c"
     },
     {
       "path": "conversation.py",
@@ -139,8 +139,8 @@
     },
     {
       "path": "lead_alerts.py",
-      "bytes": 14785,
-      "sha256": "53d70ad76ce0150d6c396c0e870ad73ce99ce5f489a3b44cc8715e4aceb9e407"
+      "bytes": 18509,
+      "sha256": "e6ac6824edbec36bebea3e47d923707777e950822ecdcbacc83a1a803432cb6e"
     },
     {
       "path": "lead_validation.py",
@@ -174,8 +174,8 @@
     },
     {
       "path": "real_journey.py",
-      "bytes": 211171,
-      "sha256": "0a544275795e93b8403f98e3a32c72290db675c3996f81b750ad4f30da08f952"
+      "bytes": 212068,
+      "sha256": "ad012e1d0529cab915a8b84808ac57c814d7ae724719540d9de73013d7236aea"
     },
     {
       "path": "real_operations.py",
@@ -214,13 +214,13 @@
     },
     {
       "path": "retomada.py",
-      "bytes": 40334,
-      "sha256": "a8db35e0bcaf99f4fcf451552da6d8a87ee019cc6124b65ad703f91bc74a3fe1"
+      "bytes": 40519,
+      "sha256": "dbb32c4b0d77fa64b80a3ce7acfc63f13fb7c2713f2cbf5e0874a6ef4784fa57"
     },
     {
       "path": "server.py",
-      "bytes": 107865,
-      "sha256": "ef7b93aeed7f8bce6f6297d2092e2a0dd98aec1b20f7332d4408b1f2bca9f7ec"
+      "bytes": 108662,
+      "sha256": "bd042a9a48dd732516fcda28b1da815d7446f636c22eca6ea53221d30a0b15f0"
     },
     {
       "path": "smtp.py",
@@ -229,8 +229,8 @@
     },
     {
       "path": "transport.py",
-      "bytes": 32747,
-      "sha256": "73f9a9e9cbd9758543ddfdcc6a1007804c6e1ac76675a7ff118b0599e1eda791"
+      "bytes": 32994,
+      "sha256": "aadf3a8986cb73c10d4be1584c61880a09931a17d75d37651667ad7374dc8bff"
     },
     {
       "path": "verify_private.py",

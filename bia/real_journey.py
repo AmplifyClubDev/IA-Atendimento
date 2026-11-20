@@ -81,6 +81,7 @@ BRIDGE_DOWN_REASONS = frozenset({'human_verification_required', 'session_not_rea
                                  'precheck_unconfirmed', 'response_unconfirmed', 'executor_result_unconfirmed'})
 BRIDGE_RETRY_LIMIT = 3
 BRIDGE_RETRY_GAP = timedelta(minutes=10)
+SHOP_RECHECK_LIMIT = 2  # Auditoria 20/11: reconferências do Shop pedidas pelo lead, por ciclo.
 INVITE_FAILED_RETRY_SECONDS = 600
 _BRIDGE_WAIT = conversao.BRIDGE_WAIT
 _BRIDGE_STILL = conversao.BRIDGE_STILL
@@ -2442,6 +2443,14 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
                 last_check = engine._clock(precheck_record.get('observed_at'))
             except (TypeError, ValueError, OverflowError):
                 last_check = None
+        if (isinstance(cycle.get('shop_unknown'), dict)
+                and int(cycle.get('shop_rechecks') or 0) >= SHOP_RECHECK_LIMIT):
+            # Auditoria 20/11 (conversa 50149): depois de 2 reconferências sem status do Shop,
+            # a Bia para de consultar, diz quando volta e o time recebe um alerta (uma vez).
+            if not isinstance(cycle.get('team_alert'), dict):
+                cycle['team_alert'] = {'at': engine._stamp(at), 'reason': 'shop_unknown_limit'}
+                return _finish(state, at, reply=conversao.SHOP_LIMIT, buttons=[])
+            return _finish(state, at, reply=conversao.SHOP_LIMIT_STILL, buttons=[])
         if (last_check is not None and at - last_check < BRIDGE_RETRY_GAP and isinstance(cycle.get('shop_unknown'), dict)
                 and re.search(r'\b(?:pronto|prontinho|ativei|ativado|ativo|feito|consegui|liberou|liberado)\b', normal)):
             return _finish(state, at, reply=conversao.SHOP_RECHECK_SOON, buttons=[])
@@ -2453,6 +2462,8 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
             check = _effect(state, 'precheck', at)
             if check:
                 cycle['lead_recheck_at'] = engine._stamp(at)
+                if isinstance(cycle.get('shop_unknown'), dict):
+                    cycle['shop_rechecks'] = int(cycle.get('shop_rechecks') or 0) + 1
                 cycle['phase'] = 'checking'
                 return _finish(state, at, reply='Vou conferir seu perfil de novo agora 🔎',
                                effects=[check], buttons=[])
