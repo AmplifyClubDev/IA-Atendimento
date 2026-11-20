@@ -86,50 +86,48 @@ Branch desta sessão: `claude/festive-rubin-aip1ug` (avanço direto da `claude/b
   (→ "Not Authorized") e workspace (→ "Workspace not found"). Conclusão: **o token do Railway injetado nesta
   sessão não tem acesso a esse projeto** (provavelmente é de outro workspace). Precisa de um token novo.
 
-### Terceira tentativa (20/11/2026, sessão `claude/festive-rubin-aip1ug`)
+### Terceira sessão (20/11/2026) — Fase 1 retomada
 
-Um teste de cada, como pedido:
+**Resultado em 1 linha:** os acessos continuam bloqueados; o que dava para fazer só pelo código foi feito.
 
-- **Railway** — `project(id: "896b1a40-d8b7-4a1b-a7a0-83fda2243933") { name services }` → `"Not Authorized"`.
-- **Supabase** — `GET https://api.supabase.com/v1/projects` → `401 "No access token provided"`.
+1. **Acessos (1 teste de cada, como combinado):**
+   - Railway: `project(id: "896b1a40-d8b7-4a1b-a7a0-83fda2243933") { name services }` → **"Not Authorized"**.
+   - Supabase: `GET https://api.supabase.com/v1/projects` → **401 "No access token provided"**.
+   - Conclusão igual às anteriores: o token do Railway desta sessão não enxerga o projeto, e o Supabase
+     não recebe chave. Nada foi alterado em produção.
+2. **Busca no repositório inteiro (todas as branches e todo o histórico):**
+   - `CADASTRO_PILOT_MODULE_B64`, `CADASTRO_PONTES_BOOTSTRAP_B64`, `CADASTRO_OTP_UI_PATCH_B64`,
+     `CADASTRO_IMAGE_OTP_PATCH_B64`: só aparecem nesta documentação. **Nenhum código lê essas variáveis.**
+     Ou seja: o Cadastro em produção roda com um comando de início que **não está no GitHub**
+     (o `cadastro/app/Dockerfile` daqui só chama `cadastro_pilot:create_app()`).
+   - Código das 3 pontes (Pré-validação, Agenciamento, Partner Bridge): **não existe em nenhuma branch**.
+     O que existe é só o lado cliente: `cadastro/app/playwright_client.py`, `pontes.py`, `vigia_ponte.py`
+     e `bridge_config.py` (este último só na branch `review/isolated-bridges-20261104`).
+   - `docs/estado-do-atendimento.md:50` diz que o Cadastro foi publicado de
+     `artifacts/claude-cadastro-v5-20261030/app/` com `railway up`. **Essa pasta não está no repositório.**
+     Pode estar no computador de quem publicou.
+3. **Migration 010** (`destino_etiqueta_acesso_circle_v5`):
+   - Não deu para conferir no banco. Deixei pronta a consulta **só de leitura**
+     `docs/auditoria/conferir-migration-010.sql` (cola no SQL Editor do Supabase; 0 linhas = não aplicada).
+   - Risco se não estiver aplicada: **baixo**. A etiqueta só liga com a variável
+     `CADASTRO_CHATWOOT_ETIQUETA_ACESSO` (`cadastro/app/chatwoot_access_label.py:10,98`). Se a função
+     faltar, o erro é engolido e só aparece no log `[cadastro] etiqueta_chatwoot=pending`
+     (`chatwoot_access_label.py:103-106`). A entrega do Circle não é afetada (`entrega.py:96-101`).
+   - Observação: não existem migrations `008` nem `009` em nenhuma branch. Ou o número foi pulado, ou
+     foram aplicadas à mão sem ir para o repositório. Vale conferir no Supabase.
 
-Resultado: **a Fase 1 continua bloqueada** nas partes que dependem de produção
-(baixar o código do Cadastro + as 4 variáveis `_B64`, baixar as 3 pontes, conferir a migration 010).
-Nada foi alterado em produção.
+**Para destravar o resto da Fase 1, preciso de UMA destas opções:**
+- (A) Um token do Railway com acesso ao projeto AmplifyOS, configurado no ambiente desta sessão; **ou**
+- (B) Você roda no seu computador (Railway CLI logado) e sobe os arquivos:
+  `railway variables --service Cadastro --json > cadastro-vars.json` (eu tiro os segredos antes de commitar)
+  e `railway ssh --service <ponte>` / download do código de cada ponte; **ou**
+- (C) A pasta `artifacts/claude-cadastro-v5-20261030/` e as pastas das pontes, se estiverem no seu computador.
+- Supabase: um token (Access Token do painel) liberado no ambiente, **ou** você roda o SQL acima e me manda o resultado.
 
-O que o repositório mostra sobre isso (sem acesso):
-
-- Nenhum arquivo do repositório lê `CADASTRO_PILOT_MODULE_B64`, `CADASTRO_PONTES_BOOTSTRAP_B64`,
-  `CADASTRO_OTP_UI_PATCH_B64` ou `CADASTRO_IMAGE_OTP_PATCH_B64`. Ou seja: **o código que carrega essas
-  variáveis também só existe no Railway** (provavelmente no comando de início do serviço).
-- Sinal concreto de que produção ≠ repositório: o `cadastro/app/static/cadastro.html` (linhas 417–420)
-  trata `status='devolvido'` com motivos `caixa_cheia` e `dominio_sem_email`, mas o servidor do
-  repositório (`cadastro/app/publico.py` e `emailer.py`) **nunca devolve `reason`**. Essa parte deve vir
-  do `CADASTRO_OTP_UI_PATCH_B64`.
-- Também não há como saber, só pelo código, se `CADASTRO_CHATWOOT_ETIQUETA_ACESSO` está ligada.
-  Se estiver ligada e a migration 010 não tiver sido aplicada, cada entrega imprime
-  `[cadastro] etiqueta_chatwoot=pending` no log (`cadastro/app/chatwoot_access_label.py:96-107`).
-  Esse texto no log do Cadastro é a forma mais rápida de conferir.
-
-**Para destravar (escolha uma):**
-1. Gerar um token de **conta** ou de **projeto** no Railway com acesso ao AmplifyOS e trocar o
-   token da sessão; e um *Personal Access Token* do Supabase (`sbp_…`) para a conexão do Supabase.
-2. Ou rodar no seu computador, com o Railway CLI logado, os comandos abaixo e mandar os arquivos
-   (eles não contêm segredos; conferir antes de commitar):
-
-```bash
-railway link --project 896b1a40-d8b7-4a1b-a7a0-83fda2243933
-railway variables --service Cadastro --json > /tmp/cadastro-vars.json
-python3 -c "import json,base64; v=json.load(open('/tmp/cadastro-vars.json')); [open(k.lower()+'.py','wb').write(base64.b64decode(v[k])) for k in ('CADASTRO_PILOT_MODULE_B64','CADASTRO_PONTES_BOOTSTRAP_B64','CADASTRO_OTP_UI_PATCH_B64','CADASTRO_IMAGE_OTP_PATCH_B64') if k in v]"
-```
-
-   E, no SQL Editor do Supabase (só leitura):
-
-```sql
-select proname from pg_proc where proname = 'destino_etiqueta_acesso_circle_v5';
-```
-
-   Uma linha = migration 010 aplicada. Nenhuma = não aplicada.
-
-Como a Fase 1 não avança sem acesso, a sessão seguiu para a **Fase 2 só com o código**
-(ver `docs/auditoria/fase-2-caixa-3-e-formulario.md`).
+**Complemento (mesma data, sessão paralela):**
+- Prova concreta de que o Cadastro em produção ≠ repositório: `cadastro/app/static/cadastro.html:417-420`
+  trata `status='devolvido'` com os motivos `caixa_cheia` e `dominio_sem_email`, mas o servidor do
+  repositório (`cadastro/app/publico.py:230-245`, `emailer.py:48-57`) **nunca devolve `reason`**.
+  Essa parte deve vir do `CADASTRO_OTP_UI_PATCH_B64`.
+- Como a Fase 1 não avança sem acesso, a sessão seguiu para a **Fase 2 só com o código**
+  (`docs/auditoria/fase-2-caixa-3-e-formulario.md`).
