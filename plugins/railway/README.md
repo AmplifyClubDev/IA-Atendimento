@@ -52,3 +52,23 @@ dos comandos.
 - Logs: `deploymentLogs` (execução) e `buildLogs` (build), ambos com `deploymentId`, `limit`, `filter`.
 - Variáveis: `variables(projectId, environmentId, serviceId)` devolve um JSON nome → valor.
   O script mostra só os nomes, a menos que se passe `--show-values`.
+- Para descobrir a quem pertence um token: `{ apiToken { workspaces { id name } } }`.
+  Depois liste os projetos com `projects(workspaceId: "...")`.
+- Consultas que não precisam de ID: `me`, `apiToken`, `projectToken`, `projects`.
+
+## Instalação no Windows (o que funcionou em 20/11/2026)
+
+1. Instalar o Git for Windows e depois o Claude Code no PowerShell:
+   `irm https://claude.ai/install.ps1 | iex` (feche e abra o PowerShell depois).
+2. `/plugin ...` só funciona **dentro** do Claude Code (`claude`), nunca direto no PowerShell.
+3. Enquanto o plugin não está na `main`, adicione o catálogo pelo branch:
+   `/plugin marketplace add https://github.com/AmplifyClubDev/IA-Atendimento.git#claude/relaxed-einstein-h7mkax`
+4. `/plugin install railway@amplify-plugins`.
+
+## Claude Code na nuvem (navegador)
+
+- O token do Railway da sessão vem da configuração do **ambiente**, não do chat.
+- Em 20/11/2026 o token ligado à sessão respondia `Not Authorized` em tudo, até em
+  `apiToken`. Provável causa: token expirado, revogado ou sem permissão. A solução é
+  salvar um token novo nas configurações do ambiente (variável `RAILWAY_API_TOKEN`)
+  e abrir uma sessão nova.
