@@ -85,3 +85,41 @@ Branch desta sessão: `claude/festive-rubin-aip1ug` (avanço direto da `claude/b
 - Recebido do usuário o ID `896b1a40-d8b7-4a1b-a7a0-83fda2243933`. Testado como projeto, ambiente, serviço
   (→ "Not Authorized") e workspace (→ "Workspace not found"). Conclusão: **o token do Railway injetado nesta
   sessão não tem acesso a esse projeto** (provavelmente é de outro workspace). Precisa de um token novo.
+
+### Terceira sessão (20/11/2026) — Fase 1 retomada
+
+**Resultado em 1 linha:** os acessos continuam bloqueados; o que dava para fazer só pelo código foi feito.
+
+1. **Acessos (1 teste de cada, como combinado):**
+   - Railway: `project(id: "896b1a40-d8b7-4a1b-a7a0-83fda2243933") { name services }` → **"Not Authorized"**.
+   - Supabase: `GET https://api.supabase.com/v1/projects` → **401 "No access token provided"**.
+   - Conclusão igual às anteriores: o token do Railway desta sessão não enxerga o projeto, e o Supabase
+     não recebe chave. Nada foi alterado em produção.
+2. **Busca no repositório inteiro (todas as branches e todo o histórico):**
+   - `CADASTRO_PILOT_MODULE_B64`, `CADASTRO_PONTES_BOOTSTRAP_B64`, `CADASTRO_OTP_UI_PATCH_B64`,
+     `CADASTRO_IMAGE_OTP_PATCH_B64`: só aparecem nesta documentação. **Nenhum código lê essas variáveis.**
+     Ou seja: o Cadastro em produção roda com um comando de início que **não está no GitHub**
+     (o `cadastro/app/Dockerfile` daqui só chama `cadastro_pilot:create_app()`).
+   - Código das 3 pontes (Pré-validação, Agenciamento, Partner Bridge): **não existe em nenhuma branch**.
+     O que existe é só o lado cliente: `cadastro/app/playwright_client.py`, `pontes.py`, `vigia_ponte.py`
+     e `bridge_config.py` (este último só na branch `review/isolated-bridges-20261104`).
+   - `docs/estado-do-atendimento.md:50` diz que o Cadastro foi publicado de
+     `artifacts/claude-cadastro-v5-20261030/app/` com `railway up`. **Essa pasta não está no repositório.**
+     Pode estar no computador de quem publicou.
+3. **Migration 010** (`destino_etiqueta_acesso_circle_v5`):
+   - Não deu para conferir no banco. Deixei pronta a consulta **só de leitura**
+     `docs/auditoria/conferir-migration-010.sql` (cola no SQL Editor do Supabase; 0 linhas = não aplicada).
+   - Risco se não estiver aplicada: **baixo**. A etiqueta só liga com a variável
+     `CADASTRO_CHATWOOT_ETIQUETA_ACESSO` (`cadastro/app/chatwoot_access_label.py:10,98`). Se a função
+     faltar, o erro é engolido e só aparece no log `[cadastro] etiqueta_chatwoot=pending`
+     (`chatwoot_access_label.py:103-106`). A entrega do Circle não é afetada (`entrega.py:96-101`).
+   - Observação: não existem migrations `008` nem `009` em nenhuma branch. Ou o número foi pulado, ou
+     foram aplicadas à mão sem ir para o repositório. Vale conferir no Supabase.
+
+**Para destravar o resto da Fase 1, preciso de UMA destas opções:**
+- (A) Um token do Railway com acesso ao projeto AmplifyOS, configurado no ambiente desta sessão; **ou**
+- (B) Você roda no seu computador (Railway CLI logado) e sobe os arquivos:
+  `railway variables --service Cadastro --json > cadastro-vars.json` (eu tiro os segredos antes de commitar)
+  e `railway ssh --service <ponte>` / download do código de cada ponte; **ou**
+- (C) A pasta `artifacts/claude-cadastro-v5-20261030/` e as pastas das pontes, se estiverem no seu computador.
+- Supabase: um token (Access Token do painel) liberado no ambiente, **ou** você roda o SQL acima e me manda o resultado.
