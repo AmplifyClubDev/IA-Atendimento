@@ -80,14 +80,21 @@ def test_stale_send_result_cannot_replace_new_code_or_confirmed_state(setup):
     assert store.session(fid)['otp_status'] == 'confirmado'
 
 
-def test_retry_preserves_attempt_limit_and_email_change_obeys_wait(setup):
+def test_new_code_gets_its_own_attempts_and_email_change_obeys_wait(setup):
+    # Produção (patch cadastro-image-otp-v1, agora no repositório): cada novo código tem
+    # tentativas próprias; o limite de 5 envios por hora continua valendo.
     store, fid, _, _ = setup
     store.claim_email_code(fid, 'email', 'one', now=1000, ttl=600, wait=60)
     store.finish_email_code(fid, 'one', 'enviado')
     store.update(fid, otp_attempts=10)
     assert store.claim_email_code(fid, 'other', 'two', now=1001, ttl=600, wait=60) == 'waiting'
     assert store.claim_email_code(fid, 'email', 'two', now=1061, ttl=600, wait=60) == 'claimed'
-    assert store.session(fid)['otp_attempts'] == 10
+    assert store.session(fid)['otp_attempts'] == 0
+    for index, at in enumerate((1130, 1200, 1270)):
+        store.finish_email_code(fid, 'two' if index == 0 else f'c{index}', 'enviado')
+        assert store.claim_email_code(fid, 'email', f'c{index + 1}', now=at, ttl=600, wait=60) == 'claimed'
+    store.finish_email_code(fid, 'c3', 'enviado')
+    assert store.claim_email_code(fid, 'email', 'c9', now=1340, ttl=600, wait=60) == 'limited'
 
 
 def test_smtp_unknown_is_recorded_without_retry(setup):
