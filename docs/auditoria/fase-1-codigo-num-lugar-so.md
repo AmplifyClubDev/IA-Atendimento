@@ -72,3 +72,13 @@ Branch desta sessão: `claude/festive-rubin-aip1ug` (avanço direto da `claude/b
   (`*.supabase.co` e `api.supabase.com` → 403 do proxy). Sem isso não dá para conferir a
   migration 010.
 - Nada foi alterado em produção.
+
+### Segunda tentativa (20/11/2026, nova sessão)
+
+- **Railway**: mesmo resultado. `me`, `projects`, `projectToken` → "Not Authorized" / "Project Token not found".
+  Testado também `deployment(id: 384e3cec-…)` (deploy do Cadastro citado no `cadastro/README.md`) → "Not Authorized".
+  O ID do projeto não aparece em nenhum arquivo do repositório. **Bloqueado até receber o ID do projeto AmplifyOS**
+  (ou um token de conta/projeto).
+- **Supabase**: `api.supabase.com` agora responde, mas sem chave (`401 "No access token provided"`) — o proxy
+  não está injetando token. **Migration 010 continua sem conferência.**
+- Nada foi alterado em produção.
