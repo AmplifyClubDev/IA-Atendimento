@@ -5,9 +5,9 @@ import sys
 import unittest
 from unittest.mock import patch
 import socket
-sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tests'))
+sys.path.insert(0, str(Path(__file__).resolve().parent / 'apoio'))
 from playwright_client import PlaywrightClient
-from tests.test_playwright_client import SETTINGS,Script,invitation_prefix
+from test_playwright_client import SETTINGS,Script,invitation_prefix
 from test_regressao41 import eligible,say,settle
 import receipt_grounding
 

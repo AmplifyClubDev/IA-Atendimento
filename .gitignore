@@ -10,3 +10,6 @@ sealed*/
 variaveis/
 *.zip
 *.log
+
+# Pasta temporária criada pelos testes da Bia
+bia/review_tests/apoio/runtime/

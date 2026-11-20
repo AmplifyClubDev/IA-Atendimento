@@ -9,7 +9,7 @@ from flask import Flask, current_app, has_app_context
 from forms import register_forms
 from real_operations import build_jobs
 from server import create_app
-from tests import test_real_executor as fixture
+import test_real_executor as fixture
 
 
 class Transport:

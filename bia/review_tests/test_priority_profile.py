@@ -8,8 +8,8 @@ from unittest.mock import patch
 from lead_validation import profile_handle, release_priority_choice
 from server import create_app
 from repository import Repository
-from tests.test_real_executor import EVENT, GATE, CONV, FakeClient, FakeGateway
-from tests.test_worker_form_context import Transport
+from test_real_executor import EVENT, GATE, CONV, FakeClient, FakeGateway
+from test_worker_form_context import Transport
 
 
 class PriorityFlow(unittest.TestCase):

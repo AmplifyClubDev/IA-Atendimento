@@ -1,0 +1,23 @@
+name: Testes da Bia
+
+on:
+  push:
+    paths: ["bia/**", ".github/workflows/bia-testes.yml"]
+  pull_request:
+    paths: ["bia/**", ".github/workflows/bia-testes.yml"]
+
+jobs:
+  testes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: bia
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      # Suíte offline: o executor apaga variáveis de ambiente e bloqueia rede e subprocessos.
+      - name: Testes
+        run: uv run --python 3.12 --with-requirements requirements.txt python review_tests/run_offline.py

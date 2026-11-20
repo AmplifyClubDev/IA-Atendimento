@@ -23,6 +23,7 @@ def deny_external_calls(event, args):
 
 sys.addaudithook(deny_external_calls)
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / 'review_tests' / 'apoio'))  # peças de apoio usadas por vários testes
 suite = unittest.defaultTestLoader.discover(str(ROOT / 'review_tests'), pattern='test_*.py')
 result = unittest.TextTestRunner(verbosity=2).run(suite)
 raise SystemExit(0 if result.wasSuccessful() else 1)

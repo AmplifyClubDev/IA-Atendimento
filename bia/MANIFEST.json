@@ -139,8 +139,8 @@
     },
     {
       "path": "lead_alerts.py",
-      "bytes": 14817,
-      "sha256": "30f24fd07f31621bc574a68fa95727f78621d933a96bcf018a42000d6206f8ab"
+      "bytes": 14785,
+      "sha256": "53d70ad76ce0150d6c396c0e870ad73ce99ce5f489a3b44cc8715e4aceb9e407"
     },
     {
       "path": "lead_validation.py",

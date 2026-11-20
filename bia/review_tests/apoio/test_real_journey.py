@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from urllib.parse import urlsplit
 
-CANDIDATE = Path(__file__).resolve().parents[1]
+CANDIDATE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(CANDIDATE))
 import conversation
 import engine

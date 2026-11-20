@@ -11,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from repository import Repository
 from real_operations import (RealExecutor, build_jobs, business_key, chatwoot_control_guard,
                              policy_for)
@@ -56,7 +56,7 @@ class FakeClient:
 
 class ExecutorTests(unittest.TestCase):
     def setUp(self):
-        fixture_root = Path(__file__).resolve().parents[2]
+        fixture_root = Path(__file__).resolve().parents[3]
         self.tmp = tempfile.TemporaryDirectory(dir=fixture_root, prefix='executor-fixture-')
         assert Path(self.tmp.name).resolve().is_relative_to(fixture_root)
         self.addCleanup(self.tmp.cleanup)

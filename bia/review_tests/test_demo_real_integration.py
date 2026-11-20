@@ -10,8 +10,8 @@ from demo_real_bridge import install
 from demo_router import DemoRouter, DemoStore, RecordingGateway
 from server import create_app
 from forms import register_forms
-from tests.test_real_executor import FakeClient, FakeGateway
-from tests.test_worker_form_context import Transport
+from test_real_executor import FakeClient, FakeGateway
+from test_worker_form_context import Transport
 
 class Integration(unittest.TestCase):
     def test_real_join_profile_consent_one_invite_and_scoped_form(self):
