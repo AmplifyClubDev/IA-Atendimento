@@ -82,3 +82,6 @@ Branch desta sessão: `claude/festive-rubin-aip1ug` (avanço direto da `claude/b
 - **Supabase**: `api.supabase.com` agora responde, mas sem chave (`401 "No access token provided"`) — o proxy
   não está injetando token. **Migration 010 continua sem conferência.**
 - Nada foi alterado em produção.
+- Recebido do usuário o ID `896b1a40-d8b7-4a1b-a7a0-83fda2243933`. Testado como projeto, ambiente, serviço
+  (→ "Not Authorized") e workspace (→ "Workspace not found"). Conclusão: **o token do Railway injetado nesta
+  sessão não tem acesso a esse projeto** (provavelmente é de outro workspace). Precisa de um token novo.
