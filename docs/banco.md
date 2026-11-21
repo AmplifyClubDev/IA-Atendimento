@@ -49,3 +49,19 @@ Backup: `backup_20261121.creators_colunas_removidas`, `.agenciamentos_colunas_re
 Para desfazer uma tela: `CREATE OR REPLACE VIEW public.<nome> AS <definicao>` com o texto guardado.
 
 Pendente (decidir): D (duplicados, caso a caso) e E (dividir a ficha em Ficha + Respostas do formulário).
+
+## Agenciados do Partner Center (21/11/2026)
+
+A Bia lê **de hora em hora** a lista completa de agenciados na ponte de Agenciamento (só leitura) e grava em
+`interno.agenciados_tiktok` (1 linha por vínculo) e `interno.agenciados_tiktok_coletas` (1 linha por coleta).
+Saídas só são marcadas com lista completa e sem queda brusca (proteção contra lista cortada).
+Migration: `bia/sql/agenciados_tiktok.sql`. Desligar: `V5_AGENCY_SYNC_ENABLED=false` na Bia.
+
+| Tela | Responde |
+|---|---|
+| `agenciados` | Quem está agenciado: @, nome, desde quando, ativo/saiu, se passou pela Bia, origem |
+| `agenciados_por_hora` | Quantos entraram em cada hora (últimos 31 dias), pela data do vínculo no TikTok |
+| `agenciados_por_dia` | Novos, novos pela Bia, saídas e total no fim do dia |
+| `origens_por_dia` | Por origem: novos contatos, chegaram ao convite, agenciados, cadastros |
+
+Primeira coleta: 1.551 agenciados ativos. Origem: continua a resposta "como conheceu a Amplify?" (sem código por anúncio).

@@ -48,3 +48,14 @@ Custo estimado (CPU + RAM): de ~US$ 177/mês para ~US$ 80/mês.
 - O Cadastro ainda sobe com patches em variáveis base64 (`CADASTRO_*_B64`). O código equivalente já está em
   `cadastro/app/`; falta publicar o Cadastro a partir do GitHub e apagar essas variáveis.
 - Bia e Cadastro são publicados com `railway up` (sem ligação com uma branch). Ideal: ligar à `main` com "Wait for CI".
+
+## Como publicar a Bia (sem derrubar)
+
+A Bia usa volume: no deploy o Railway **para a versão antiga antes** de subir a nova. Se a nova falhar, a Bia fica fora.
+Em 21/11, um `railway up` feito da pasta do Windows (CRLF) quebrou a checagem do formulário e a Bia ficou ~4 min fora
+(rollback para `3b24b721`; nenhum lead ficou sem resposta). Por isso:
+
+1. Exportar do Git com quebras de linha de Linux: `git -c core.autocrlf=false archive HEAD bia | tar -x -C <pasta>`.
+2. Na pasta exportada: `load_mapping()` precisa passar e o `MANIFEST.json` precisa bater (sha256 de cada arquivo).
+3. `railway up <pasta> --path-as-root --service "Bia - Atendimento" --detach` e acompanhar até `/healthz` = 200.
+4. Rollback: `deploymentRedeploy` do último deploy bom.
