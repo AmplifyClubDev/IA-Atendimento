@@ -229,8 +229,8 @@
     },
     {
       "path": "transport.py",
-      "bytes": 35592,
-      "sha256": "2a80b76b724ac2b99dc0793554d6d901836e0847f7c5ad3c90034762c588df74"
+      "bytes": 38301,
+      "sha256": "225075c03b824d5fc069af0eb6bbeb9aabcb3195d1157dc6e08dc41f702102ff"
     },
     {
       "path": "verify_private.py",

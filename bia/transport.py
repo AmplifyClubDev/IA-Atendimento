@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import hashlib
 import re
+import time
 import pilot_scope
 from copy import deepcopy
 from datetime import datetime
@@ -460,7 +461,15 @@ class ChatwootTransport:
         except ValueError:
             return {"status": "failed", "reason": "tutorial_selection_invalid"}
         if video:
-            return self._send_tutorial(event, video, idempotency_key, before_write)
+            # Auditoria 21/11: link é botão. Vídeo + link do formulário: a legenda vai sem o link
+            # ("no botão abaixo") e o botão "Fazer cadastro" sai logo depois do vídeo.
+            button = self._form_button(video["caption"])
+            if button:
+                video = {**video, "caption": button["body"]}
+            result = self._send_tutorial(event, video, idempotency_key, before_write)
+            if button and result.get("status") == "accepted":
+                self._send_form_button_after_video(event, button, result["message_id"], idempotency_key)
+            return result
 
         # Chatwoot renders up to three items as reply buttons; four to ten
         # items use WhatsApp's list picker. Values remain the full declaration.
@@ -547,6 +556,39 @@ class ChatwootTransport:
             return {'status': 'failed', 'reason': 'tutorial_channel_rejected'}
         # Accepted means queued by Chatwoot, never proof of WhatsApp delivery.
         return {'status': 'accepted', 'message_id': _id(reply['id']), 'media_type': 'video'}
+
+    FORM_BUTTON_AFTER_VIDEO = "Faça seu cadastro por aqui 👇"
+
+    def _send_form_button_after_video(self, event, button, video_message_id, idempotency_key, *, wait=12,
+                                      sleep=time.sleep):
+        """Botão do formulário depois do vídeo. Espera o vídeo sair (até `wait` s) para manter a ordem.
+
+        Opcional: o vídeo já foi aceito; uma falha aqui nunca muda o recibo do vídeo."""
+        try:
+            for _ in range(max(1, int(wait))):
+                messages = self.http(method="GET", url=self._conversation_url(event) + "/messages",
+                                     headers={"api_access_token": self.token, "Accept": "application/json"},
+                                     timeout=3)
+                rows = messages.get("payload") if isinstance(messages, dict) else None
+                row = next((m for m in rows or [] if isinstance(m, dict) and _id(m.get("id")) == video_message_id), None)
+                if row and row.get("status") in {"sent", "delivered", "read", "failed"}:
+                    if row.get("status") == "failed":
+                        return False
+                    break
+                sleep(1)
+            cta = {"label": button["label"], "url": button["url"], "body": self.FORM_BUTTON_AFTER_VIDEO}
+            if not self._send_url_button(event, cta):
+                return False
+            note = {"content": "🔗 Botão enviado pelo WhatsApp: *" + cta["label"] + "* → " + cta["url"] + "\n\n" + cta["body"],
+                    "message_type": "outgoing", "private": True, "content_type": "text",
+                    "content_attributes": {"amplify_actor": "v5_rehearsal", "amplify_url_button": True,
+                                           "amplify_idempotency_key": idempotency_key + ":botao"}}
+            self.http(method="POST", url=self._conversation_url(event) + "/messages",
+                      headers={"api_access_token": self.token, "Content-Type": "application/json",
+                               "Idempotency-Key": idempotency_key + ":botao"}, json_body=note, timeout=15)
+            return True
+        except Exception:
+            return False
 
     def _form_button(self, text):
         from real_journey import PUBLIC_FORM_URL
