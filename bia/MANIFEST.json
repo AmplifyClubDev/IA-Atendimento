@@ -1,11 +1,11 @@
 {
   "release": "bia-stability-20261110",
-  "source_count": 54,
+  "source_count": 55,
   "files": [
     {
       "path": "Dockerfile",
-      "bytes": 1231,
-      "sha256": "15e6a617dbbd83c6e52e2cf6cb721365ecccaa2554a9d9151a6205707b30e926"
+      "bytes": 1258,
+      "sha256": "f22ae9a4dd020a6ac03a1c3b16e16a538a74d0c8413e573dcf52ab6aa1f0a6c0"
     },
     {
       "path": "answers.py",
@@ -19,13 +19,13 @@
     },
     {
       "path": "bootstrap.py",
-      "bytes": 1737,
-      "sha256": "0b561deccc6b735fb365fb49a533b0735ee864252ff30c6510d77576f53e28fa"
+      "bytes": 2130,
+      "sha256": "cbf16dcc09e39ab7375a9eacbb2ec3b7a09a861bc737ef92e0bf498789479fe1"
     },
     {
       "path": "config.py",
-      "bytes": 15223,
-      "sha256": "f54b31c28f670656ad2627ffd332ce193e4a794e989abe28d3eb9bf4218205d2"
+      "bytes": 15419,
+      "sha256": "e872eab410556020d23b80a9500704017b5be7bb76274d8972f547c7a60d0b0c"
     },
     {
       "path": "context_ia.py",
@@ -271,6 +271,11 @@
       "path": "gmv_normalization.py",
       "bytes": 3533,
       "sha256": "e913f3f681083abc6a1e169327cffb24ae9625ab9a695b99fd092007a0c40b1c"
+    },
+    {
+      "path": "agenciados_sync.py",
+      "bytes": 4689,
+      "sha256": "8a8b7bb6646dacf2cb6a8e8d51b4e0a5588b6beb5333930433714b92ed84114c"
     }
   ],
   "provenance": {

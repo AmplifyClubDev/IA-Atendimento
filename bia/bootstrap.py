@@ -33,4 +33,11 @@ def create_app(settings=None):
             except Exception:
                 recovery = {'status': 'unconfirmed'}
             print(json.dumps({'real_qualification_recovery': recovery}, sort_keys=True))
+        try:
+            from agenciados_sync import instalar as instalar_coleta_agenciados
+            coleta = instalar_coleta_agenciados(app, settings)
+        except Exception as error:
+            # Opcional: a coleta de agenciados nunca impede a Bia de subir.
+            coleta = 'falhou:' + type(error).__name__
+        print(json.dumps({'agenciados_coleta': coleta}, sort_keys=True))
     return app
