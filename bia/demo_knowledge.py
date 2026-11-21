@@ -162,7 +162,7 @@ def select_demo_knowledge(knowledge, question, dialogue=None):
     # History cannot override a complete new question. Only referential, short
     # questions can carry forward the previous question's topics.
     plain = _plain(question)
-    referential = bool(re.search(r'\b(?:isso|isto|nesse caso|neste caso|essa|esse|esses|essas|eles|elas|disso|deles|delas|e quanto|e se)\b', plain))
+    referential = bool(re.search(r'\b(?:isso|isto|nesse caso|neste caso|essa|esse|esses|essas|eles|elas|disso|deles|delas|e quanto|e se|cada um|cada uma)\b', plain))
     used_history = False
     if isinstance(dialogue, dict):
         # The answerer passes redacted fields, but enforce the same boundary for

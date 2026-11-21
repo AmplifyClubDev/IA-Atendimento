@@ -18,7 +18,7 @@ COPY nome_contextual.py ./
 COPY data/ ./data/
 CMD ["sh", "-c", "exec gunicorn --bind 0.0.0.0:${PORT:-8000} --workers 1 --threads 4 --timeout 60 --access-logfile /dev/null --error-logfile - 'bootstrap:create_app()'"]
 
-COPY answer_engine.py amplify_answer_profile.py real_answer_adapter.py ./
+COPY answer_engine.py amplify_answer_profile.py real_answer_adapter.py turn_meaning.py ./
 COPY chat_declarations.py ./
 COPY gmv_normalization.py ./
 COPY agenciados_sync.py ./

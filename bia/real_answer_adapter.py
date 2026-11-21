@@ -9,6 +9,15 @@ UNKNOWN = 'Ainda não tenho essa informação confirmada. 🔎'
 
 def dialogue_from_context(context):
     history = context.get('history') if isinstance(context, dict) else []
+    delivered = context.get('delivery_context') if isinstance(context, dict) else None
+    if isinstance(delivered, dict):
+        existing = delivered.get('accepted_history') if delivered.get('source') == 'outbox' else []
+        accepted_rows = [row for row in existing if isinstance(row, dict) and isinstance(row.get('text'), str)
+                         and isinstance(row.get('at'), str)][:12] if isinstance(existing, list) else []
+        history = [row for row in (history if isinstance(history, list) else []) if isinstance(row, dict)
+                   and row.get('direction', row.get('role')) in {'inbound', 'user'}]
+        history.extend({'direction': 'outbound', **row} for row in accepted_rows)
+        history.sort(key=lambda row: str(row.get('at', '')))
     pairs, pending = [], ''
     for item in history[-16:] if isinstance(history, list) else []:
         if not isinstance(item, dict):
@@ -21,7 +30,6 @@ def dialogue_from_context(context):
             pairs.append({'question': pending, 'answer': safe_context_text(text, 600)})
             pending = ''
     last = pairs[-1] if pairs else {}
-    delivered = context.get('delivery_context') if isinstance(context, dict) else None
     accepted = delivered.get('last_accepted_reply') if isinstance(delivered, dict) and delivered.get('source') == 'outbox' else None
     accepted_text = safe_context_text(accepted.get('text'), 600) if isinstance(accepted, dict) else ''
     return {'recent_dialogue': pairs[-6:], 'prior_questions': [p['question'] for p in pairs[-6:]],
@@ -148,11 +156,37 @@ def _merged_information_question(question, context):
     return ('\n'.join(parts + [current]), sources) if parts else (question, [])
 
 
-def build_real_planner(settings, planner, *, answerer=None):
+def build_real_planner(settings, planner, *, answerer=None, interpreter=None):
     """Keep validated interpretation, replace ALL generative reply/fallback text."""
     from answer_engine import build_answerer
+    from turn_meaning import OPTIONS, information_like, read_meaning, relevant_candidate, validated_meaning
+    interpreter = interpreter or read_meaning
     engine = answerer if answerer is not None else build_answerer(settings, mode='real')
     def plan(question, context, turn_settings):
+        meaning, label = None, 'unknown'
+        stage = context.get('interpretation_stage') if isinstance(context, dict) and context.get('real_mode') is True else None
+        pending_stage = stage
+        if relevant_candidate(question, stage) and not context.get('explicit_information'):
+            # No trusted accepted outbox history becomes a declaration. An unclear
+            # or unrelated last question cannot support a semantic state change.
+            accepted = dialogue_from_context(context)['last_accepted_public_reply']
+            if stage != 'form':
+                from engine import _normal
+                active = _normal(context.get('current_question', ''))
+                previous_attempt = context.get('delivery_context') or {}
+                if (not accepted or previous_attempt.get('latest_attempt_status') != 'accepted'
+                        or (active and active not in _normal(accepted))):
+                    stage = None
+            if stage:
+                try:
+                    label = interpreter(question, context, turn_settings)
+                    meaning = validated_meaning(question, stage, label)
+                except Exception:
+                    meaning = None
+        if meaning:
+            # Never call the knowledge engine for a declaration.
+            return {'turn_meaning': {'stage': stage, 'label': meaning},
+                    'provider_status': 'completed', 'claims': [], 'intent': 'continue', 'reply': ''}
         try:
             # Even the structured interpretation prompt must never see carried
             # FAQ text: only the current inbound can express facts or consent.
@@ -164,19 +198,32 @@ def build_real_planner(settings, planner, *, answerer=None):
         result = dict(result) if isinstance(result, dict) else {'provider_status': 'unknown', 'intent': 'clarify', 'claims': []}
         # Model output is never permitted to mint a trusted engine marker.
         result.pop('shared_answer', None)
+        result.pop('turn_meaning', None)
         result.pop('carried_information_sources', None)
         result['reply'] = ''
         result.pop('approved_topic_answer', None)
         result.pop('topic_ids', None)
         try:
             answer_question, carried_sources = _merged_information_question(question, context)
-            answer = engine(answer_question, conversation=dialogue_from_context(context)) if callable(engine) else 'faq_unavailable'
+            dialogue = dialogue_from_context(context)
+            # Resolve pronouns/ellipsis from the same-cycle accepted topic, not
+            # an old question or mixed-in private/contact data.
+            from engine import _normal
+            from approved_experience import TOPICS
+            prior = dialogue['last_question']
+            topic = TOPICS.get(_normal(prior)) if prior else None
+            if topic and dialogue['last_accepted_public_reply'] and _normal(answer_question) != _normal(topic):
+                dialogue['last_question'] = topic
+            answer = engine(answer_question, conversation=dialogue) if callable(engine) else 'faq_unavailable'
         except Exception:
             answer, carried_sources = 'faq_unavailable', []
         valid = (isinstance(answer, dict) and isinstance(answer.get('answer'), str)
                  and isinstance(answer.get('evidence'), list) and bool(answer['evidence'])
                  and isinstance(answer.get('knowledge_version'), str))
         text = answer['answer'] if valid else UNKNOWN if answer == 'faq_unknown' else UNAVAILABLE
+        if not valid and pending_stage in OPTIONS and label != 'information' and not information_like(question):
+            return {'turn_meaning': {'stage': pending_stage, 'label': 'unclear'},
+                    'provider_status': 'unknown', 'claims': [], 'intent': 'clarify', 'reply': ''}
         result['reply'] = text
         if valid and carried_sources and not clarification_question(text):
             result['carried_information_sources'] = carried_sources
