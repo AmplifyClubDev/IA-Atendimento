@@ -20,8 +20,8 @@ RECEIVED = 'Recebi, {handle}! Já tô conferindo seu perfil 🔎'
 RETURNED = ('Oi de novo! Aqui é a Bia, da Amplify. Ainda tenho seu {handle} anotado. '
             'Já tô conferindo seu perfil 🔎')
 
-BRIDGE_WAIT = 'Anotei seu perfil! 😊 Tô esperando o TikTok me responder e te aviso aqui assim que tiver novidade.'
-BRIDGE_STILL = 'Seu perfil segue anotado. Ainda tô esperando o TikTok responder e te aviso por aqui 💙'
+BRIDGE_WAIT = 'Seu perfil está registrado. Ainda não tenho a confirmação necessária para avançar.'
+BRIDGE_STILL = 'Seu perfil está registrado. A validação ainda está pendente.'
 BRIDGE_BACK = 'Pronto, conferi! ✅'
 SHOP_UNKNOWN = ('O TikTok ainda não trouxe a informação que preciso para confirmar a elegibilidade do seu perfil. '
                 'Isso não significa que o seu TikTok Shop Creator esteja inativo. '
@@ -40,7 +40,7 @@ def shop_reminder(step):
                 'Se estiver certo, me manda “pronto” para conferir novamente.')
     return ('Seu @ continua anotado por aqui. Quando quiser retomar a consulta, me manda “pronto”. 💙')
 
-BRIDGE_NOTE = 'Seu perfil segue anotado. Ainda tô esperando o TikTok responder e te aviso por aqui 💙'
+BRIDGE_NOTE = 'Seu perfil está registrado. A validação ainda está pendente.'
 INVITING = 'Combinado! Sua autorização para o convite está registrada. 😊'
 INVITE_WHERE = ('O convite da *Amplify* fica no app do TikTok Shop Creator, em *Parcerias* ou *Notificações*. '
                 'Às vezes ele leva alguns minutos para aparecer. Quando aceitar, me manda “aceitei” que eu confiro na hora. 😊')
@@ -54,8 +54,8 @@ MISSIONS = ('As campanhas e missões ficam no *Amplify Club*, no Circle. Entre c
 ACCESS_HINT = 'Seu acesso ao *Amplify Club* já está liberado: entre no Circle com o mesmo e-mail do cadastro. 😊'
 SAMPLES = ('Tem sim! 😊 As campanhas com amostras aparecem no *Amplify Club* e você se candidata às que combinam '
            'com seu perfil. A liberação de cada amostra depende da marca e da campanha.')
-INVITE_WAIT = 'Combinado! Já pedi o convite no TikTok. Assim que ele sair, te aviso aqui 😊'
-INVITE_STILL = 'O convite ainda está a caminho no TikTok. Te aviso aqui assim que ele sair 💙'
+INVITE_WAIT = 'Sua autorização está registrada. O envio do convite ainda não está confirmado.'
+INVITE_STILL = 'Sua autorização está registrada. O envio do convite ainda não está confirmado.'
 INVITE_CHECK = 'Vou conferir agora no TikTok como está o seu convite 🔎'
 PRIOR_INVITE_CHECK = 'Há uma tentativa anterior registrada. Vou conferir no TikTok a situação atual antes de seguir 🔎'
 INVITE_STEPS = ('Seu convite da *Amplify* está esperando no TikTok. Para aceitar:\n'
@@ -63,7 +63,7 @@ INVITE_STEPS = ('Seu convite da *Amplify* está esperando no TikTok. Para aceita
                 '2. Vá em *Parcerias* ou em *Notificações*.\n'
                 '3. Toque no convite da *Amplify* e em *Aceitar*.\n\n'
                 'Quando aceitar, me manda “aceitei” que eu confiro na hora. 😊')
-PRIOR_INVITE_RESENT = 'Pedi um novo convite no TikTok. Te aviso aqui assim que ele sair 😊'
+PRIOR_INVITE_RESENT = 'Sua autorização está registrada. O envio do novo convite ainda não está confirmado.'
 SHOP_STEPS = ('Vamos conferir o que aparece no seu app 😊\n'
               '1. No app do TikTok, abra o seu *perfil*.\n'
               '2. Toque no menu (as três linhas no canto de cima) e procure *TikTok Shop* ou '
@@ -104,15 +104,11 @@ RELATIONSHIP_RETRY = 'Não consegui consultar o TikTok agora.'
 INVITE_CONFIRMING = 'O envio do convite ainda não está confirmado.'
 INVITE_RETRYING = 'O envio do convite ainda não está confirmado.'
 # Release 51: nada de equipe ou atendimento humano no texto ao lead (o alerta da ponte segue por e-mail).
-INVITE_FAILED_TEAM = 'O TikTok não deixou enviar o convite agora 😕 Sua autorização ficou anotada e eu te chamo aqui assim que der certo.'
+INVITE_FAILED_TEAM = 'Não foi possível concluir o envio do convite agora. Sua autorização está registrada.'
 PROFILE_INELIGIBLE = ('Conferi seu perfil e, por enquanto, ele ainda não pode entrar na Amplify 😕 Quando o seu TikTok '
                       'Shop Creator estiver ativo e liberado, é só me chamar aqui que eu confiro de novo 💙')
 SHOP_RECHECK_SOON = ('Acabei de conferir há pouquinho 😊 Me manda “pronto” de novo daqui a uns 10 minutos que eu '
                      'confiro outra vez.')
-# Auditoria 20/11: depois de 2 reconferências sem resposta do TikTok (sem citar equipe, release 51).
-SHOP_LIMIT = ('Já conferi algumas vezes e o TikTok ainda não liberou essa informação. '
-              'Agora vou acompanhar por aqui e te chamo até amanhã, combinado? Não precisa mandar “pronto” de novo 💙')
-SHOP_LIMIT_STILL = 'Tô acompanhando seu perfil por aqui e te chamo até amanhã 💙'
 
 CONSENT_BUTTONS = ['Pode mandar', 'Tenho uma dúvida']
 CONSENT_QUESTION = 'Posso te mandar o convite no TikTok?'

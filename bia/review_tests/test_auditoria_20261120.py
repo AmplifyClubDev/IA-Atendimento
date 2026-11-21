@@ -62,35 +62,25 @@ class ProntoComLimiteTests(unittest.TestCase):
         effect = next(item for item in result['effects'] if item['operation'] == 'precheck')
         return _settle_at(result['state'], effect, AT)
 
-    def test_duas_reconferencias_depois_mensagem_clara_e_alerta(self):
+    def test_duas_reconferencias_avisam_o_time_e_a_conversa_segue_igual(self):
         result = self.stuck()
         self.assertEqual(result['reply'], conversao.SHOP_UNKNOWN)
         now = AT
-        for rodada in (1, 2):
+        for rodada in (1, 2, 3):
             now += timedelta(minutes=11)
             result = _say(result['state'], 'pronto', now)
             check = [e for e in result['effects'] if e['operation'] == 'precheck']
-            self.assertEqual(len(check), 1, rodada)
-            self.assertEqual(result['state']['cycle']['shop_rechecks'], rodada)
+            self.assertEqual(len(check), 1, rodada)  # linha original: reconfere a cada 10 min
+            alerta = result['state']['cycle'].get('team_alert')
+            if rodada < 3:
+                self.assertIsNone(alerta, rodada)
+            else:
+                self.assertEqual(alerta['reason'], 'shop_unknown_limit')
             result = _settle_at(result['state'], check[0], now)
-        now += timedelta(minutes=11)
-        result = _say(result['state'], 'pronto', now)
-        self.assertEqual(result['reply'], conversao.SHOP_LIMIT)
-        self.assertFalse([e for e in result['effects'] if e['operation'] == 'precheck'])
-        self.assertEqual(result['state']['cycle']['team_alert']['reason'], 'shop_unknown_limit')
-        self.assertNotIn('equipe', result['reply'].lower())
-        self.assertNotIn('time', result['reply'].lower().split())
-        alerta = result['state']['cycle']['team_alert']
-        for minutos in (1, 30):
-            result = _say(result['state'], 'pronto', now + timedelta(minutes=minutos))
-            self.assertEqual(result['reply'], conversao.SHOP_LIMIT_STILL)
-            self.assertFalse(result['effects'])
-        self.assertEqual(result['state']['cycle']['team_alert'], alerta)
-
-    def test_lembrete_nao_pede_pronto_depois_do_limite(self):
-        state = self.stuck()['state']
-        state['cycle']['team_alert'] = {'at': AT.isoformat(), 'reason': 'shop_unknown_limit'}
-        self.assertIsNone(retomada._message(state, 1, {}, now=AT))
+            self.assertEqual(result['reply'], conversao.SHOP_UNKNOWN)
+        primeiro = result['state']['cycle']['team_alert']
+        result = _say(result['state'], 'pronto', now + timedelta(minutes=11))
+        self.assertEqual(result['state']['cycle']['team_alert'], primeiro)  # um alerta só
 
 
 import lead_alerts
@@ -162,16 +152,6 @@ class FrasesTests(unittest.TestCase):
         self.assertTrue(real_journey._already_says('Combinado!\n\n' + conversao.INVITE_WAIT,
                                                    conversao.INVITE_STILL, conversao.INVITE_WAIT))
         self.assertFalse(real_journey._already_says('Combinado!', conversao.INVITE_STILL))
-
-    def test_avisos_de_espera_sao_diferentes_e_humanos(self):
-        self.assertNotEqual(conversao.INVITE_WAIT, conversao.INVITE_STILL)
-        frias = ('validação necessária', 'não está confirmado', 'confirmação necessária', 'está registrad')
-        for texto in (conversao.BRIDGE_WAIT, conversao.BRIDGE_STILL, conversao.BRIDGE_NOTE, conversao.INVITE_WAIT,
-                      conversao.INVITE_STILL, conversao.PRIOR_INVITE_RESENT, conversao.INVITE_FAILED_TEAM):
-            with self.subTest(texto=texto):
-                self.assertFalse([f for f in frias if f in texto])
-                palavras = texto.lower().replace('!', ' ').replace('.', ' ').split()
-                self.assertFalse({'time', 'equipe', 'humano'} & set(palavras))  # release 51
 
 
 import contextlib

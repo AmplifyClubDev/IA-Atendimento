@@ -237,7 +237,7 @@ def ground_shared_operational_reply(question, answer, state, *, now=None):
                                   'relationship_pending', 'checking', 'acesso', 'consent_real'}
         and bool(re.fullmatch(r'(?:e ai|deu certo|conseguiu|conseguiram|funcionou|pronto|ja foi|foi)\s*[?!.]*', q)))
     if contextual_status:
-        return 'Ainda não tenho confirmação do TikTok. Assim que chegar, te aviso por aqui 😊'
+        return 'Ainda não tenho confirmação desse resultado. Não vou avançar sem a validação necessária.'
     if not asked and not mentioned:
         return answer
     # Subject words alone are not personal status: requirements, duration and
@@ -262,7 +262,7 @@ def ground_shared_operational_reply(question, answer, state, *, now=None):
     if not asked:
         return UNAVAILABLE
     if not isinstance(state, dict):
-        return 'Ainda não tenho confirmação do TikTok. Assim que chegar, te aviso por aqui 😊'
+        return 'Ainda não tenho confirmação desse resultado. Não vou avançar sem a validação necessária.'
     proven=lambda operation,status:_operation_proven(state,operation,status,now=now,maximum_age_seconds=24*3600)
     if asked & {'invite','relationship'}:
         if proven('relationship','linked') or proven('invite','linked'):
@@ -271,4 +271,4 @@ def ground_shared_operational_reply(question, answer, state, *, now=None):
             return 'O TikTok confirmou que o convite da Amplify está aguardando o aceite.'
         if proven('invite','sent'):
             return 'O TikTok confirmou o envio do convite da Amplify.'
-    return 'Ainda não tenho confirmação do TikTok. Assim que chegar, te aviso por aqui 😊'
+    return 'Ainda não tenho confirmação desse resultado. Não vou avançar sem a validação necessária.'

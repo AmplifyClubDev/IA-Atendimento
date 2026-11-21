@@ -269,8 +269,8 @@ def _deliver(settings, repository, event, cycle_id, kind, source, render, *, htt
 TEAM_REASONS = {
     'invite_failed_twice': 'O convite no TikTok falhou duas vezes.',
     'creator_binding_not_permitted': 'O TikTok não permite vincular este perfil a uma agência.',
-    'shop_unknown_limit': ('O TikTok não traz o status do Shop depois de 2 reconferências. '
-                           'A Bia disse ao lead que retorna até amanhã.'),
+    'shop_unknown_limit': ('O TikTok não traz o status do Shop depois de 2 reconferências; '
+                           'o lead segue mandando "pronto".'),
 }
 
 

@@ -2452,14 +2452,11 @@ def _handle_real_turn(session, text, assistant_callback=None, *, now=None, opera
                 last_check = engine._clock(precheck_record.get('observed_at'))
             except (TypeError, ValueError, OverflowError):
                 last_check = None
-        if (isinstance(cycle.get('shop_unknown'), dict)
+        if (isinstance(cycle.get('shop_unknown'), dict) and not isinstance(cycle.get('team_alert'), dict)
                 and int(cycle.get('shop_rechecks') or 0) >= SHOP_RECHECK_LIMIT):
             # Auditoria 20/11 (conversa 50149): depois de 2 reconferências sem status do Shop,
-            # a Bia para de consultar, diz quando volta e o time recebe um alerta (uma vez).
-            if not isinstance(cycle.get('team_alert'), dict):
-                cycle['team_alert'] = {'at': engine._stamp(at), 'reason': 'shop_unknown_limit'}
-                return _finish(state, at, reply=conversao.SHOP_LIMIT, buttons=[])
-            return _finish(state, at, reply=conversao.SHOP_LIMIT_STILL, buttons=[])
+            # o time recebe um alerta (uma vez). A conversa com o lead segue a linha original.
+            cycle['team_alert'] = {'at': engine._stamp(at), 'reason': 'shop_unknown_limit'}
         if (last_check is not None and at - last_check < BRIDGE_RETRY_GAP and isinstance(cycle.get('shop_unknown'), dict)
                 and re.search(r'\b(?:pronto|prontinho|ativei|ativado|ativo|feito|consegui|liberou|liberado)\b', normal)):
             return _finish(state, at, reply=conversao.SHOP_RECHECK_SOON, buttons=[])
