@@ -1,0 +1,9 @@
+{
+  "name": "railway",
+  "version": "0.1.0",
+  "description": "Consulta e operação dos serviços no Railway (status, logs, variáveis, redeploy) direto do Claude Code.",
+  "author": {
+    "name": "AmplifyClubDev"
+  },
+  "keywords": ["railway", "deploy", "logs", "infra"]
+}
