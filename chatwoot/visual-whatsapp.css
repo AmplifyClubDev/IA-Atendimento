@@ -1,0 +1,70 @@
+/* Chatwoot 4.15 com visual de WhatsApp (21/11/2026).
+   Só aparência: não muda mensagens, envio, etiquetas nem a Bia.
+   Instalação: Super Admin › Settings › Dashboard Scripts, colando o conteúdo de visual-whatsapp.html. */
+
+/* Fundo da conversa */
+.conversation-panel { background-color: #efeae2 !important; }
+body.dark .conversation-panel { background-color: #0b141a !important; }
+
+/* Texto das mensagens no tamanho do WhatsApp */
+.message-bubble-container [data-bubble-name] { font-size: 14.2px; line-height: 1.4; }
+
+/* Lead (esquerda): balão branco */
+.message-bubble-container.justify-start [data-bubble-name].left-bubble {
+  background: #ffffff !important; color: #111b21 !important;
+  border-radius: 8px !important; border-top-left-radius: 0 !important;
+  box-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13);
+}
+body.dark .message-bubble-container.justify-start [data-bubble-name].left-bubble {
+  background: #202c33 !important; color: #e9edef !important;
+}
+
+/* Bia e time (direita): balão verde. Notas privadas (amarelas) ficam como estão. */
+.message-bubble-container.justify-end [data-bubble-name].right-bubble:not([class*="amber"]) {
+  background: #d9fdd3 !important; color: #111b21 !important;
+  border-radius: 8px !important; border-top-right-radius: 0 !important;
+  box-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13);
+}
+body.dark .message-bubble-container.justify-end [data-bubble-name].right-bubble:not([class*="amber"]) {
+  background: #005c4b !important; color: #e9edef !important;
+}
+
+/* O texto segue a cor do balão (a caixa "prose" do Chatwoot usa um cinza próprio) */
+.message-bubble-container [data-bubble-name] .prose,
+.message-bubble-container [data-bubble-name] .prose * { color: inherit !important; }
+
+/* Botões das perguntas (Sim / Não…): no tema escuro, como no WhatsApp escuro */
+body.dark .message-bubble-container li[class*="text-[#009e84]"] {
+  background: #202c33 !important; color: #00a884 !important;
+}
+
+/* *negrito* do WhatsApp: o Chatwoot lê como itálico; aqui volta a ser negrito.
+   A Bia não usa itálico (_texto_), então nada se perde. */
+.message-bubble-container [data-bubble-name] em { font-style: normal; font-weight: 600; }
+
+/* Links e horário com as cores do WhatsApp */
+.message-bubble-container [data-bubble-name] a,
+.message-bubble-container [data-bubble-name] .prose a { color: #027eb5 !important; }
+body.dark .message-bubble-container [data-bubble-name] a,
+body.dark .message-bubble-container [data-bubble-name] .prose a { color: #53bdeb !important; }
+.message-bubble-container [data-bubble-name] time,
+.message-bubble-container [data-bubble-name] [class*="text-xs"] { color: #667781 !important; }
+body.dark .message-bubble-container [data-bubble-name] time,
+body.dark .message-bubble-container [data-bubble-name] [class*="text-xs"] { color: #8696a0 !important; }
+
+/* Vídeos: de miniatura 72 px para o tamanho do celular */
+.message-bubble-container [data-bubble-name] [class*="size-[72px]"] {
+  width: 240px !important; height: 426px !important; max-height: 60vh;
+}
+.message-bubble-container [data-bubble-name] [class*="size-[72px]"] video,
+.message-bubble-container [data-bubble-name] [class*="size-[72px]"] img {
+  width: 100% !important; height: 100% !important; object-fit: cover;
+}
+
+/* Avisos do sistema (etiqueta, atribuição) como os avisos centrais do WhatsApp */
+.message-bubble-container [data-bubble-name="activity"] {
+  background: #ffffffe6 !important; color: #54656f !important; box-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13);
+}
+body.dark .message-bubble-container [data-bubble-name="activity"] {
+  background: #182229 !important; color: #8696a0 !important;
+}
