@@ -20,14 +20,33 @@ desde que a ordem abaixo seja seguida. Nada foi alterado. Cada passo espera o se
 O patch já foi copiado para `cadastro/app/publico.py`. Duas ferramentas mexendo em produção ao mesmo tempo é risco:
 combinar quem publica.
 
-## 1. Railway — de 19 para 10 serviços
+## 1. Railway — análise de custo (7 dias, 14 a 21/11)
 
-**Ficam (em uso):** Bia - Atendimento, Cadastro, TikTok Pre-validacao, TikTok Agenciamento, TikTok Partner Bridge,
-Consulta TikTok, Chatwoot Web, Chatwoot Worker, Chatwoot Postgres, Chatwoot Redis.
+**Em 1 linha:** a conta de CPU e memória está em ~US$ 177/mês e **64% vem de uma ponte só** (TikTok Agenciamento,
+11 GB de RAM parados). Reiniciar e limitar essa ponte leva a conta para ~US$ 80/mês. Os 9 serviços parados quase
+não custam, mas poluem o painel e seguram segredos dos ativos.
 
-**Saem (sem atividade desde 30/10 ou nunca publicados):** Back-End, Worker (falhou em 11/09), Redis,
-Entrega de Acessos, Processamento de Cadastros, Aviso de Manutenção, amplify-workspace, amplify-results-cache,
-TikTok Catalog Collector.
+Preço usado: US$ 20 por vCPU/mês e US$ 10 por GB de RAM/mês (tabela do Railway). Volumes (13 GB no total) ≈ US$ 2/mês.
+
+| Card | Faz sentido? | RAM média | ~US$/mês | Proposta |
+|---|---|---|---|---|
+| TikTok Agenciamento | Sim (confere vínculo na Bia e no formulário) | **11,1 GB** | **112** | Reiniciar e limitar a 3 GB. Esperado ~2 GB, como as outras pontes |
+| TikTok Partner Bridge | Sim (envia o convite) | 1,8 GB | 19 | Manter; limite de 3 GB |
+| TikTok Pre-validacao | Sim (confere perfil e Shop) | 1,8 GB | 19 | Manter; limite de 3 GB |
+| Chatwoot Web | Sim | 0,7 GB | 8 | Manter |
+| Chatwoot Worker | Sim | 0,7 GB | 7 | Manter |
+| Chatwoot Postgres | Sim | 0,4 GB | 4 | Manter |
+| Bia - Atendimento | Sim | 0,25 GB | 4 | Manter |
+| Cadastro | Sim | 0,2 GB | 2 | Manter |
+| Consulta TikTok | Sim (a Bia usa para consultar perfil) | 0,1 GB | 1 | Manter |
+| Chatwoot Redis | Sim | 0,02 GB | 0,2 | Manter |
+| Back-End, Worker, Redis, Entrega de Acessos, Processamento de Cadastros, Aviso de Manutenção, amplify-workspace, amplify-results-cache, TikTok Catalog Collector | **Não** (0 de CPU e RAM na semana) | 0 | ~0 + volumes | Mover os segredos emprestados (abaixo) e apagar |
+
+**Por que a Agenciamento está em 11 GB:** a ponte abre um navegador (Chromium) por consulta. O deploy é de 30/10 e o
+serviço nunca reiniciou. A memória ficou estável em 10,2–11,7 GB a semana toda, o que indica navegadores
+acumulados e não uso real. O código das pontes não está no GitHub, então a causa raiz não pode ser corrigida daqui.
+**Risco do reinício:** o TikTok pode pedir login de novo. O perfil do navegador fica no volume `/data`, então em
+geral a sessão volta sozinha. Se pedir login, o painel `/pontes` mostra.
 
 **Por que não dá para apagar direto:** os serviços ativos ainda "pegam emprestado" segredos dos parados.
 É isso que desenha as linhas no painel.
