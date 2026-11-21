@@ -55,3 +55,25 @@ body.dark .message-bubble-container [data-bubble-name] .prose a { color: #53bdeb
 
 /* Botões das perguntas (Sim / Não…) no tema escuro */
 body.dark .message-bubble-container li[class*="text-[#009e84]"] { background: #202c33 !important; color: #00a884 !important; }
+
+/* Pergunta + botões: mesmo bloco de 360 px, pergunta na largura toda, botões compactos */
+.message-bubble-container div[class*="w-[420px]"] { width: 360px !important; max-width: 100% !important; }
+.message-bubble-container div[class*="w-[420px]"] [data-bubble-name].right-bubble,
+.message-bubble-container div[class*="w-[420px]"] [data-bubble-name].left-bubble { max-width: 100% !important; width: 100% !important; }
+.message-bubble-container ul.list-none { gap: 2px !important; margin-top: 2px !important; }
+.message-bubble-container li[class*="text-[#009e84]"] {
+  font-size: 14px !important; line-height: 19px !important; padding: 7px 8px !important;
+  border-radius: 7.5px !important; font-weight: 500; box-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13);
+}
+
+/* Botão de link enviado direto pelo WhatsApp (nota "🔗 Botão enviado pelo WhatsApp"):
+   o script visual-whatsapp.js marca a nota com .amp-cta e põe o botão embaixo */
+.message-bubble-container [data-bubble-name].amp-cta { background: #d9fdd3 !important; color: #111b21 !important; }
+body.dark .message-bubble-container [data-bubble-name].amp-cta { background: #005c4b !important; color: #e9edef !important; }
+.amp-cta .amp-cta-head { display: none !important; }
+.amp-cta-btn {
+  display: flex; align-items: center; justify-content: center; gap: 6px; margin: 6px -8px -6px; padding: 9px 8px;
+  border-top: 1px solid rgba(11, 20, 26, 0.12); color: #027eb5 !important; font-size: 14px; font-weight: 500;
+  text-decoration: none !important;
+}
+body.dark .amp-cta-btn { border-top-color: rgba(233, 237, 239, 0.15); color: #53bdeb !important; }
