@@ -59,3 +59,13 @@ Em 21/11, um `railway up` feito da pasta do Windows (CRLF) quebrou a checagem do
 2. Na pasta exportada: `load_mapping()` precisa passar e o `MANIFEST.json` precisa bater (sha256 de cada arquivo).
 3. `railway up <pasta> --path-as-root --service "Bia - Atendimento" --detach` e acompanhar até `/healthz` = 200.
 4. Rollback: `deploymentRedeploy` do último deploy bom.
+
+## Cadastro publicado a partir do GitHub (21/11/2026, 12:42 UTC)
+
+- Antes: imagem de 03/11 + patches em variáveis base64. Comparação arquivo por arquivo (sha256 via `railway ssh`, só
+  leitura): nada em produção faltava no GitHub; a única diferença real era a etiqueta de acesso (desligada).
+- Publicado com `railway up <cópia LF de cadastro/app> --path-as-root` (deploy `093a0849`). Os 4 patches respondem
+  "já aplicado" e não mudam nada; o teste das pontes deu `ready=3`.
+- Entrou no ar: aviso "acesso liberado" no formato do WhatsApp, 3 códigos de e-mail válidos, @ sem resultado velho,
+  erro de anexo e retomada do formulário.
+- Próximo passo seguro: tirar as variáveis `CADASTRO_*_B64` e o comando de início com patches (hoje não fazem nada).
