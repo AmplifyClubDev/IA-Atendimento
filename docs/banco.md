@@ -35,3 +35,17 @@
 | C | Padronizar nomes na vitrine: origem com 1 lista só; "A confirmar" deixa de ser etapa | Baixo (só visões) |
 | D | Duplicados: 9 fichas com o mesmo WhatsApp, 19 com o mesmo @, 5 agenciamentos repetidos, 42 fichas com 2+ atendimentos abertos | Médio: revisão caso a caso |
 | E | Dividir `creators` (111 colunas) em **Ficha** (quem é e em que etapa está) e **Respostas do formulário** (63 campos) | Alto: muda 6 funções, a Bia e o Cadastro. Projeto separado |
+
+## Aplicado em 21/11/2026 (com backup em `backup_20261121`)
+
+| Parte | O que foi feito | Conferido |
+|---|---|---|
+| A | 15 colunas sem uso removidas: `creators` 111 → 102, `agenciamentos` 22 → 16 | Contagem exata = 0 valores antes; visões abrindo (1.991 fichas, 268 agenciamentos, 214 cadastros) |
+| B | `interno.tiktok_agenciamentos_diario` removida (cópia do catálogo de 10/11). `_coletas` ficou: o catálogo depende dela | Lista de agenciados segue com 1.522 |
+| C | Fichas e Atendimentos com as mesmas 6 etapas (Conhecer, Qualificação, Validação, Convite, Formulário, Cadastro confirmado) e 1 lista de origem. Cadastro confirmado sempre vence na ficha | 0 fichas em "A confirmar"; 217 em "Cadastro confirmado" (antes 85) |
+
+Backup: `backup_20261121.creators_colunas_removidas`, `.agenciamentos_colunas_removidas`, `.tiktok_agenciamentos_diario`,
+`.definicoes_visoes` (definições antigas das telas). O esquema de backup não fica exposto na API.
+Para desfazer uma tela: `CREATE OR REPLACE VIEW public.<nome> AS <definicao>` com o texto guardado.
+
+Pendente (decidir): D (duplicados, caso a caso) e E (dividir a ficha em Ficha + Respostas do formulário).
