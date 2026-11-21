@@ -504,7 +504,8 @@ def submit(form_id, row, answers, received):
                                 "e toque em Verificar.", 409)
         relationship = proof(result)
         d.store.update(form_id, agency_json=json.dumps(relationship), agency_at=time.time())
-    received_at = received.isoformat(timespec="microseconds").replace("+00:00", "Z")
+    # Produção (patch vinculo-clock, 20/11): horário depois da reconferência do @, para não ficar antes da prova.
+    received_at = datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
     reading = gmv_reading(keys["print_gmv"])
     context = {
         "event_id": event_id(form_id), "form_instance_id": form_id, "received_at": received_at,
