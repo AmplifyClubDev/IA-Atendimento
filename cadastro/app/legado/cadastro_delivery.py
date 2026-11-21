@@ -20,12 +20,21 @@ import requests
 GROUPS = {"Start": 85839, "Silver": 85616, "Gold": 85617, "Diamond": 85845}
 COMMUNITY = 463176
 START_URL = "https://amplify-club.circle.so/c/comece-aqui-d2fee2"
+# Auditoria 21/11/2026: formato do WhatsApp (primeiro nome, parágrafos curtos, *negrito*).
 ACCESS_RELEASED_NOTICE = (
-    "Oi, {name}! Seu acesso à Amplify foi liberado 💙\n"
-    "Enviamos as instruções para o e-mail que você cadastrou: {email}\n"
-    "Procure por uma mensagem da Amplify na sua caixa de entrada. Se não encontrar, confira também o spam, promoções ou lixo eletrônico.\n"
-    "Seu acesso já está ativo no Circle. Para começar, entre pelo link enviado no e-mail e siga as instruções de boas-vindas."
+    "Oi, {name}! 🎉\n\n"
+    "*Seu acesso à Amplify foi liberado* 💙\n\n"
+    "Enviamos as instruções para o e-mail:\n"
+    "{email}\n\n"
+    "Não encontrou? Confira também o *spam*, *promoções* ou *lixo eletrônico*.\n\n"
+    "Para começar, entre pelo link do e-mail e siga as boas-vindas do Club."
 )
+
+
+def first_name(name):
+    """Primeiro nome com só a inicial maiúscula ("GABRIELA HELENA" -> "Gabriela")."""
+    parts = str(name or "").split()
+    return parts[0][:1].upper() + parts[0][1:].lower() if parts else "tudo bem"
 
 
 def category(gmv):
@@ -225,7 +234,7 @@ class ChatwootAccessNotifier:
         key = f"cadastro-acesso-liberado:{job['onboarding_id']}:v{job['revision']}"
         if self.already_sent(conversation_id, key):
             return {"notice_status": "aviso_chatwoot_ja_enviado"}
-        content = ACCESS_RELEASED_NOTICE.format(name=job["name"], email=job["email"])
+        content = ACCESS_RELEASED_NOTICE.format(name=first_name(job["name"]), email=job["email"])
         response = self.session.post(self.messages_url(conversation_id), json={
             "content": content,
             "message_type": "outgoing",
