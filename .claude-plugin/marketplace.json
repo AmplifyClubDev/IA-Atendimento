@@ -1,0 +1,16 @@
+{
+  "name": "amplify-plugins",
+  "owner": {
+    "name": "AmplifyClubDev"
+  },
+  "metadata": {
+    "description": "Plugins internos da Amplify para o Claude Code."
+  },
+  "plugins": [
+    {
+      "name": "railway",
+      "source": "./plugins/railway",
+      "description": "Consulta e operação dos serviços no Railway (status, logs, variáveis, redeploy) direto do Claude Code."
+    }
+  ]
+}
