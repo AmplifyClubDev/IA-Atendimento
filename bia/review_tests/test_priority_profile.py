@@ -79,10 +79,9 @@ class PriorityFlow(unittest.TestCase):
         self.assertEqual(len(self.posts),1)
         state=self.send('Especialista')
         self.assertEqual(state['cycle']['bia_validation']['stage'],'specialist')
-        # Auditoria 20/11: o pedido de especialista avisa o time (1 alerta a mais, sem repetir).
-        self.assertEqual(len(self.posts),2)
-        self.assertIn('Especialista solicitado',self.posts[-1]['payload']['text'])
-        self.send('Oi'); self.assertEqual(len(self.posts),2)
+        # 22/11: ficam só os alertas de GMV; o pedido de especialista não gera alerta.
+        self.assertEqual(len(self.posts),1)
+        self.send('Oi'); self.assertEqual(len(self.posts),1)
 
     def test_unknown_slack_receipt_preserves_pending_after_reload(self):
         self.qualify(); self.http_fail=True

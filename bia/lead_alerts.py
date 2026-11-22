@@ -210,12 +210,9 @@ def dispatch(settings, repository, event, state, *, http=None):
         return {'status': 'blocked', 'reason': 'invalid_scope', 'events': {}}
     if state.get('opt_out') or cycle.get('opt_out'):
         return {'status': 'blocked', 'reason': 'opt_out', 'events': {}}
+    # 22/11/2026: ficam só os alertas de GMV (pedido do Vitor). O alerta extra de
+    # "Especialista solicitado" foi desligado; a escolha Bia/Especialista do lead continua.
     kinds = ['threshold']
-    # Auditoria 20/11: o pedido de especialista avisa o time uma vez por ciclo
-    # (antes ninguém sabia e a janela de 24 h do WhatsApp fechava). "Seguir com a
-    # Bia" continua sem alerta extra.
-    if record.get('preference') == 'specialist' and record.get('handoff_requested') is True:
-        kinds.append('specialist')
     statuses = record.setdefault('alert_statuses', {})
     results = {}
     for kind in kinds:

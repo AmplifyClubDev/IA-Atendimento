@@ -95,18 +95,14 @@ class AlertTests(unittest.TestCase):
         self.run_alert(); self.run_alert()
         self.assertEqual(len(self.posts()),1)
 
-    def test_specialist_request_sends_one_alert_per_cycle(self):
+    def test_specialist_request_sends_no_extra_alert(self):
+        # 22/11: ficam só os alertas de GMV; o pedido de especialista não gera alerta.
         self.run_alert()
         rec=self.state['cycle']['bia_validation']
         rec['preference']='specialist'; rec['handoff_requested']=True
         result=self.run_alert()
-        self.assertEqual(result['events']['specialist']['status'],'accepted')
-        self.assertIn('Especialista solicitado',self.posts()[-1]['payload']['text'])
-        self.assertIn('A equipe precisa assumir a conversa',self.posts()[-1]['payload']['text'])
-        for preference in ('machine','specialist'):
-            rec['preference']=preference
-            self.run_alert()
-        self.assertEqual(len(self.posts()),2)
+        self.assertNotIn('specialist',result['events'])
+        self.assertEqual(len(self.posts()),1)
 
     def test_specialist_without_handoff_flag_does_not_alert(self):
         self.run_alert()
