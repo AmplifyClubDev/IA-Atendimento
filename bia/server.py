@@ -204,6 +204,11 @@ class _InboundReplyFence:
             return any(not row['settled'] for row in rows.values())
 
 
+# 22/11/2026: alerta "Lead parado precisa do time" (cycle['team_alert']) desligado a pedido.
+# Os alertas de GMV alto e de especialista (lead_alerts.dispatch) continuam como estão.
+TEAM_ALERTS_ENABLED = False
+
+
 def _log_inbound_failure(error):
     """Auditoria 20/11: uma linha de log por falha, só com tipo e ponto do código (sem dados do lead)."""
     try:
@@ -483,7 +488,10 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
     def send_team_alert(event, conv, state):
         """Auditoria 20/11: cycle['team_alert'] vira alerta no canal da Bia (uma vez por motivo e ciclo).
 
-        Opcional: uma falha aqui nunca muda a resposta ao lead nem o estado da conversa."""
+        Opcional: uma falha aqui nunca muda a resposta ao lead nem o estado da conversa.
+        22/11: desligado a pedido (alerta "Lead parado precisa do time" saía demais no Slack)."""
+        if TEAM_ALERTS_ENABLED is not True:
+            return
         alert = (state.get('cycle') or {}).get('team_alert') if isinstance(state, dict) else None
         if not isinstance(alert, dict) or alert.get('status') == 'accepted':
             return

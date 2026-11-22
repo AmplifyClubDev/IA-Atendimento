@@ -240,3 +240,10 @@ for _name in [n for n in vars(test_etiquetas48.Etiquetas48Tests) if n.startswith
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class AlertaLeadParadoDesligadoTests(unittest.TestCase):
+    """22/11: 'Lead parado precisa do time' desligado; os outros alertas seguem."""
+
+    def test_alerta_de_lead_parado_esta_desligado(self):
+        self.assertIs(server.TEAM_ALERTS_ENABLED, False)

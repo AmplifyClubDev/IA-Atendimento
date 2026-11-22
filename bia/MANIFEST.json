@@ -219,8 +219,8 @@
     },
     {
       "path": "server.py",
-      "bytes": 109645,
-      "sha256": "101342125eba8f314092f7af8951cd7f24de6e416a2e636e39d12393222344ad"
+      "bytes": 110016,
+      "sha256": "0f3403e54b3c3757e17e2eebed99d849a21ec9c24d7b4c11553ec6885627b9a2"
     },
     {
       "path": "smtp.py",
