@@ -38,3 +38,13 @@ git push origin <hash>:refs/heads/<nome>
 | `review/bia-isolated-test-router-20261104` | `ccaabb44947a6c66632a36eba82d2e9039f05ee2` |
 
 Ficaram (têm trabalho que não está na `main`): `claude/relaxed-einstein-h7mkax` (plugin do Railway), `docs/governanca-times-onboarding-20261106`, `fix/bia-identificacao-20261117`, `review/bia-isolated-knowledge-20261106`, `review/isolated-bridges-20261104`. As tags `bia-rNN` continuam.
+
+## 22/11/2026 — as 5 branches com trabalho próprio
+
+| Branch | Último commit | Destino |
+|---|---|---|
+| `claude/relaxed-einstein-h7mkax` | `a635befa79b87fb4c3f25d28247aa7ff1078c6e3` | Juntada na `main` (plugin do Railway) |
+| `docs/governanca-times-onboarding-20261106` | `17a6ed8bc96b0bb696b93e8df4e199416bb3e5f9` | Juntada na `main` (doc de governança) |
+| `review/bia-isolated-knowledge-20261106` | `edeb82add7f02aa1d6efc700cd23a10f00e67fc0` | Juntada na `main` (Bia interpreta respostas na etapa ativa; **ainda não publicada**) |
+| `fix/bia-identificacao-20261117` | `9c891e2afad1eab6daab63a0d56233a65ffb89b3` | **Apagada sem juntar**: mudava a linha do atendimento |
+| `review/isolated-bridges-20261104` | `8cb784c1a9c79b28c9da4ac153173aa26f1d22d3` | **Apagada sem juntar**: ensaio de 04/11, superado |
