@@ -21,6 +21,7 @@ from store import Store
 from v5 import RestGateway
 from vigia_atendimento import Chatwoot, VigiaAtendimento
 from vigia_ponte import VigiaPonte
+from telegram_alerta import Telegram, juntar
 
 STATIC = Path(__file__).resolve().parent / "static"
 RECOVERY_PNG = "be49aa1c21c7989f47f0f148f668bd0e7824c8065303894f397a44ac6ca68448.png"
@@ -69,8 +70,9 @@ def alerta_por_email(env):
 
 
 def vigia_da_ponte(env):
-    """Um vigia por ponte configurada; o botão do e-mail é o link único das pontes."""
-    enviar = enviar_alerta(env)
+    """Um vigia por ponte configurada; avisa por e-mail e no Telegram. O botão leva ao link único das pontes."""
+    telegram = Telegram.do_ambiente(env)
+    enviar = juntar(enviar_alerta(env), telegram.enviar if telegram else None)
     if not enviar:
         return []
     painel = pontes.link(env)
