@@ -59,6 +59,21 @@ export function lerContextoSalvo(arquivo) {
   }
 }
 
+// Trava do Chrome deixada por um container antigo (SingletonLock -> "<host>-<pid>"). Num container novo,
+// o volume /data só está aqui, então trava de outro host é órfã: o Chrome se recusa a abrir até ela sair.
+// Só remove os 3 arquivos Singleton*; o perfil (cookies, login) não é tocado.
+export function limparTravaOrfa(profileDir, hostAtual) {
+  const trava = path.join(profileDir, 'SingletonLock');
+  let alvo;
+  try { alvo = fs.readlinkSync(trava); } catch { return false; }
+  const host = String(alvo).replace(/-\d+$/, '');
+  if (!host || host === hostAtual) return false;
+  for (const nome of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
+    try { fs.unlinkSync(path.join(profileDir, nome)); } catch { /* já não existe */ }
+  }
+  return true;
+}
+
 export function salvarContexto(arquivo, { relationListUrl, pageUrl }) {
   if (!capturedRelationUrl(relationListUrl)) return false;
   const dados = { relationListUrl, pageUrl: paginaDeParceiroValida(pageUrl) ? pageUrl : null, salvoEm: new Date().toISOString() };

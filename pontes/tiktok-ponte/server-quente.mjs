@@ -30,9 +30,11 @@ import crypto from 'node:crypto';
 import { validRole, roleAllows, capturedRelationUrl, activateExistingSession } from './interactive-policy.mjs';
 import { relationDetails } from './relation-details.mjs';
 import {
-  arquivoContexto, classificarPagina, lerContextoSalvo, paginaDeParceiroValida, proximaEspera, salvarContexto,
+  arquivoContexto, classificarPagina, lerContextoSalvo, limparTravaOrfa, paginaDeParceiroValida, proximaEspera,
+  salvarContexto,
 } from './auto-recuperacao.mjs';
 import http from 'node:http';
+import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { chromium } from 'playwright';
@@ -143,6 +145,7 @@ async function abrirContexto() {
   }
   operatorLoginMode = true;
   contextoPronto = false;
+  if (limparTravaOrfa(defaults.profileDir, os.hostname())) console.error('[quente] trava do Chrome de container antigo removida');
   contexto = await chromium.launchPersistentContext(defaults.profileDir, {
     headless: defaults.headless, viewport: { width: 1440, height: 1000 },
   });

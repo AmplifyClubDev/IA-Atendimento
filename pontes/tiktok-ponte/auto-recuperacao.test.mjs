@@ -4,8 +4,23 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  arquivoContexto, classificarPagina, lerContextoSalvo, proximaEspera, salvarContexto, ESPERA_LENTA_MS,
+  arquivoContexto, classificarPagina, lerContextoSalvo, limparTravaOrfa, proximaEspera, salvarContexto, ESPERA_LENTA_MS,
 } from './auto-recuperacao.mjs';
+
+test('trava de outro container sai; trava deste fica; perfil intacto', { skip: process.platform === 'win32' }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'perfil-'));
+  fs.writeFileSync(path.join(dir, 'Cookies'), 'x');
+  fs.symlinkSync('host-antigo-8795', path.join(dir, 'SingletonLock'));
+  fs.symlinkSync('123', path.join(dir, 'SingletonCookie'));
+  assert.equal(limparTravaOrfa(dir, 'host-novo'), true);
+  assert.ok(!fs.readdirSync(dir).some((n) => n.startsWith('Singleton')));
+  assert.ok(fs.existsSync(path.join(dir, 'Cookies')));
+  fs.symlinkSync('host-novo-10', path.join(dir, 'SingletonLock'));
+  assert.equal(limparTravaOrfa(dir, 'host-novo'), false);
+  assert.ok(fs.readdirSync(dir).includes('SingletonLock'));
+  assert.equal(limparTravaOrfa(path.join(dir, 'nao-existe'), 'host-novo'), false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
 
 const LISTA = 'https://api-partner-sg.tiktokshop.com/api/v1/affiliate/partner/relation/list?partner_id=sintetico';
 
