@@ -1,0 +1,56 @@
+# Fase A2: espelho do Partner Center no banco (proposta, 23/11/2026)
+
+**Em 1 linha:** cada agenciado do Partner Center vira uma ficha completa no Supabase, atualizada de hora em hora,
+com histórico de tudo que muda (entrou, saiu, renovou, mudou de nível). A renovação e os alertas leem daqui.
+
+## O que temos hoje
+
+A ponte de Agenciamento (Playwright, Chrome logado) já lê a lista inteira de hora em hora, mas devolve só 6 campos:
+
+| Campo da ponte | Vai para |
+|---|---|
+| @, nome | `arroba`, `nome_tiktok` |
+| status (vinculado / solicitado) | só "vinculado" é guardado |
+| create_time_second | `vinculado_em` |
+| expire_time_second | **descartado** |
+| effective_end_date_second | `vigencia_fim` |
+
+Contagens da ponte agora: **1.542 vinculados**, **94 com vinculação solicitada**.
+
+**Falta (está na tela, a ponte não lê):** nível atual e estimado, GMV do nível, seguidores, categorias, tag,
+"Estender" disponível, "Desvinculação solicitada" (49) e "Prestes a expirar" (223).
+
+## Como fica
+
+### Tabelas (só o sistema grava)
+
+| Tabela | 1 linha por | Colunas principais |
+|---|---|---|
+| `interno.agenciados_tiktok` (já existe, ganha colunas) | vínculo | situação, entrou em, contrato até, expira em, pode estender, nível atual, nível estimado, GMV do nível, seguidores, categorias, tag, última coleta |
+| `interno.agenciados_eventos` (nova) | mudança | quando, quem, tipo (entrou, saiu, renovou, mudou de nível, pediu desvinculação), antes → depois, nível e GMV no momento |
+| `interno.telefones_creators` (fase A) | @ + telefone + fonte | telefone, fonte, quando |
+
+### Telas para usar no dia a dia (e nos sistemas)
+
+| Tela | Responde |
+|---|---|
+| `agenciados` | A ficha: @, nome, situação, entrou em, contrato até, dias para vencer, nível, GMV, seguidores, categoria, telefone, origem, passou pela Bia |
+| `agenciados_movimento` | Por hora e por dia: quem entrou e quem saiu, **com nível e GMV** ("saíram 3 Silver hoje") |
+| `agenciados_a_vencer` | Quem vence nos próximos 30 dias, se pode estender, se tem telefone |
+| `agenciados_por_nivel` | Quantos em cada nível, por dia |
+
+## O que precisa mudar
+
+1. **Trazer o código das pontes para o GitHub.** Hoje ele só existe dentro do Railway. Só cópia, sem mexer.
+2. **Ponte de Agenciamento:** passar a devolver os campos que já estão na tela (nível, GMV, seguidores, categorias,
+   estender, desvinculação). Testar com 1 página antes, comparando com a tela.
+3. **Banco:** novas colunas + tabela de eventos + telas (com simulação desfeita antes, como na fase A).
+4. **Coleta da Bia:** gravar os campos novos e os eventos. Continua só leitura no TikTok.
+
+## Telefones (andamento)
+
+- Fontes internas: 238 agenciados com telefone.
+- Chatwoot: o n8n cria contatos com o **nome igual ao @** e com o telefone. Cruzamento dos 1.298 sem telefone
+  (só leitura, nome exatamente igual ao @): **219 achados**, nenhum ambíguo, 882 não estão no Chatwoot,
+  197 deram erro de consulta (repetir). Ainda **não gravado**: precisa da fonte `chatwoot` na tabela.
+- Com isso: cerca de 457 de 1.536 (30%). O resto depende da base Amplify ou do Notion.
