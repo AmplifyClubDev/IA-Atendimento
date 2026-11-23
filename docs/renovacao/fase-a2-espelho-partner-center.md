@@ -82,3 +82,15 @@ Contagens da ponte agora: **1.542 vinculados**, **94 com vinculação solicitada
 | `expire_time_second`, `create_time_second` | expiração e vínculo |
 | `commission_relation.commission_proportion` | comissão (%) |
 | `partner_reject_unlink_times` | pedidos de desvinculação recusados |
+
+## Fase A2 — andamento (23/11/2026, 14:00 UTC)
+
+- ✅ Banco aplicado e testado (`bia/sql/agenciados_ficha.sql` + teste): colunas da ficha, `interno.agenciados_eventos`,
+  telas `agenciados_ficha`, `agenciados_movimento`, `agenciados_movimento_por_nivel`, `agenciados_por_nivel`,
+  `agenciados_a_vencer`. Ficha com 1.570 agenciados (1.542 ativos), 319 vencem em 45 dias.
+- ✅ Bia: a coleta pede `?detalhes=1` e manda a ficha (`agenciados_sync.py`), testes e CI verdes (commit `6671542`).
+- ⏸️ **Publicação da Bia parada.** Às 13:22 e 13:29 UTC alguém publicou na Bia o commit `ce72056` (17/11, branch
+  apagado `fix/bia-alertas-visual-20261117`), com um patch no comando de início. Essa versão é anterior a 20/11:
+  não tem a coleta de hora em hora (a última coleta foi 13:15 UTC), nem as correções da auditoria. O alerta
+  "Lead parado precisa do time" continua desligado (essa versão não tem esse alerta).
+  O serviço agora aparece ligado ao repositório no Railway. Esperando decisão antes de publicar o `main`.
