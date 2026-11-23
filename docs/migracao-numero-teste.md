@@ -45,3 +45,16 @@ os 4 vínculos do contato 3285 ficam.
 
 Passa a seguir a linha real: ficha no banco, consulta do perfil no TikTok, convite (se autorizar) e alertas de GMV.
 O histórico de demonstração dele fica guardado no banco da demo, sem uso.
+
+## Executado em 23/11/2026 (11:10–11:12 UTC) ✅
+
+| Passo | Resultado |
+|---|---|
+| Conferência antes | Deploy bom `69a6c339`, 7 variáveis originais, pré-deploy novo (31231 caracteres) |
+| Backup | `/data/bia-demo-test.sqlite3.bak-20261123` (íntegro, 9 vínculos do contato 3) |
+| Variáveis | 7 trocadas e conferidas (validadas antes com o código de produção) |
+| Vínculos | 9 apagados; ficaram só os 4 do contato 3285 |
+| Reinício | Deploy `622332de` SUCCESS, `/healthz` 200 o tempo todo (sem queda) |
+| Conferência depois | Demonstrações: 18186, 3285, 13381. Conversa 59081 **não** é mais segurada pela demo |
+
+Rollback continua possível com o `.bak-20261123` + as variáveis anteriores (guardadas fora do repositório).
