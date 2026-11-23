@@ -89,7 +89,7 @@ BEGIN
     jsonb_build_object('relation_id', 'zzsinteticoD', 'arroba', 'zz_d', 'status', '9', 'tipo_registro', '13',
       'status_dados', '3', 'create_time_second', s0, 'effective_end_date_second', fim1))));
   IF (r ->> 'gravados')::int <> 1 OR NOT EXISTS (SELECT 1 FROM public.parcerias_historico
-       WHERE tiktok = '@zz_d' AND estado = 'Encerrado') THEN RAISE EXCEPTION 'historico %', r; END IF;
+       WHERE tiktok = '@zz_d' AND estado = 'Saiu (desvinculou)') THEN RAISE EXCEPTION 'historico %', r; END IF;
   PERFORM 1 FROM public.agenciados_movimento_por_categoria LIMIT 1;
   PERFORM 1 FROM public.agenciados_a_vencer LIMIT 1;
   RESET ROLE;

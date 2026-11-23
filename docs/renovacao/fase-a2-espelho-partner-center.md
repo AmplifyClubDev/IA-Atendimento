@@ -182,3 +182,64 @@ Contagens oficiais (`statusCount`, vêm em toda resposta da lista):
 Os pedidos já são enviados ~7 dias antes do vencimento (74 dos 76 que vencem em 7 dias têm pedido).
 
 **Desvinculação solicitada**: status 4, `record.type = 7`; continuam vinculados até o TikTok concluir.
+
+## Fase A3: coleta completa do Partner Center (23/11/2026, 19:30 UTC) ✅
+
+Aprovado pelo Vitor ("Sim, fazer"). Arquivos: `bia/sql/agenciados_partner_completo.sql` (+ teste),
+`bia/agenciados_sync.py` (+ testes). Commit `fa1f8ff`. Banco aplicado 19:32 UTC; Bia publicada 19:34 UTC.
+
+**O que a coleta de hora em hora lê agora** (só leitura na ponte de Agenciamento):
+- status 1 (vinculados) e status 4 (desvinculação solicitada), os dois obrigatórios. Sem o 4, não grava nada,
+  para não marcar saídas falsas.
+- status 2 (convites pendentes), opcional: se falhar, a coleta segue sem eles.
+- As contagens oficiais (`statusCount`) de cada coleta.
+
+**Status 4 (descoberto no levantamento):** o ID da parceria é o mesmo. `create_time_second` = dia do pedido de saída;
+`expire_time_second` = quando a saída conclui (+7 dias). A data de entrada fica em `data_relation.create_time_second`.
+
+**Banco (novas colunas em `interno.agenciados_tiktok`):** `situacao_tiktok` (vinculado / desvinculando),
+`desvinculo_pedido_em`, `desvinculo_conclui_em`, `renovacao_status`, `renovacao_pedido_em`, `renovacao_expira_em`,
+`renovacao_novo_fim`, `renovacao_pedidos_restantes`.
+Tabelas novas: `interno.agenciados_convites`, `interno.partner_center_contagens`, `interno.parcerias_partner_center`.
+Eventos novos: `pediu_desvinculo`, `cancelou_desvinculo`, `pedido_renovacao`.
+
+**Telas novas (só o sistema lê):**
+
+| Tela | Para quê |
+|---|---|
+| `agenciados_renovacao` | Quem vence em até 60 dias ou tem pedido de renovação, com a situação do pedido |
+| `agenciados_desvinculando` | Quem pediu para sair e quando a saída conclui |
+| `agenciados_convites_pendentes` | Convites enviados: pendente, aceitou ou não aceitou |
+| `agenciados_conferencia` | Última contagem oficial do Partner Center × banco (`confere` = sim/não) |
+| `parcerias_historico` | Todas as parcerias da Amplify no Partner Center, com o estado de cada uma |
+
+A ficha (`agenciados_ficha`) ganhou a situação **"Saindo"** e as colunas de renovação e desvinculação no fim.
+
+**Correção:** 11 agenciados em desvinculação estavam marcados como "saiu". Voltaram a ativos, e os 11 eventos
+"saiu" falsos foram apagados (2 deles eram de hoje).
+
+**Histórico importado (uma vez, 19:36 UTC):** 10.230 parcerias. Os códigos foram conferidos com as contagens oficiais:
+
+| status | Estado | No banco | Oficial |
+|---|---|---|---|
+| 1 | Vinculado | 1.472* | 1.551 |
+| 2 | Convite pendente | 99 | 99 |
+| 4 | Desvinculando | 46 | 46 |
+| 6 | Recusou o convite | 425 | 425 |
+| 7 | Convite expirou | 2.874 | 2.894 |
+| 9 | Saiu (desvinculou) | 2.348 | 2.405 |
+| 10 | Contrato venceu | 2.966 | 2.994 |
+
+\* O histórico veio da lista "todas" (máximo de 10.000). Os vinculados completos estão em `agenciados_tiktok`.
+Os filtros 3 e 5 da API devolvem a lista "todas". Os filtros 6, 7, 9 e 10 filtram de verdade.
+
+**Ainda não roda sozinho:** o histórico. Ele foi importado uma vez; a coleta de hora em hora cobre os vinculados,
+os em desvinculação e os convites.
+
+**Primeira coleta completa (19:55 UTC):** 1.591 recebidos (1.545 vinculados + 46 desvinculando), 99 convites pendentes,
+contagens gravadas. Eventos: 73 pedidos de renovação, 46 pedidos de desvinculação, 1 saída real (contrato venceu
+às 19:54). Renovação hoje: 50 aguardando aceite, 18 aceitas, 5 não aceitas.
+A coleta das 19:36 falhou porque coincidiu com a importação do histórico (a ponte estava ocupada).
+
+**Diferença que sobra:** o TikTok conta 1.550 vinculados e o banco tem 1.545. São 5 parcerias que a ponte devolve
+sem ID (1.546 de 1.551 itens já vinham assim antes). A investigar.

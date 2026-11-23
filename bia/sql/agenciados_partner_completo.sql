@@ -479,8 +479,10 @@ FROM u CROSS JOIN b;
 -- Histórico completo das parcerias (todas as que o Partner Center lista).
 CREATE OR REPLACE VIEW public.parcerias_historico AS
 SELECT '@' || r.arroba AS tiktok, r.nome, r.status_tiktok, r.tipo_registro, r.status_dados,
+       -- Códigos conferidos com as contagens oficiais em 23/11/2026 (status 9 = unbound_unlink etc.).
        CASE r.status_tiktok WHEN 1 THEN 'Vinculado' WHEN 2 THEN 'Convite pendente' WHEN 4 THEN 'Desvinculando'
-                            WHEN 6 THEN 'Convite não aceito' WHEN 9 THEN 'Encerrado'
+                            WHEN 6 THEN 'Recusou o convite' WHEN 7 THEN 'Convite expirou'
+                            WHEN 9 THEN 'Saiu (desvinculou)' WHEN 10 THEN 'Contrato venceu'
                             ELSE 'Outro (' || r.status_tiktok || ')' END AS estado,
        (r.vinculo_criado_em AT TIME ZONE 'America/Sao_Paulo') AS convidado_em,
        (r.criado_em AT TIME ZONE 'America/Sao_Paulo') AS ultimo_movimento_em,
