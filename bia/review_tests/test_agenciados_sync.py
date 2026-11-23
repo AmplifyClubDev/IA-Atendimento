@@ -92,6 +92,50 @@ class ColetaTests(unittest.TestCase):
         self.assertEqual(agendador.rodada()['status'], 'registrada')
 
 
+class DetalhesTests(unittest.TestCase):
+    """Fase A2 (23/11/2026): a coleta pede os detalhes e manda a ficha para o banco."""
+
+    DET = {'creator_info.id': '7440000000000000000', 'effective_start_date_second': '1795200000',
+           'expire_time_second': '1795300000', 'creator_tier.level': 2, 'creator_tier.name': 'Level 2',
+           'creator_tier_progress.target_tier.level': 3, 'creator_tier_progress.current_gmv': '3030.50',
+           'creator_tier_progress.target_gmv': '5000', 'creator_tier_progress.progress_percent': 6,
+           'creator_info.fans_cnt': '2170', 'commission_relation.commission_proportion': '10',
+           'partner_reject_unlink_times': 0, 'creator_info.categories.0.name': 'Beleza',
+           'creator_info.categories.1.name': 'Casa', 'creator_info.verified': True, 'outra.coisa': 'x'}
+
+    def test_pede_detalhes_e_mapeia_a_ficha(self):
+        data = resposta(itens=1)
+        data['items'][0]['detalhes'] = dict(self.DET)
+        cliente, banco = Cliente(data=data), Banco()
+        agenciados_sync.coletar(cliente, banco, now=NOW)
+        self.assertEqual(cliente.chamadas[1][3]['detalhes'], '1')
+        item = banco.chamadas[0][1]['p']['itens'][0]
+        self.assertEqual(item['nivel'], '2')
+        self.assertEqual(item['nivel_nome'], 'Level 2')
+        self.assertEqual(item['gmv_nivel'], '3030.50')
+        self.assertEqual(item['gmv_meta'], '5000')
+        self.assertEqual(item['seguidores'], '2170')
+        self.assertEqual(item['categorias'], ['Beleza', 'Casa'])
+        self.assertEqual(item['desvinculos_recusados'], '0')
+        self.assertEqual(item['creator_id'], '7440000000000000000')
+        self.assertNotIn('outra.coisa', item)
+        self.assertNotIn('verified', str(item))
+
+    def test_sem_detalhes_manda_igual_a_antes(self):
+        cliente, banco = Cliente(), Banco()
+        agenciados_sync.coletar(cliente, banco, now=NOW)
+        item = banco.chamadas[0][1]['p']['itens'][0]
+        self.assertEqual(set(item), {'relation_id', 'arroba', 'creator_name', 'create_time_second',
+                                     'effective_end_date_second'})
+
+    def test_detalhes_estranhos_sao_ignorados(self):
+        self.assertEqual(agenciados_sync._detalhes(None), {})
+        self.assertEqual(agenciados_sync._detalhes(['x']), {})
+        saida = agenciados_sync._detalhes({'creator_tier.level': True, 'creator_tier.name': 'x' * 200,
+                                           'creator_info.fans_cnt': {'a': 1}, 'creator_tier_progress.current_gmv': None})
+        self.assertEqual(saida, {})
+
+
 class LigaDesligaTests(unittest.TestCase):
     def test_ligada_por_padrao_e_desligavel(self):
         self.assertTrue(load_settings({})['agency_sync_enabled'])

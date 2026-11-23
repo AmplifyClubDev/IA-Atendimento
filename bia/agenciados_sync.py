@@ -20,6 +20,42 @@ class ColetaInvalida(ValueError):
     pass
 
 
+# Fase A2 (23/11/2026): detalhes da parceria (?detalhes=1 na ponte) -> campos da ficha no banco.
+# A ponte devolve o registro do TikTok achatado ("creator_tier.level": 2). Só passa valores simples e
+# conhecidos; o banco valida de novo. Sem detalhes (ponte antiga), não manda nada a mais.
+_CAMPOS = {
+    'creator_id': 'creator_info.id',
+    'start_second': 'effective_start_date_second',
+    'expire_time_second': 'expire_time_second',
+    'nivel': 'creator_tier.level',
+    'nivel_nome': 'creator_tier.name',
+    'nivel_proximo': 'creator_tier_progress.target_tier.level',
+    'gmv_nivel': 'creator_tier_progress.current_gmv',
+    'gmv_meta': 'creator_tier_progress.target_gmv',
+    'progresso_pct': 'creator_tier_progress.progress_percent',
+    'seguidores': 'creator_info.fans_cnt',
+    'comissao_pct': 'commission_relation.commission_proportion',
+    'desvinculos_recusados': 'partner_reject_unlink_times',
+}
+
+
+def _detalhes(det):
+    if not isinstance(det, dict):
+        return {}
+    saida = {}
+    for campo, chave in _CAMPOS.items():
+        valor = det.get(chave)
+        if isinstance(valor, bool) or valor is None:
+            continue
+        if isinstance(valor, (int, float, str)) and len(str(valor)) <= 80:
+            saida[campo] = str(valor)
+    categorias = [det[f'creator_info.categories.{i}.name'] for i in range(10)
+                  if isinstance(det.get(f'creator_info.categories.{i}.name'), str)]
+    if categorias:
+        saida['categorias'] = [c[:80] for c in categorias]
+    return saida
+
+
 def _validar(code, data):
     items, pages, query = data.get('items'), data.get('pages'), data.get('query')
     if not (code == 200 and data.get('ok') is True and data.get('status') == 'relations_listed'):
@@ -46,6 +82,7 @@ def _validar(code, data):
             'creator_name': item.get('creator_name') if isinstance(item.get('creator_name'), str) else None,
             'create_time_second': str(item.get('create_time_second') or ''),
             'effective_end_date_second': str(item.get('effective_end_date_second') or ''),
+            **_detalhes(item.get('detalhes')),
         })
     return {'total': total, 'completa': completa, 'itens': itens}
 
@@ -54,7 +91,7 @@ def coletar(client, gateway, *, now=None):
     """Uma coleta. Devolve o recibo da função do banco; levanta exceção se a ponte ou o banco falharem."""
     client._ready('agency')
     code, data = client._call('agency', 'GET', '/relations', params={
-        'status': '1', 'page_size': '100', 'page_limit': '100', 'fresh': '1'})
+        'status': '1', 'page_size': '100', 'page_limit': '100', 'fresh': '1', 'detalhes': '1'})
     lista = _validar(code, data)
     observado = (now or datetime.now(timezone.utc)).isoformat()
     payload = {'observado_em': observado, 'fonte': 'ponte_agenciamento:bia', **lista}
