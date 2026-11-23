@@ -44,7 +44,16 @@ Lido sem alterar nada (n8n: 961 fluxos, 25 ativos).
    destes fluxos envia o pedido.
 6. Ainda há restos do Huggy no código (IDs de template e vídeos de outro sistema).
 
-## Perguntas em aberto
+## Quem alimenta a "Base de Renovação" e envia o pedido no TikTok?
 
-- Quem preenche a "Base de Renovação" no Notion (datas de expiração)?
-- Quem envia hoje o pedido de renovação no Partner Center?
+Busca nos 961 fluxos do n8n:
+- **Nenhum** cria linhas na "Base de Renovação"; os dois fluxos acima só leem e completam telefone.
+- **Nenhum** envia o pedido de renovação no TikTok.
+- O Supabase também não tem nada disso (confirmado pelo Vitor).
+
+Conclusão: isso vem de uma automação **fora do n8n e do Supabase**, ainda não localizada.
+
+Outros achados:
+- "Agente AI" (ativo) é o atendimento por IA no **Huggy** (webhook `whatsapp-ia-huggy-bruno`), não no Chatwoot.
+  Ele já tem regra para "não quero renovar": pergunta o motivo, com empatia.
+- O Chatwoot manda todas as mensagens para um endereço na AWS (webhook 10), além da Bia. Pode ser quem atende a caixa 1.
