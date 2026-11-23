@@ -65,3 +65,16 @@ Migration: `bia/sql/agenciados_tiktok.sql`. Desligar: `V5_AGENCY_SYNC_ENABLED=fa
 | `origens_por_dia` | Por origem: novos contatos, chegaram ao convite, agenciados, cadastros |
 
 Primeira coleta: 1.551 agenciados ativos. Origem: continua a resposta "como conheceu a Amplify?" (sem código por anúncio).
+
+## Telefones dos creators (23/11/2026)
+
+`interno.telefones_creators`: 1 linha por @ + telefone + fonte (formulário, ficha da Bia, base Amplify, Notion).
+Migration: `bia/sql/telefones_agenciados.sql` (teste: `test_telefones_agenciados.sql`).
+
+| Peça | Para quê |
+|---|---|
+| `agenciados_contato` (tela) | Agenciados ativos, data de vencimento, dias que faltam e o melhor telefone |
+| `atualizar_telefones_internos_v5()` | Recarrega das fontes internas (ficha da Bia e formulário) |
+| `importar_telefones_v5(p)` | Recebe fontes externas (`bia/tools/importar_telefones.py`) |
+
+Melhor telefone: formulário > ficha da Bia > base Amplify > Notion; depois o mais recente. Só o sistema lê (anon não).
