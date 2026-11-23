@@ -139,6 +139,33 @@ class DetalhesTests(unittest.TestCase):
         self.assertEqual(saida, {})
 
 
+class ClienteRealTests(unittest.TestCase):
+    """23/11: a lista com detalhes (7,5 MB) passava do limite de 2 MB em dois lugares do cliente."""
+
+    def _cliente(self, tamanho):
+        import playwright_client
+        grande = resposta(itens=1)
+        grande['items'][0]['detalhes'] = {'x': 'a' * tamanho}
+        vistos = {}
+
+        def transporte(**kw):
+            vistos.update(kw)
+            return 200, grande
+        settings = {'tiktok_agency_url': 'https://tiktok-agenciamento-production.up.railway.app/bridge',
+                    'tiktok_agency_token': 't' * 40}
+        return playwright_client.PlaywrightClient(settings, transport=transporte), vistos
+
+    def test_coleta_aceita_resposta_grande_e_outras_chamadas_nao(self):
+        import playwright_client
+        cliente, vistos = self._cliente(3 * 1024 * 1024)
+        code, data = cliente._call('agency', 'GET', '/relations', max_bytes=agenciados_sync.MAX_RESPOSTA_BYTES)
+        self.assertEqual((code, vistos['max_bytes']), (200, agenciados_sync.MAX_RESPOSTA_BYTES))
+        cliente, vistos = self._cliente(3 * 1024 * 1024)
+        with self.assertRaises(playwright_client._CallError):
+            cliente._call('agency', 'GET', '/relations')
+        self.assertNotIn('max_bytes', vistos)
+
+
 class LigaDesligaTests(unittest.TestCase):
     def test_ligada_por_padrao_e_desligavel(self):
         self.assertTrue(load_settings({})['agency_sync_enabled'])

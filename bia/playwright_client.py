@@ -66,14 +66,14 @@ def _short(value, size=120):
     return value if isinstance(value, str) and 0 < len(value) <= size and not any(ord(c) < 32 for c in value) else None
 
 
-def _json_object(value):
+def _json_object(value, limit=_LIMIT):
     if not isinstance(value, dict):
         raise _CallError("invalid_response")
     try:
         raw = json.dumps(value, allow_nan=False, separators=(",", ":"))
     except (ValueError, TypeError, OverflowError, RecursionError):
         raise _CallError("invalid_response") from None
-    if len(raw.encode()) > _LIMIT:
+    if len(raw.encode()) > limit:
         raise _CallError("response_too_large")
     return value
 
@@ -272,7 +272,7 @@ class PlaywrightClient:
             raise _CallError("transport_unconfirmed") from None
         if not isinstance(result, tuple) or len(result) != 2 or not _integer(result[0]):
             raise _CallError("invalid_response")
-        status, payload = result[0], _json_object(result[1])
+        status, payload = result[0], _json_object(result[1], max_bytes or _LIMIT)
         if 300 <= status < 400:
             raise _CallError("redirect_rejected")
         if status < 100 or status > 599:

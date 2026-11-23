@@ -169,8 +169,8 @@
     },
     {
       "path": "playwright_client.py",
-      "bytes": 31590,
-      "sha256": "47716b9a019d618089bc73d3fb4d27d0db8b242e50c337cbe13254db9f67e078"
+      "bytes": 32191,
+      "sha256": "843cd50b821848db6f492709392518dabacca7178bc00e2de3cf7abe790b4ca9"
     },
     {
       "path": "real_journey.py",
