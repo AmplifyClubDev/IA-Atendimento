@@ -92,4 +92,17 @@ Código de outra geração: ela já reabria o navegador e voltava à página de 
 **trava órfã do Chrome** (`trava-chrome.mjs`). Publicada: subiu, removeu a trava do container antigo e ficou pronta
 sem login. Testes: 50 passando; 1 falha antiga (procura um arquivo de referência que não veio do container).
 
-Próximos: passo 2 (aviso automático quando precisar de humano), passo 3.
+## Passo 2 publicado (23/11/2026, 13:47 UTC) ✅
+
+O **vigia das pontes já existia** no Cadastro (`cadastro/app/vigia_ponte.py`): lê `/bridge/ready` de cada ponte a
+cada 5 min e, depois de 2 leituras pedindo login (5 a 10 min), manda **e-mail** para `ALERTA_EMAIL` com o botão do
+painel de login, e outro quando a ponte volta. Antes não avisava em mais nenhum lugar.
+
+Novo: o mesmo aviso vai também para o **Telegram** (grupo **Aquisição HQ**, tópico das pontes), pelo bot
+@AmplifyAquisicao_bot que já estava configurado (`cadastro/app/telegram_alerta.py`). Um canal com erro não bloqueia o outro.
+Testes: 4 novos; suíte do Cadastro e CI verdes. Publicado: formulário 200, pontes `ready=3 login=0`.
+
+Como a volta sozinha tenta em 30 s, 2 min e 10 min, o aviso só sai quando ela não resolveu (TikTok pedindo login
+de verdade ou ponte fora por mais de ~10 min).
+
+Próximo: passo 3 (renovou uma, renovou todas).
