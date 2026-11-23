@@ -314,6 +314,9 @@ function naFila(rotulo, operacao) {
       });
       return await Promise.race([operacao(pagina, partnerContext), comPrazo]);
     } catch (erro) {
+      // Contexto que nunca foi aprendido (ex.: tela de relatório nunca aberta) não é sessão ruim:
+      // a página está boa, então não fecha o navegador nem liga a pausa de segurança.
+      if (/^Could not capture TikTok /.test(String(erro?.message || ''))) throw erro;
       // Erro de navegador deixa a página em estado duvidoso: recicla.
       registrarErroContexto(erro);
       registrarBloqueioRiscoSeNecessario(erro, rotulo);

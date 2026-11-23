@@ -1,4 +1,4 @@
-const routes=Object.freeze({invites:new Set(['/health','/ready','/invite']),agency:new Set(['/health','/ready','/relations','/gmv-report']),precheck:new Set(['/health','/ready','/precheck']),gmv:new Set(['/health','/ready','/gmv-report'])});
+const routes=Object.freeze({invites:new Set(['/health','/ready','/invite']),agency:new Set(['/health','/ready','/relations']),precheck:new Set(['/health','/ready','/precheck']),gmv:new Set(['/health','/ready','/gmv-report'])});
 export function validRole(role){return Object.hasOwn(routes,role);}
 export function roleAllows(role,method,path){if(!validRole(role)||!routes[role].has(path))return false;return method===(['/invite','/precheck'].includes(path)?'POST':'GET');}
 export function capturedRelationUrl(value){try{let u=new URL(value);return u.protocol==='https:'&&!u.username&&!u.password&&u.hostname.endsWith('.tiktokshop.com')&&u.pathname==='/api/v1/affiliate/partner/relation/list';}catch{return false;}}
