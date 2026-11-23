@@ -1,0 +1,846 @@
+#!/usr/bin/env node
+/**
+ * Ponte TikTok nativa do AmplifyOS com contexto Playwright persistente.
+ *
+ * POR QUE EXISTE
+ * Criar processo e Chromium por requisicao adicionava de 15 a 27 segundos.
+ * O contexto persistente elimina esse custo e mantem o processamento
+ * serializado para proteger a sessao do Partner Center.
+ *
+ * Medido em 2026-07-29 com a ponte ociosa: 15,8s · 18,2s · 26,7s por chamada.
+ * Com page_limit=1 ainda deu 18s — não é paginação, é o navegador nascendo.
+ * E como a ponte atende UMA tarefa por vez, o backlog de convites a mantém
+ * ocupada e o caminho quente perde a corrida: em 2026-07-30, 17 leads tinham
+ * aceitado de verdade e nenhum foi promovido, porque a confirmação de 60s
+ * estourava atrás de um /invite de até 150s.
+ *
+ * Aqui o navegador e a página do Partner Center ficam VIVOS entre requisições.
+ * O custo caro acontece uma vez, no boot. Cada chamada passa a ser só a
+ * requisição de verdade.
+ *
+ * SEGURANÇA DE OPERAÇÃO
+ * - Contrato HTTP unico consumido pelo Back-End e Worker.
+ * - Uma operação por vez na mesma página (fila interna), como hoje.
+ * - Recicla o contexto por número de chamadas, por idade e sempre que der erro
+ *   de navegador — página viva acumula memória e pode ficar num estado ruim.
+ * - /health prova que o processo vive; /ready prova contexto, sessao e leitura
+ *   autenticada no Partner Center sem criar convite.
+ */
+import crypto from 'node:crypto';
+import http from 'node:http';
+import path from 'node:path';
+import process from 'node:process';
+import { chromium } from 'playwright';
+import { inviteViaUi, inspectInviteForm } from './invite-ui.mjs';
+import { classifyUiOutcome, invitationReceipt, safeCreate, safeInspection } from './invite-receipt.mjs';
+
+import {
+  computeDueDateSecond,
+  createInvitation,
+  defaults,
+  listCreatorGmvReport,
+  listRelations,
+  normalizeCreator,
+  normalizeRelation,
+  openPartnerPageUntilReady,
+  parseCreatorList,
+  precheckCreator,
+  resendExpiredInvitationViaUi,
+  verifyCreatorRelation,
+} from './invite.mjs';
+import { evaluateReadiness } from './readiness-state.mjs';
+import {
+  deveIgnorarCacheRelacoes,
+  invalidarCacheRelacoesAposConvite,
+  relacoesCompletas,
+} from './relations-cache-policy.mjs';
+
+const host = process.env.TIKTOK_INVITE_SERVER_HOST || '0.0.0.0';
+// Porta unica da ponte nativa, exposta apenas pelo tunnel HTTPS.
+const port = Number(process.env.TIKTOK_WARM_SERVER_PORT || 8788);
+const token = process.env.TIKTOK_INVITE_SERVER_TOKEN;
+const tokensAceitos = [
+  token,
+  process.env.TIKTOK_INVITE_SERVER_TOKEN_PREVIOUS,
+].filter((valor, indice, itens) => valor && itens.indexOf(valor) === indice);
+const uiInviteEnabled = process.env.BRIDGE_UI_INVITE_ENABLED === 'true';
+
+const MAX_CHAMADAS_POR_CONTEXTO = Number(process.env.TIKTOK_WARM_MAX_CALLS || 200);
+const MAX_IDADE_CONTEXTO_MS = Number(process.env.TIKTOK_WARM_MAX_AGE_MS || 60 * 60 * 1000);
+const TIMEOUT_OPERACAO_MS = Number(process.env.TIKTOK_WARM_OP_TIMEOUT_MS || 120_000);
+const READY_PROBE_TTL_MS = inteiroEntre(process.env.TIKTOK_READY_PROBE_TTL_MS, 60_000, 5_000, 5 * 60_000);
+const READY_PROBE_FAILURE_TTL_MS = inteiroEntre(
+  process.env.TIKTOK_READY_PROBE_FAILURE_TTL_MS,
+  15_000,
+  5_000,
+  60_000,
+);
+const READY_PROBE_GRACE_MS = inteiroEntre(
+  process.env.TIKTOK_READY_PROBE_GRACE_MS,
+  3 * 60_000,
+  READY_PROBE_TTL_MS,
+  15 * 60_000,
+);
+const READY_RECOVERY_COOLDOWN_MS = inteiroEntre(
+  process.env.TIKTOK_READY_RECOVERY_COOLDOWN_MS,
+  30_000,
+  5_000,
+  5 * 60_000,
+);
+const READY_BACKGROUND_TICK_MS = Math.max(5_000, Math.min(READY_PROBE_TTL_MS, 30_000));
+const RISK_GUARD_COOLDOWN_MS = inteiroEntre(
+  process.env.TIKTOK_RISK_GUARD_COOLDOWN_MS,
+  15 * 60_000,
+  60_000,
+  2 * 60 * 60_000,
+);
+const RISK_GUARD_CODES = new Set([
+  'captcha_required',
+  'mfa_required',
+  'session_or_partner_context_invalid',
+  'partner_probe_rejected',
+]);
+
+if (!token) {
+  console.error('Missing TIKTOK_INVITE_SERVER_TOKEN in .env');
+  process.exit(1);
+}
+
+let contexto = null;
+let pagina = null;
+let partnerContext = null;
+let contextoPronto = false;
+let chamadas = 0;
+let nascidoEm = 0;
+let preparando = null;
+let ocupadoDesde = null;
+let filaTamanho = 0;
+let ultimaTentativaContextoEm = 0;
+let ultimoErroContexto = null;
+let ultimoProbeReadiness = null;
+let probeReadinessEmVoo = null;
+let bloqueioRisco = null;
+
+async function abrirContexto() {
+  verificarBloqueioRisco();
+  console.error('[quente] abrindo contexto do Partner Center...');
+  const inicio = Date.now();
+  ultimaTentativaContextoEm = inicio;
+  contextoPronto = false;
+  ultimoProbeReadiness = null;
+  try {
+    contexto = await chromium.launchPersistentContext(defaults.profileDir, {
+      headless: defaults.headless,
+      viewport: { width: 1440, height: 1000 },
+    });
+    pagina = contexto.pages().find((p) => !p.isClosed()) || (await contexto.newPage());
+    const contextoPartnerDestaAbertura = { relationListUrl: null, reportDimensionListUrl: null };
+    partnerContext = contextoPartnerDestaAbertura;
+    const capturar = (reqOuResp) => {
+      const url = reqOuResp.url();
+      if (url.includes('/api/v1/affiliate/partner/relation/list')) {
+        contextoPartnerDestaAbertura.relationListUrl ||= url;
+      }
+      if (url.includes('/api/v1/insights/partner/report/valid/dimension/list')) {
+        contextoPartnerDestaAbertura.reportDimensionListUrl ||= url;
+      }
+    };
+    pagina.on('request', capturar);
+    pagina.on('response', capturar);
+    await openPartnerPageUntilReady(pagina, partnerContext, {});
+    chamadas = 0;
+    nascidoEm = Date.now();
+    contextoPronto = true;
+    ultimoErroContexto = null;
+    console.error(`[quente] contexto pronto em ${Date.now() - inicio}ms`);
+  } catch (erro) {
+    registrarErroContexto(erro);
+    const anterior = contexto;
+    contexto = null;
+    pagina = null;
+    partnerContext = null;
+    contextoPronto = false;
+    nascidoEm = 0;
+    try {
+      await anterior?.close();
+    } catch (erroFechamento) {
+      console.error(`[quente] falha ao fechar contexto incompleto: ${erroFechamento.message}`);
+    }
+    throw erro;
+  }
+}
+
+async function fecharContexto(motivo) {
+  console.error(`[quente] reciclando contexto (${motivo})`);
+  const anterior = contexto;
+  contexto = null;
+  pagina = null;
+  partnerContext = null;
+  contextoPronto = false;
+  nascidoEm = 0;
+  ultimoProbeReadiness = null;
+  cacheRelacoes.clear();
+  try {
+    await anterior?.close();
+  } catch (erro) {
+    console.error(`[quente] falha ao fechar contexto: ${erro.message}`);
+  }
+}
+
+function precisaReciclar() {
+  if (!contexto || !pagina || pagina.isClosed()) return 'contexto ausente';
+  if (!contextoPronto) return 'contexto ainda nao esta pronto';
+  if (chamadas >= MAX_CHAMADAS_POR_CONTEXTO) return `${chamadas} chamadas`;
+  if (nascidoEm > 0 && Date.now() - nascidoEm >= MAX_IDADE_CONTEXTO_MS) return 'idade máxima';
+  return null;
+}
+
+async function garantirContexto() {
+  verificarBloqueioRisco();
+  if (preparando) {
+    await preparando;
+    return;
+  }
+  const motivo = precisaReciclar();
+  if (motivo && contexto) await fecharContexto(motivo);
+  if (!contexto) {
+    preparando = preparando || abrirContexto().finally(() => { preparando = null; });
+    await preparando;
+  }
+}
+
+// Fila serial: a mesma página não pode atender duas operações ao mesmo tempo.
+let corrente = Promise.resolve();
+
+function naFila(rotulo, operacao) {
+  filaTamanho += 1;
+  const resultado = corrente.then(async () => {
+    filaTamanho -= 1;
+    ocupadoDesde = Date.now();
+    try {
+      verificarBloqueioRisco();
+      await garantirContexto();
+      const comPrazo = new Promise((_, rejeitar) => {
+        setTimeout(() => rejeitar(new Error(`operação ${rotulo} passou de ${TIMEOUT_OPERACAO_MS}ms`)), TIMEOUT_OPERACAO_MS).unref();
+      });
+      return await Promise.race([operacao(pagina, partnerContext), comPrazo]);
+    } catch (erro) {
+      // Erro de navegador deixa a página em estado duvidoso: recicla.
+      registrarErroContexto(erro);
+      registrarBloqueioRiscoSeNecessario(erro, rotulo);
+      await fecharContexto(`erro em ${rotulo}: ${erro.message}`);
+      throw erro;
+    } finally {
+      chamadas += 1;
+      ocupadoDesde = null;
+    }
+  });
+  corrente = resultado.then(() => undefined, () => undefined);
+  return resultado;
+}
+
+// ---- cache curto da lista de relacoes ----
+// A lista inteira custa ~25s (23 paginas) e nao da pra pedir so um creator:
+// o filtro da API e ignorado. Sem cache, cada lead que declara aceite paga a
+// agencia inteira. Requisicoes simultaneas compartilham a mesma varredura.
+const CACHE_RELACOES_MS = Number(process.env.TIKTOK_RELATIONS_CACHE_MS || 90_000);
+const cacheRelacoes = new Map();
+
+async function relacoesEmCache(status, pageSize, pageLimit) {
+  const chave = `${status}|${pageSize}|${pageLimit}`;
+  const guardado = cacheRelacoes.get(chave);
+  if (guardado) {
+    const idadeMs = Date.now() - guardado.em;
+    if (guardado.emVoo) return { ...(await guardado.emVoo), doCache: true, idadeMs: 0 };
+    if (idadeMs < CACHE_RELACOES_MS) return { ...guardado.valor, doCache: true, idadeMs };
+  }
+  const emVoo = naFila('relations', (page, ctx) => listRelations(page, ctx, { status, pageSize, pageLimit }));
+  cacheRelacoes.set(chave, { em: Date.now(), valor: null, emVoo });
+  try {
+    const valor = await emVoo;
+    // So guarda resultado bom: erro em cache repetiria a falha por 90s.
+    if (valor.ok) cacheRelacoes.set(chave, { em: Date.now(), valor, emVoo: null });
+    else cacheRelacoes.delete(chave);
+    return { ...valor, doCache: false, idadeMs: 0 };
+  } catch (erro) {
+    cacheRelacoes.delete(chave);
+    throw erro;
+  }
+}
+
+async function executarProbeReadiness() {
+  const agora = Date.now();
+  if (ultimoProbeReadiness) {
+    const ttl = ultimoProbeReadiness.ok ? READY_PROBE_TTL_MS : READY_PROBE_FAILURE_TTL_MS;
+    if (agora - ultimoProbeReadiness.em < ttl) {
+      return { ...ultimoProbeReadiness, cached: true };
+    }
+  }
+  if (probeReadinessEmVoo) {
+    return { ...(await probeReadinessEmVoo), shared: true };
+  }
+
+  probeReadinessEmVoo = (async () => {
+    const inicio = Date.now();
+    try {
+      // Uma pagina e um item bastam para provar navegador, sessao e API
+      // autenticada. Esta sonda nunca chama relation/create e nunca convida.
+      const resultado = await naFila('readiness-probe', async (page, ctx) => {
+        const leitura = await listRelations(page, ctx, { status: '1', pageSize: 1, pageLimit: 1 });
+        if (!leitura.ok) {
+          const erro = new Error('Partner rejected the read-only readiness probe');
+          erro.code = 'partner_probe_rejected';
+          throw erro;
+        }
+        return leitura;
+      });
+      const probe = {
+        ok: true,
+        status: 'ok',
+        em: Date.now(),
+        duracaoMs: Date.now() - inicio,
+        // Nunca devolve creators ou o payload bruto do Partner na telemetria.
+        totalDisponivel: resultado.totalNum !== undefined && resultado.totalNum !== null,
+      };
+      ultimoProbeReadiness = probe;
+      return probe;
+    } catch (erro) {
+      const probe = {
+        ok: false,
+        status: 'failed',
+        em: Date.now(),
+        duracaoMs: Date.now() - inicio,
+        errorCode: classificarErroReadiness(erro),
+      };
+      ultimoProbeReadiness = probe;
+      return probe;
+    }
+  })().finally(() => {
+    probeReadinessEmVoo = null;
+  });
+
+  return await probeReadinessEmVoo;
+}
+
+function contextoUtilizavel() {
+  return Boolean(contextoPronto && contexto && pagina && !pagina.isClosed());
+}
+
+function avaliarReadiness(agora = Date.now()) {
+  return evaluateReadiness({
+    contextReady: contextoUtilizavel(),
+    contextStatus: estadoContexto(),
+    preparing: Boolean(preparando),
+    busy: Boolean(ocupadoDesde || filaTamanho > 0),
+    refreshing: Boolean(probeReadinessEmVoo),
+    probe: ultimoProbeReadiness,
+    now: agora,
+    successTtlMs: READY_PROBE_TTL_MS,
+    failureTtlMs: READY_PROBE_FAILURE_TTL_MS,
+    graceMs: READY_PROBE_GRACE_MS,
+  });
+}
+
+function solicitarProbeReadiness() {
+  const avaliacao = avaliarReadiness();
+  if (!avaliacao.shouldRefresh) return false;
+  // Intencionalmente sem await: o endpoint /ready nunca espera a fila serial.
+  // A sonda Playwright roda em background e a proxima consulta observa o
+  // resultado; durante a renovacao, o ultimo sucesso vale ate o limite de
+  // tolerancia configurado.
+  void executarProbeReadiness().catch((erro) => {
+    // O executor normalmente converte falhas em um probe sanitizado. Este
+    // catch protege o processo contra uma rejeicao de infraestrutura fora do
+    // fluxo esperado sem expor a mensagem original na resposta HTTP.
+    ultimoProbeReadiness = {
+      ok: false,
+      status: 'failed',
+      em: Date.now(),
+      duracaoMs: null,
+      errorCode: classificarErroReadiness(erro),
+    };
+  });
+  return true;
+}
+
+function solicitarRecuperacaoContexto() {
+  if (
+    process.env.NODE_ENV === 'test'
+    && process.env.TIKTOK_DISABLE_WARMUP_FOR_TESTS === 'true'
+  ) return;
+  if (bloqueioRiscoAtivo()) return;
+  if (preparando || contextoUtilizavel()) return;
+  if (Date.now() - ultimaTentativaContextoEm < READY_RECOVERY_COOLDOWN_MS) return;
+  garantirContexto().catch((erro) => {
+    console.error(`[quente] recuperacao de contexto falhou: ${erro.message}`);
+  });
+}
+
+function estadoContexto() {
+  if (bloqueioRiscoAtivo()) return 'blocked_by_risk_guard';
+  if (contextoUtilizavel()) return 'ready';
+  if (preparando) return 'preparing';
+  if (ultimoErroContexto || ultimoProbeReadiness?.ok === false) return 'degraded';
+  return 'cold';
+}
+
+function telemetriaSanitizada(avaliacao = avaliarReadiness()) {
+  const agora = Date.now();
+  const probe = ultimoProbeReadiness
+    ? {
+        status: ultimoProbeReadiness.status,
+        checkedAt: new Date(ultimoProbeReadiness.em).toISOString(),
+        ageMs: Math.max(0, agora - ultimoProbeReadiness.em),
+        durationMs: ultimoProbeReadiness.duracaoMs,
+        errorCode: ultimoProbeReadiness.errorCode || null,
+      }
+    : { status: 'never' };
+  return {
+    modo: 'contexto-quente',
+    contexto: {
+      status: estadoContexto(),
+      aberto: Boolean(contexto),
+      pronto: contextoUtilizavel(),
+      chamadas,
+      idadeMs: contextoPronto ? agora - nascidoEm : null,
+    },
+    queue: {
+      length: filaTamanho,
+      activeMs: ocupadoDesde ? agora - ocupadoDesde : null,
+    },
+    readiness: {
+      status: avaliacao.status,
+      fresh: avaliacao.fresh,
+      withinGrace: avaliacao.withinGrace,
+      refreshing: Boolean(probeReadinessEmVoo),
+      graceMs: READY_PROBE_GRACE_MS,
+    },
+    probe,
+    lastContextError: ultimoErroContexto
+      ? {
+          code: ultimoErroContexto.code,
+          at: new Date(ultimoErroContexto.em).toISOString(),
+      }
+    : null,
+    riskGuard: bloqueioRiscoAtivo()
+      ? {
+          status: 'blocked',
+          code: bloqueioRisco.code,
+          reason: bloqueioRisco.reason,
+          blockedAt: new Date(bloqueioRisco.em).toISOString(),
+          retryAfterMs: Math.max(0, bloqueioRisco.ate - agora),
+        }
+      : { status: 'clear' },
+  };
+}
+
+function registrarErroContexto(erro) {
+  ultimoErroContexto = {
+    code: classificarErroReadiness(erro),
+    em: Date.now(),
+  };
+}
+
+function bloqueioRiscoAtivo(agora = Date.now()) {
+  if (!bloqueioRisco) return false;
+  if (agora < bloqueioRisco.ate) return true;
+  console.error(`[quente] risk guard liberado apos cooldown: ${bloqueioRisco.code}`);
+  bloqueioRisco = null;
+  return false;
+}
+
+function verificarBloqueioRisco() {
+  if (!bloqueioRiscoAtivo()) return;
+  const erro = new Error(`blocked_by_risk_guard:${bloqueioRisco.code}`);
+  erro.code = 'blocked_by_risk_guard';
+  throw erro;
+}
+
+function registrarBloqueioRiscoSeNecessario(erro, rotulo) {
+  const code = classificarErroReadiness(erro);
+  if (!RISK_GUARD_CODES.has(code)) return;
+  const agora = Date.now();
+  bloqueioRisco = {
+    code,
+    reason: rotulo,
+    em: agora,
+    ate: agora + RISK_GUARD_COOLDOWN_MS,
+  };
+  console.error(`[quente] risk guard ativo por ${Math.round(RISK_GUARD_COOLDOWN_MS / 1000)}s: ${code} em ${rotulo}`);
+}
+
+function classificarErroReadiness(erro) {
+  if (erro?.code === 'blocked_by_risk_guard') return 'blocked_by_risk_guard';
+  if (erro?.code === 'partner_probe_rejected') return 'partner_probe_rejected';
+  const mensagem = String(erro?.message || erro || '').toLowerCase();
+  if (mensagem.includes("executable doesn't exist") || mensagem.includes('browser executable')) {
+    return 'browser_missing';
+  }
+  if (mensagem.includes('captcha')) return 'captcha_required';
+  if (mensagem.includes('2fa') || mensagem.includes('mfa')) return 'mfa_required';
+  if (
+    mensagem.includes('login')
+    || mensagem.includes('sign in')
+    || mensagem.includes('session')
+    || mensagem.includes('relation/list')
+  ) return 'session_or_partner_context_invalid';
+  if (mensagem.includes('timeout') || mensagem.includes('passou de')) return 'timeout';
+  if (mensagem.includes('closed') || mensagem.includes('crash')) return 'browser_unavailable';
+  return 'unknown';
+}
+
+function inteiroEntre(valor, padrao, minimo, maximo) {
+  const numero = Number(valor);
+  if (!Number.isFinite(numero)) return padrao;
+  return Math.max(minimo, Math.min(Math.trunc(numero), maximo));
+}
+
+function uiNotAttempted(reason) {
+  return { status: 'not_attempted', reason, postAttempted: false,
+    evidence: { ui_submit_attempted: false, provider_request_observed: false, create_post_blocked: false, target_verified: false } };
+}
+
+function uiResponse(value, creator, operationId, stage = classifyUiOutcome(value), validation = undefined) {
+  const meta = { creator, operationId, secrets: tokensAceitos };
+  const receipt = invitationReceipt(value, meta, stage);
+  const create = safeCreate(value, meta);
+  const status = stage === 'verified' ? 'invite_sent_and_verified'
+    : stage === 'pending_verification' ? 'invite_sent_unverified'
+      : stage === 'create_rejected' ? 'invite_failed'
+        : stage === 'not_attempted' ? 'invite_not_attempted' : 'operation_uncertain_reconcile_same_target';
+  console.error(`[invite_receipt] ${JSON.stringify(receipt)}`);
+  return { httpStatus: stage === 'verified' ? 200 : stage === 'outcome_unknown' ? 500 : 422,
+    body: { ok: stage === 'verified', status, creator, invite_method: 'ui', receipt,
+      ...(create ? { create } : {}), ...(validation ? { validation } : {}) } };
+}
+
+async function executeUiInvitation(page, ctx, creator, commission, operationId) {
+  let outcome;
+  try {
+    outcome = await inviteViaUi(page, ctx, { creator, commission, fixedMonths: 2 });
+  } catch {
+    // A thrown UI error may follow the submit. Never invent a rejection or
+    // claim that no POST happened merely because its receipt was lost.
+    return uiResponse({ status: 'outcome_unknown', reason: 'ui_exception_unconfirmed' }, creator, operationId);
+  }
+  const stage = classifyUiOutcome(outcome);
+  if (stage !== 'create_accepted') return uiResponse(outcome, creator, operationId, stage);
+  invalidarCacheRelacoesAposConvite(cacheRelacoes);
+  let validation;
+  try {
+    const result = await verifyCreatorRelation(page, ctx, creator, {
+      attempts: Number(process.env.TIKTOK_INVITE_VERIFY_ATTEMPTS || 3),
+      delayMs: Number(process.env.TIKTOK_INVITE_VERIFY_DELAY_MS || 3000),
+    });
+    const exact = normalizeCreator(result?.creator).toLowerCase() === creator.toLowerCase();
+    validation = { ok: result?.ok === true && exact && ['requested', 'linked'].includes(result.status),
+      status: result?.ok === true && exact && ['requested', 'linked'].includes(result.status) ? result.status : 'relation_check_unconfirmed' };
+  } catch {
+    validation = { ok: false, status: 'relation_check_unconfirmed' };
+  }
+  return uiResponse(outcome, creator, operationId, validation.ok ? 'verified' : 'pending_verification', validation);
+}
+
+const servidor = http.createServer(async (req, res) => {
+  try {
+    const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+
+    if (req.method === 'GET' && url.pathname === '/health') {
+      return responder(res, 200, {
+        ok: true,
+        liveness: 'alive',
+        status: estadoContexto(),
+        contextoAberto: Boolean(contexto),
+        contextoPronto: contextoUtilizavel(),
+        chamadasNoContexto: chamadas,
+        idadeContextoMs: contextoPronto ? Date.now() - nascidoEm : null,
+        queueLength: filaTamanho,
+        activeMs: ocupadoDesde ? Date.now() - ocupadoDesde : null,
+        ...telemetriaSanitizada(),
+        relacoesEmCache: [...cacheRelacoes.entries()]
+          .filter(([, v]) => v.valor)
+          .map(([chave, v]) => ({
+            chave,
+            itens: v.valor.items?.length ?? 0,
+            total: v.valor.totalNum ?? null,
+            idadeMs: Date.now() - v.em,
+          })),
+      });
+    }
+
+    if (req.method === 'GET' && url.pathname === '/ready') {
+      if (!autorizado(req)) return responder(res, 401, { ok: false, status: 'unauthorized' });
+
+      if (!contextoUtilizavel() || preparando) {
+        solicitarRecuperacaoContexto();
+      }
+
+      solicitarProbeReadiness();
+      const avaliacao = avaliarReadiness();
+      const telemetria = telemetriaSanitizada(avaliacao);
+      return responder(res, avaliacao.ready ? 200 : 503, {
+        ok: avaliacao.ready,
+        status: avaliacao.status,
+        ...telemetria,
+      });
+    }
+
+    if (!autorizado(req)) return responder(res, 401, { ok: false, status: 'unauthorized' });
+
+    if (req.method === 'GET' && url.pathname === '/invite-ui/inspect') {
+      if (!uiInviteEnabled) return responder(res, 404, { ok: false, status: 'ui_invite_disabled' });
+      let result;
+      try {
+        result = await naFila('invite-ui-inspect', async (page, ctx) => {
+          try {
+            const dryCreator = url.searchParams.get('creator');
+            const dryRun = url.searchParams.get('fill') === '1' && /^[A-Za-z0-9_.]{2,64}$/.test(dryCreator || '');
+            return safeInspection(await inspectInviteForm(page, ctx, dryRun ? { creator: dryCreator, fill: true } : {}), { secrets: tokensAceitos });
+          } catch {
+            return safeInspection({ ok: false, reason: 'ui_inspection_unconfirmed' });
+          }
+        });
+      } catch {
+        result = safeInspection({ ok: false, reason: 'ui_inspection_unconfirmed' });
+      }
+      res.setHeader('cache-control', 'no-store');
+      return responder(res, result.ok ? 200 : 422, result);
+    }
+
+    if (req.method === 'GET' && url.pathname === '/relations') {
+      const status = String(url.searchParams.get('status') || '1');
+      const pageSize = Number(url.searchParams.get('page_size') || url.searchParams.get('pageSize') || 100);
+      const pageLimit = Number(url.searchParams.get('page_limit') || url.searchParams.get('pageLimit') || 30);
+      const creators = parseCreatorList(
+        url.searchParams.get('creators') || url.searchParams.get('creator') || url.searchParams.get('users'),
+      );
+      // O creator_name da API do TikTok nao filtra nada: ela devolve a lista
+      // inteira e quem filtra somos nos. Como sao 23 paginas (~25s), consultar
+      // um unico @ custava a agencia inteira. O cache resolve isso; confirmacao
+      // de aceite ou de convite recem-criado precisa sempre ler o estado atual.
+      const semCache = deveIgnorarCacheRelacoes({
+        priority: url.searchParams.get('priority'),
+        fresh: url.searchParams.get('fresh'),
+      });
+      const bruto = semCache
+        ? await naFila('relations', (page, ctx) => listRelations(page, ctx, { status, pageSize, pageLimit }))
+        : await relacoesEmCache(status, pageSize, pageLimit);
+
+      let items = (bruto.items || []).map((r) => normalizeRelation(r));
+      if (creators.size) {
+        items = items.filter((i) => creators.has(normalizeCreator(i.arroba).toLowerCase()));
+      }
+      const saida = {
+        ok: bruto.ok,
+        status: bruto.ok ? 'relations_listed' : 'relations_failed',
+        query: { status, pageSize, pageLimit, creators: [...creators] },
+        count: items.length,
+        totalNum: bruto.totalNum,
+        statusCount: bruto.statusCount,
+        completo: relacoesCompletas(bruto),
+        cache: bruto.doCache ? { idadeMs: bruto.idadeMs } : null,
+        items,
+        pages: bruto.pages,
+        error: bruto.error,
+      };
+      return responder(res, saida.ok ? 200 : 422, saida);
+    }
+
+    if (req.method === 'GET' && url.pathname === '/gmv-report') {
+      const saida = await naFila('gmv-report', (page, ctx) => listCreatorGmvReport(page, ctx, {
+        startDate: url.searchParams.get('start_date') || url.searchParams.get('startDate') || '',
+        endDateExclusive: url.searchParams.get('end_date_exclusive') || url.searchParams.get('endDateExclusive') || '',
+        pageSize: Number(url.searchParams.get('page_size') || url.searchParams.get('pageSize') || 100),
+        pageLimit: Number(url.searchParams.get('page_limit') || url.searchParams.get('pageLimit') || 50),
+      }));
+      return responder(res, saida.ok ? 200 : 422, saida);
+    }
+
+    if (req.method !== 'POST') return responder(res, 405, { ok: false, status: 'method_not_allowed' });
+    if (!['/precheck', '/invite'].includes(url.pathname)) {
+      return responder(res, 404, { ok: false, status: 'not_found' });
+    }
+
+    const body = await lerJson(req);
+    const creator = normalizeCreator(body.creator || body.tiktok_user || body.tiktok || body['@']);
+    if (!creator) return responder(res, 400, { ok: false, status: 'missing_creator' });
+
+    if (url.pathname === '/precheck') {
+      const saida = await naFila('precheck', async (page, ctx) => {
+        const precheck = await precheckCreator(page, ctx, creator);
+        return {
+          ok: precheck.ok,
+          status: precheck.ok ? 'precheck_ok' : 'precheck_failed',
+          creator,
+          precheck,
+          result: { ok: precheck.ok, status: precheck.ok ? 'precheck_ok' : 'precheck_failed', creator, precheck },
+        };
+      });
+      return responder(res, saida.ok ? 200 : 422, saida);
+    }
+
+    // /invite — exige confirmação explícita, igual à ponte atual.
+    if (!verdadeiro(body.confirm || body.confirmar_envio || body.yes)) {
+      return responder(res, 400, {
+        ok: false,
+        status: 'missing_confirmation',
+        message: 'Set confirmar_envio/confirm/yes to SIM/true to send.',
+      });
+    }
+    const inviteMethod = body.invite_method ?? 'api';
+    if (!['api', 'ui'].includes(inviteMethod)) return responder(res, 400, { ok: false, status: 'invalid_invite_method' });
+    if (inviteMethod === 'ui') {
+      const operationId = crypto.randomUUID();
+      const commissionUi = String(body.commission ?? body.comissao ?? defaults.commission);
+      let notAttempted;
+      if (!uiInviteEnabled) notAttempted = uiNotAttempted('ui_invite_disabled');
+      else if (verdadeiro(body.force_reinvite || body.forceReinvite)) notAttempted = uiNotAttempted('ui_reinvite_not_supported');
+      else if (!Number.isFinite(Number(commissionUi)) || Number(commissionUi) !== 10) notAttempted = uiNotAttempted('ui_terms_not_approved');
+      if (notAttempted) {
+        const response = uiResponse(notAttempted, creator, operationId);
+        return responder(res, response.httpStatus, response.body);
+      }
+      let response;
+      try {
+        response = await naFila('invite-ui', (page, ctx) => executeUiInvitation(page, ctx, creator, commissionUi, operationId));
+      } catch {
+        response = uiResponse({ status: 'outcome_unknown', reason: 'ui_execution_unconfirmed' }, creator, operationId);
+      }
+      return responder(res, response.httpStatus, response.body);
+    }
+    const commission = String(body.commission || body.comissao || defaults.commission);
+    const forceReinvite = verdadeiro(body.force_reinvite || body.forceReinvite);
+    // O payload tem que ser EXATAMENTE o que o CLI monta — chaves da API do
+    // Partner Center, em snake_case. Passar camelCase devolve
+    // "Invalid parameters. Please verify your input" (pego no teste com
+    // @jozilene.andrade7 antes do corte; se tivesse cortado, todo convite
+    // pararia). Mesma regra do due_date: com precheck pulado, a duração é fixa
+    // em 2 meses, como o commit "use fixed invite duration without precheck".
+    const pularPrecheck = (() => {
+      const bruto = body.skip_precheck ?? body.skipPrecheck;
+      if (bruto === undefined || bruto === null || bruto === '') return true;
+      return verdadeiro(bruto);
+    })();
+    const saida = await naFila('invite', async (page, ctx) => {
+      const precheck = pularPrecheck
+        ? { ok: true, status: 'skipped', reason: 'technical TikTok requirements already confirmed by acquisition funnel' }
+        : await precheckCreator(page, ctx, creator);
+      if (precheck.ok === false) {
+        return { ok: false, status: 'precheck_failed', creator, precheck };
+      }
+      const dueDateSecond = String(computeDueDateSecond({
+        days: Number(defaults.dueDays),
+        fixedMonths: pularPrecheck ? 2 : Number(precheck.data?.data?.bind_duration_fixed_month),
+      }));
+      const payload = {
+        creator_name: creator,
+        due_date_second: dueDateSecond,
+        related_biz_types: String(defaults.relatedBizTypes),
+        commission_proportion: commission,
+        is_attached_business_profile: true,
+      };
+      const create = forceReinvite
+        ? await resendExpiredInvitationViaUi(page, payload)
+        : await createInvitation(page, ctx, payload);
+      if (create.ok === false) {
+        return { ok: false, status: 'invite_failed', creator, precheck, create };
+      }
+      // Uma leitura anterior de status=2 pode ter guardado lista vazia. Depois
+      // de relation/create, esse retrato deixou de ser valido imediatamente.
+      invalidarCacheRelacoesAposConvite(cacheRelacoes);
+      // Verificação pós-envio, igual ao CLI: o /invite responder sucesso não
+      // basta; quem prova é a relação aparecendo na lista real.
+      const validation = await verifyCreatorRelation(page, ctx, creator, {
+        attempts: Number(process.env.TIKTOK_INVITE_VERIFY_ATTEMPTS || 3),
+        delayMs: Number(process.env.TIKTOK_INVITE_VERIFY_DELAY_MS || 3000),
+      });
+      return {
+        ok: validation.ok,
+        status: validation.ok ? 'invite_sent_and_verified' : 'invite_sent_unverified',
+        creator,
+        precheck,
+        create,
+        validation,
+      };
+    });
+    return responder(res, saida.ok ? 200 : 422, saida);
+  } catch (erro) {
+    return responder(res, 500, {
+      ok: false,
+      status: 'server_error',
+      error: { name: erro.name || 'Error', message: erro.message || String(erro) },
+    });
+  }
+});
+
+let readinessTimer = null;
+servidor.listen(port, host, () => {
+  const endereco = servidor.address();
+  const portaReal = typeof endereco === 'object' && endereco ? endereco.port : port;
+  console.error(`[quente] ponte com contexto quente ouvindo em ${host}:${portaReal}`);
+  console.error(`[quente] perfil: ${defaults.profileDir} | headless: ${defaults.headless}`);
+  // Aquece já no boot: quem chamar primeiro não paga a abertura.
+  const pularAquecimentoNoTeste = process.env.NODE_ENV === 'test'
+    && process.env.TIKTOK_DISABLE_WARMUP_FOR_TESTS === 'true';
+  if (!pularAquecimentoNoTeste) {
+    garantirContexto().catch((erro) => console.error(`[quente] aquecimento inicial falhou: ${erro.message}`));
+  }
+  readinessTimer = setInterval(() => {
+    if (!contextoUtilizavel()) solicitarRecuperacaoContexto();
+    solicitarProbeReadiness();
+  }, READY_BACKGROUND_TICK_MS);
+  readinessTimer.unref();
+});
+
+function autorizado(req) {
+  const cab = String(req.headers.authorization || '');
+  const bearer = cab.startsWith('Bearer ') ? cab.slice(7) : '';
+  const alternativo = String(req.headers['x-tiktok-invite-token'] || '');
+  return tokensAceitos.some((esperado) =>
+    comparacaoSegura(bearer, esperado) || comparacaoSegura(alternativo, esperado));
+}
+
+function comparacaoSegura(recebido, esperado) {
+  const a = Buffer.from(String(recebido || ''), 'utf8');
+  const b = Buffer.from(String(esperado || ''), 'utf8');
+  return a.length === b.length && a.length > 0 && crypto.timingSafeEqual(a, b);
+}
+
+function lerJson(req) {
+  return new Promise((resolver, rejeitar) => {
+    let bruto = '';
+    req.on('data', (parte) => {
+      bruto += parte;
+      if (bruto.length > 32_000) {
+        req.destroy();
+        rejeitar(new Error('Request body too large'));
+      }
+    });
+    req.on('end', () => {
+      try {
+        resolver(bruto ? JSON.parse(bruto) : {});
+      } catch {
+        rejeitar(new Error('Invalid JSON body'));
+      }
+    });
+    req.on('error', rejeitar);
+  });
+}
+
+function verdadeiro(valor) {
+  return ['1', 'true', 'yes', 'sim', 's'].includes(String(valor || '').trim().toLowerCase());
+}
+
+function responder(res, codigo, valor) {
+  res.writeHead(codigo, { 'content-type': 'application/json; charset=utf-8' });
+  res.end(`${JSON.stringify(valor, null, 2)}\n`);
+}
+
+for (const sinal of ['SIGTERM', 'SIGINT']) {
+  process.on(sinal, async () => {
+    console.error(`[quente] ${sinal} recebido, fechando contexto`);
+    if (readinessTimer) clearInterval(readinessTimer);
+    await fecharContexto(sinal);
+    process.exit(0);
+  });
+}

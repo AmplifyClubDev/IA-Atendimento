@@ -1,0 +1,18 @@
+{
+  "name": "tiktok-partner-automation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "login": "node invite.mjs login",
+    "precheck": "node invite.mjs precheck",
+    "invite": "node invite.mjs invite",
+    "custom-report:login": "TIKTOK_PLAYWRIGHT_PROFILE_DIR=/root/.openclaw/.playwright/tiktok-partner-profile TIKTOK_HEADLESS=false node invite.mjs login",
+    "custom-report:last-week": "node export-custom-report-last-week.mjs",
+    "server": "node server.mjs",
+    "watchdog": "node watchdog.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.61.0"
+  }
+}

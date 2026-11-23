@@ -1,0 +1,12 @@
+<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TikTok — Amplify</title>
+<style>body{font:16px system-ui;margin:0;background:#121724;color:#f4f6fc}header{padding:16px 24px;display:flex;align-items:center;gap:20px}button{padding:12px 20px;border:0;border-radius:8px;cursor:pointer;background:#abd0ff}iframe{width:100%;height:calc(100vh - 90px);border:0}#status{flex:1}</style>
+<header><strong>Amplify · TikTok</strong><span id="status">Autenticando acesso remoto…</span><button id="activate" hidden>Concluí o login — ativar integração</button><button id="login" hidden>Abrir login novamente</button></header><iframe id="viewer" hidden title="Navegador remoto no Railway"></iframe>
+<script type="module">
+const status=document.querySelector('#status'),viewer=document.querySelector('#viewer'),activate=document.querySelector('#activate'),login=document.querySelector('#login');
+const fragment=new URLSearchParams(location.hash.slice(1)),token=fragment.get('access');history.replaceState(null,'','/console/');
+if(token){let r=await fetch('/console/session',{method:'POST',headers:{Authorization:'Bearer '+token}});if(!r.ok)status.textContent='Link de acesso inválido ou expirado.';}
+async function refresh(){let r=await fetch('/console/state');if(!r.ok){status.textContent='Abra o link protegido fornecido pelo responsável.';return;}let j=await r.json();status.textContent=j.mode==='bridge'?'Integração iniciada. A prontidão da sessão ainda será verificada.':'Faça o login da conta Amplify no navegador remoto abaixo.';activate.hidden=j.mode!=='login';login.hidden=j.mode!=='bridge';if(viewer.hidden){viewer.src='/console/vnc/vnc.html?autoconnect=1&resize=scale&path=console%2Fsocket';viewer.hidden=false;}}
+activate.onclick=async()=>{activate.disabled=true;let r=await fetch('/console/activate',{method:'POST'});if(!r.ok)status.textContent='Não foi possível ativar. O responsável deve verificar o estado.';activate.disabled=false;await refresh();};
+login.onclick=async()=>{login.disabled=true;let r=await fetch('/console/login',{method:'POST'});if(!r.ok)status.textContent='Operação bloqueada: aguarde a verificação do responsável.';login.disabled=false;await refresh();};
+await refresh();setInterval(refresh,10000);
+</script></html>
