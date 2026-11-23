@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends xvfb x11vnc nov
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts
 COPY . .
-RUN node --test security.test.mjs interactive-policy.test.mjs session-handoff.test.mjs && node --check railway-supervisor.mjs && node --check railway-login.mjs && node --check server-quente.mjs
+RUN node --test security.test.mjs interactive-policy.test.mjs session-handoff.test.mjs relation-details.test.mjs && node --check railway-supervisor.mjs && node --check railway-login.mjs && node --check server-quente.mjs
 EXPOSE 8080
 ENTRYPOINT ["/usr/bin/tini","-g","--"]
 CMD ["node","railway-supervisor.mjs"]

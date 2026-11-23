@@ -54,3 +54,16 @@ Contagens da ponte agora: **1.542 vinculados**, **94 com vinculação solicitada
   (só leitura, nome exatamente igual ao @): **219 achados**, nenhum ambíguo, 882 não estão no Chatwoot,
   197 deram erro de consulta (repetir). Ainda **não gravado**: precisa da fonte `chatwoot` na tabela.
 - Com isso: cerca de 457 de 1.536 (30%). O resto depende da base Amplify ou do Notion.
+
+## Andamento (23/11/2026)
+
+1. ✅ Código das 3 pontes no GitHub (`pontes/`). Agenciamento e Pré-validação rodam o mesmo código.
+2. ✅ Achado: a ponte recebe o registro **completo** do TikTok e a função `normalizeRelation` descarta quase tudo.
+   A rota de GMV por creator (`/gmv-report`) já existe, mas só abre para um papel "gmv" que nenhum serviço usa.
+3. ✅ Melhoria pronta, **não publicada** (`pontes/tiktok-ponte`):
+   - `/relations?detalhes=1` devolve também os campos do TikTok achatados (sem imagens nem links). Sem o
+     parâmetro, a resposta é igual à de hoje: a Bia e o Cadastro não percebem diferença.
+   - Papel `agency` passa a poder ler `/gmv-report` (só leitura).
+   - 15 testes passando (2 novos), roda os testes no build.
+4. Próximo: publicar só a **TikTok Agenciamento**, ler 1 página com detalhes, comparar com a tela e então
+   desenhar as colunas do banco com os nomes reais.

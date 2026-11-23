@@ -28,6 +28,7 @@
  */
 import crypto from 'node:crypto';
 import { validRole, roleAllows, capturedRelationUrl, activateExistingSession } from './interactive-policy.mjs';
+import { relationDetails } from './relation-details.mjs';
 import http from 'node:http';
 import path from 'node:path';
 import process from 'node:process';
@@ -583,7 +584,11 @@ const servidor = http.createServer(async (req, res) => {
         ? await naFila('relations', (page, ctx) => listRelations(page, ctx, { status, pageSize, pageLimit }))
         : await relacoesEmCache(status, pageSize, pageLimit);
 
-      let items = (bruto.items || []).map((r) => normalizeRelation(r));
+      // ?detalhes=1: junta os campos do TikTok (nível, GMV, seguidores...) para o espelho no banco.
+      const comDetalhes = url.searchParams.get('detalhes') === '1';
+      let items = (bruto.items || []).map((r) => (comDetalhes
+        ? { ...normalizeRelation(r), detalhes: relationDetails(r) }
+        : normalizeRelation(r)));
       if (creators.size) {
         items = items.filter((i) => creators.has(normalizeCreator(i.arroba).toLowerCase()));
       }
