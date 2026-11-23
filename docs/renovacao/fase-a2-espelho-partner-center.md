@@ -150,3 +150,12 @@ Coluna `categoria` nas telas `agenciados_ficha`, `agenciados_movimento`, `agenci
 - Agenciados ativos com telefone: **238 → 492** (formulário 179, Chatwoot 248, ficha da Bia 65).
 - A vencer em 45 dias: 107 de 315 com telefone (Diamond 2/9, Gold 2/8, Silver 2/9, Start 99/282).
 - O resto depende da base Amplify (outro Supabase) ou do Notion.
+
+## Telefones da base Amplify gravados (23/11/2026) ✅
+
+- Fonte: o outro Supabase ("Base de dados - Amplify", `criadores`), com o acesso que o Cadastro já usa
+  (`SUPABASE_URL` / `SUPABASE_SERVICE_KEY`). Só leitura na fonte; `bia/tools/importar_telefones.py --gravar`.
+- 4.765 creators com @ e telefone gravados (`fonte = base_amplify`), não só agenciados: servem para quem entrar depois.
+- Agenciados ativos com telefone: 492 → **759** (formulário 179, Chatwoot 248, base Amplify 267, ficha da Bia 65).
+- A vencer em 45 dias com telefone: 107 → **254 de 315** (Diamond 5/9, Gold 4/8, Silver 5/9, Start 237/282).
+- Falta: ~780 agenciados sem telefone em nenhuma fonte; o Notion é a última fonte conhecida.
