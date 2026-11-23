@@ -27,6 +27,8 @@
  *   autenticada no Partner Center sem criar convite.
  */
 import crypto from 'node:crypto';
+import os from 'node:os';
+import { limparTravaOrfa } from './trava-chrome.mjs';
 import http from 'node:http';
 import path from 'node:path';
 import process from 'node:process';
@@ -129,6 +131,7 @@ async function abrirContexto() {
   contextoPronto = false;
   ultimoProbeReadiness = null;
   try {
+    if (limparTravaOrfa(defaults.profileDir, os.hostname())) console.error('[quente] trava do Chrome de container antigo removida');
     contexto = await chromium.launchPersistentContext(defaults.profileDir, {
       headless: defaults.headless,
       viewport: { width: 1440, height: 1000 },

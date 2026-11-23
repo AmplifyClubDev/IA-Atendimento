@@ -63,6 +63,8 @@ async function harness({ enabled = true, ui = outcome(), verification, inspect, 
   const exports = {
     'node:crypto': { default: crypto }, 'node:path': { default: {} }, 'node:process': { default: fakeProcess },
     'node:http': { default: { createServer(callback) { handler = callback; return server; } } },
+    'node:os': { default: { hostname() { return 'offline-host'; } } },
+    './trava-chrome.mjs': { limparTravaOrfa() { return false; } },
     'playwright': { chromium: { async launchPersistentContext() { calls.browser++; return browser; } } },
     './invite.mjs': {
       defaults: { profileDir: '/offline-profile', headless: true, commission: '10', relatedBizTypes: '2,6', dueDays: 60 },
