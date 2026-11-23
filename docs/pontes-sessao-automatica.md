@@ -65,3 +65,24 @@ Junto com o passo 1, sobe a melhoria de detalhes da parceria (`?detalhes=1`), qu
 
 Em cada publicação: só uma ponte por vez, conferir `/ready`, e voltar à versão anterior se não ficar pronta em 5 min.
 O login guardado em `/data` não é apagado em nenhum passo.
+
+## Passo 1 publicado (23/11/2026) ✅
+
+Na **Agenciamento** e na **Pré-validação** (mesmo código, `pontes/tiktok-ponte`). A Partner Bridge ainda não.
+
+| O que | Como |
+|---|---|
+| Lembra onde estava | `/data/partner-context.json`: endereço da lista e página de parcerias do último login |
+| Volta sozinha | Ao subir e depois de erro: 30 s, 2 min, 10 min, depois a cada 30 min |
+| Trava do Chrome | Remove a trava deixada por container antigo (era a causa de "precisa logar" depois de reinício) |
+| Só pede humano | Quando o TikTok mostra a tela de login/verificação |
+| Erro de configuração | Contexto nunca aprendido (ex.: relatório de GMV) não fecha mais o navegador |
+| Ver o estado | `/health` interno → `autoRecuperacao` (estado, tentativas, próxima, último resultado) |
+
+Resultado: 4 reinícios hoje, **4 reativações sozinhas** (12:25, 12:29, 12:37, 12:39 UTC), nenhum login.
+
+Lições do dia:
+- Às 12:21 uma operação passou de 2 min e a Agenciamento ficou parada esperando humano — o caso clássico.
+- `/gmv-report` na Agenciamento derrubou a sessão (precisa da tela de relatórios). Voltou a ficar só no papel `gmv`.
+
+Próximos: passo 2 (aviso automático quando precisar de humano), levar o passo 1 para a Partner Bridge, passo 3.

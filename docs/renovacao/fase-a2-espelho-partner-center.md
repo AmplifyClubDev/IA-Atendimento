@@ -67,3 +67,18 @@ Contagens da ponte agora: **1.542 vinculados**, **94 com vinculação solicitada
    - 15 testes passando (2 novos), roda os testes no build.
 4. Próximo: publicar só a **TikTok Agenciamento**, ler 1 página com detalhes, comparar com a tela e então
    desenhar as colunas do banco com os nomes reais.
+
+## Campos reais com `?detalhes=1` (lidos em 23/11/2026)
+
+| Campo do TikTok | Vira coluna |
+|---|---|
+| `creator_info.user_name`, `nick_name`, `id` | @, nome, id do creator |
+| `creator_info.fans_cnt` | seguidores |
+| `creator_info.categories.N.name` | categorias |
+| `creator_tier.name` / `.level` | nível atual (ex.: Level 2) |
+| `creator_tier_progress.current_gmv` / `target_gmv` / `progress_percent` | GMV do nível, meta, % |
+| `creator_tier_progress.target_tier.level` | próximo nível |
+| `effective_start_date_second` / `effective_end_date_second` | início e fim do contrato |
+| `expire_time_second`, `create_time_second` | expiração e vínculo |
+| `commission_relation.commission_proportion` | comissão (%) |
+| `partner_reject_unlink_times` | pedidos de desvinculação recusados |
