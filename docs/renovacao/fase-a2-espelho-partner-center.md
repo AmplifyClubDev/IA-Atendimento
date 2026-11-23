@@ -94,3 +94,30 @@ Contagens da ponte agora: **1.542 vinculados**, **94 com vinculação solicitada
   não tem a coleta de hora em hora (a última coleta foi 13:15 UTC), nem as correções da auditoria. O alerta
   "Lead parado precisa do time" continua desligado (essa versão não tem esse alerta).
   O serviço agora aparece ligado ao repositório no Railway. Esperando decisão antes de publicar o `main`.
+
+## Fase A2 publicada (23/11/2026, 16:05 UTC) ✅
+
+- O `main` voltou para a Bia (deploys `a11dbe90`, `0e7687a1`, `fb5ea954`), substituindo a versão de 17/11
+  publicada às 13:29. O patch de início `bia-shop-16004004` (convite recusado com
+  `creator_binding_not_permitted` → ativar o TikTok Shop) foi **mantido** e aplica sobre o `main`.
+  O alerta "Lead parado" continua desligado (`TEAM_ALERTS_ENABLED = False`).
+- Duas correções no caminho: a lista com detalhes tem **7,5 MB**, e o cliente da Bia cortava em 2 MB em dois
+  lugares (`_transport` e `_json_object`). Agora só a coleta aceita até 16 MB; o resto continua em 2 MB.
+- 1ª coleta com detalhes (16:07 UTC): **1.542 agenciados com ficha completa**. Eventos já registrados:
+  2 entraram, 2 saíram (sem nível: saíram antes da 1ª ficha), **3 renovaram** (fim passou de nov/26 para nov/27).
+
+Hoje, por nível:
+
+| Nível | Agenciados | GMV do nível (soma) | Vencem em 30 dias |
+|---|---|---|---|
+| Level 0 | 761 | 54.762 | 111 |
+| Level 1 | 637 | 523.336 | 90 |
+| Level 2 | 50 | 316.083 | 5 |
+| Level 3 | 34 | 730.753 | 4 |
+| Level 4 | 27 | 2.541.715 | 5 |
+| Level 5 | 27 | 5.335.695 | 3 |
+| Level 6 | 6 | 416.809 | 2 |
+
+`agenciados_a_vencer` (45 dias): 315 pessoas, **77 com telefone**.
+
+Pendências: nomes dos níveis (ex.: Level 2 = Silver?) e telefones (base Amplify / Notion / Chatwoot).
