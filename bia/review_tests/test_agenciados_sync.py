@@ -20,9 +20,20 @@ def resposta(itens=2, completo=True, has_more=False, total=None, **extra):
     return data
 
 
+def resposta_status(status, itens):
+    """Lista de outro status (4 = desvinculação, 2 = convite pendente) no formato da ponte."""
+    data = resposta(itens=0)
+    data['query'] = dict(data['query'], status=status)
+    data['items'] = itens
+    data['totalNum'] = len(itens)
+    data['pages'] = [{'ok': True, 'hasMore': False, 'count': len(itens)}]
+    return data
+
+
 class Cliente:
-    def __init__(self, code=200, data=None, pronta=True):
+    def __init__(self, code=200, data=None, pronta=True, outros=None):
         self.code, self.data, self.pronta, self.chamadas = code, data or resposta(), pronta, []
+        self.outros = outros or {}
 
     def _ready(self, role):
         self.chamadas.append(('ready', role))
@@ -32,6 +43,12 @@ class Cliente:
     def _call(self, role, method, path, params=None, **kw):
         self.chamadas.append((role, method, path, params))
         self.kw = kw
+        status = (params or {}).get('status')
+        if status != '1':
+            outro = self.outros.get(status, resposta_status(status, []))
+            if isinstance(outro, Exception):
+                raise outro
+            return 200, outro
         return self.code, self.data
 
 
@@ -129,7 +146,8 @@ class DetalhesTests(unittest.TestCase):
         agenciados_sync.coletar(cliente, banco, now=NOW)
         item = banco.chamadas[0][1]['p']['itens'][0]
         self.assertEqual(set(item), {'relation_id', 'arroba', 'creator_name', 'create_time_second',
-                                     'effective_end_date_second'})
+                                     'effective_end_date_second', 'estado'})
+        self.assertEqual(item['estado'], 'vinculado')
 
     def test_detalhes_estranhos_sao_ignorados(self):
         self.assertEqual(agenciados_sync._detalhes(None), {})
@@ -137,6 +155,89 @@ class DetalhesTests(unittest.TestCase):
         saida = agenciados_sync._detalhes({'creator_tier.level': True, 'creator_tier.name': 'x' * 200,
                                            'creator_info.fans_cnt': {'a': 1}, 'creator_tier_progress.current_gmv': None})
         self.assertEqual(saida, {})
+
+
+class PartnerCompletoTests(unittest.TestCase):
+    """Fase A3 (23/11/2026): desvinculação (status 4), convites pendentes (2), renovação e contagens."""
+
+    SAINDO = {'arroba': 'saindo', 'creator_name': 'Saindo', 'status': 'vinculado', 'tiktok_status': 4,
+              'relation_id': '2001', 'create_time_second': '1795457509', 'expire_time_second': '1796062309',
+              'effective_end_date_second': '1796035722',
+              'detalhes': {'data_relation.create_time_second': '1790000000',
+                           'data_relation.expire_time_second': '1790600000',
+                           'expire_time_second': '1796062309', 'creator_tier_progress.current_gmv': '44.8'}}
+    PENDENTE = {'arroba': 'convidada', 'creator_name': 'C', 'status': 'solicitada', 'tiktok_status': 2,
+                'relation_id': '3001', 'create_time_second': '1795457616', 'expire_time_second': '1796062416',
+                'effective_end_date_second': '1800728014', 'detalhes': {'x': 1}}
+    CONTAGENS = {'bound': 2, 'pending': 1, 'unbinding': 1, 'all': 10}
+
+    def _coleta(self, outros=None, data=None):
+        data = data or resposta(itens=2, statusCount=self.CONTAGENS)
+        cliente, banco = Cliente(data=data, outros=outros or {
+            '4': resposta_status('4', [dict(self.SAINDO)]), '2': resposta_status('2', [dict(self.PENDENTE)])}), Banco()
+        agenciados_sync.coletar(cliente, banco, now=NOW)
+        return cliente, banco.chamadas[0][1]['p']
+
+    def test_le_vinculados_desvinculando_e_pendentes(self):
+        cliente, p = self._coleta()
+        status = [c[3]['status'] for c in cliente.chamadas[1:]]
+        self.assertEqual(status, ['1', '4', '2'])
+        self.assertTrue(all(c[3]['detalhes'] == '1' and c[2] == '/relations' and c[1] == 'GET'
+                            for c in cliente.chamadas[1:]))
+        self.assertEqual((p['total'], p['completa'], len(p['itens'])), (3, True, 3))
+        self.assertEqual(p['contagens'], self.CONTAGENS)
+        self.assertEqual(p['pendentes']['total'], 1)
+        self.assertEqual(p['pendentes']['itens'][0], {
+            'relation_id': '3001', 'arroba': 'convidada', 'creator_name': 'C', 'create_time_second': '1795457616',
+            'effective_end_date_second': '1800728014', 'expire_time_second': '1796062416'})
+
+    def test_desvinculando_usa_as_datas_do_vinculo(self):
+        _, p = self._coleta()
+        item = p['itens'][-1]
+        self.assertEqual(item['estado'], 'desvinculando')
+        self.assertEqual(item['desvinculo_pedido_second'], '1795457509')
+        self.assertEqual(item['desvinculo_conclui_second'], '1796062309')
+        self.assertEqual(item['create_time_second'], '1790000000')  # entrada, não o pedido de saída
+        self.assertEqual(item['expire_time_second'], '1790600000')
+        self.assertEqual(item['gmv_nivel'], '44.8')
+
+    def test_pedido_de_renovacao(self):
+        data = resposta(itens=1)
+        data['items'][0]['detalhes'] = {
+            'extend_relation.status': 1, 'extend_relation.create_time_second': '1795400000',
+            'extend_relation.expire_time_second': '1796000000', 'extend_relation.effective_end_date_second': '1827000000',
+            'extend_relation.remaining_extend_request_count': 1, 'extend_relation.id': '8690041642357393170123'}
+        _, p = self._coleta(data=data)
+        item = p['itens'][0]
+        self.assertEqual({k: v for k, v in item.items() if k.startswith('renovacao')}, {
+            'renovacao_status': '1', 'renovacao_pedido_second': '1795400000', 'renovacao_expira_second': '1796000000',
+            'renovacao_novo_fim_second': '1827000000', 'renovacao_restantes': '1'})
+        self.assertEqual(item['com_detalhes'], '1')
+
+    def test_sem_a_lista_de_desvinculacao_nao_grava(self):
+        for ruim in (RuntimeError('ponte'), resposta_status('1', []), dict(resposta_status('4', []), ok=False)):
+            banco = Banco()
+            cliente = Cliente(outros={'4': ruim})
+            with self.subTest(ruim=str(ruim)[:30]):
+                with self.assertRaises(Exception):
+                    agenciados_sync.coletar(cliente, banco, now=NOW)
+                self.assertEqual(banco.chamadas, [])
+
+    def test_item_de_outro_status_invalida(self):
+        errado = dict(self.SAINDO, tiktok_status=1)
+        with self.assertRaises(agenciados_sync.ColetaInvalida):
+            self._coleta(outros={'4': resposta_status('4', [errado])})
+
+    def test_pendentes_com_falha_seguem_sem_eles(self):
+        _, p = self._coleta(outros={'4': resposta_status('4', []), '2': RuntimeError('ponte')})
+        self.assertNotIn('pendentes', p)
+        self.assertEqual(len(p['itens']), 2)
+
+    def test_desvinculacao_incompleta_marca_coleta_incompleta(self):
+        lista = resposta_status('4', [dict(self.SAINDO)])
+        lista['pages'][-1]['hasMore'] = True
+        _, p = self._coleta(outros={'4': lista})
+        self.assertFalse(p['completa'])
 
 
 class ClienteRealTests(unittest.TestCase):

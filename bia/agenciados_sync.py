@@ -1,6 +1,8 @@
 """Coleta de hora em hora dos agenciados do TikTok Partner Center (auditoria 21/11/2026).
 
-Só leitura na ponte de Agenciamento (GET /relations, status=1, lista inteira). O banco guarda a
+Só leitura na ponte de Agenciamento (GET /relations, lista inteira). Fase A3 (23/11/2026): lê os vinculados
+(status 1), os em desvinculação (status 4, ainda vinculados até o TikTok concluir) e os convites pendentes
+(status 2), com o pedido de renovação de cada um e as contagens oficiais do Partner Center. O banco guarda a
 foto pela função public.registrar_coleta_agenciados_v5, que ignora coletas com menos de 45 minutos
 e só marca saídas com lista completa. Uma falha aqui nunca afeta o atendimento.
 """
@@ -58,7 +60,36 @@ def _detalhes(det):
     return saida
 
 
-def _validar(code, data):
+# Pedido de renovação (extend_relation) -> colunas renovacao_* no banco.
+_RENOVACAO = {
+    'renovacao_status': 'extend_relation.status',
+    'renovacao_pedido_second': 'extend_relation.create_time_second',
+    'renovacao_expira_second': 'extend_relation.expire_time_second',
+    'renovacao_novo_fim_second': 'extend_relation.effective_end_date_second',
+    'renovacao_restantes': 'extend_relation.remaining_extend_request_count',
+}
+_ESTADOS = {'1': 'vinculado', '4': 'desvinculando'}
+
+
+def _simples(det, chave):
+    valor = det.get(chave)
+    if isinstance(valor, bool) or not isinstance(valor, (int, float, str)) or len(str(valor)) > 80:
+        return None
+    return str(valor)
+
+
+def _renovacao(det):
+    if not isinstance(det, dict):
+        return {}
+    saida = {}
+    for campo, chave in _RENOVACAO.items():
+        valor = _simples(det, chave)
+        if valor is not None:
+            saida[campo] = valor
+    return saida
+
+
+def _validar(code, data, status='1'):
     items, pages, query = data.get('items'), data.get('pages'), data.get('query')
     if not (code == 200 and data.get('ok') is True and data.get('status') == 'relations_listed'):
         raise ColetaInvalida('ponte_nao_listou')
@@ -66,38 +97,84 @@ def _validar(code, data):
         raise ColetaInvalida('itens_invalidos')
     if not (isinstance(pages, list) and pages and all(isinstance(p, dict) and p.get('ok') is True for p in pages)):
         raise ColetaInvalida('paginas_invalidas')
-    if not (isinstance(query, dict) and str(query.get('status')) == '1' and query.get('creators') in ([], None)):
+    if not (isinstance(query, dict) and str(query.get('status')) == status and query.get('creators') in ([], None)):
         raise ColetaInvalida('consulta_inesperada')
     completa = data.get('completo') is True and pages[-1].get('hasMore') is False
     total = data.get('totalNum')
     total = total if isinstance(total, int) and not isinstance(total, bool) and total >= 0 else None
     itens = []
     for item in items:
-        if not isinstance(item, dict) or item.get('status') != 'vinculado':
+        if not isinstance(item, dict):
+            raise ColetaInvalida('item_invalido')
+        tiktok = item.get('tiktok_status')
+        if tiktok is not None and str(tiktok) != status:
+            raise ColetaInvalida('item_invalido')
+        if status in _ESTADOS and item.get('status') != 'vinculado':
             raise ColetaInvalida('item_invalido')
         relation = str(item.get('relation_id') or '')
         if not relation or len(relation) > 64:
             continue
-        itens.append({
+        base = {
             'relation_id': relation,
             'arroba': item.get('arroba') if isinstance(item.get('arroba'), str) else None,
             'creator_name': item.get('creator_name') if isinstance(item.get('creator_name'), str) else None,
             'create_time_second': str(item.get('create_time_second') or ''),
             'effective_end_date_second': str(item.get('effective_end_date_second') or ''),
-            **_detalhes(item.get('detalhes')),
-        })
-    return {'total': total, 'completa': completa, 'itens': itens}
+        }
+        if status not in _ESTADOS:  # convite pendente: só o básico
+            base['expire_time_second'] = str(item.get('expire_time_second') or '')
+            itens.append(base)
+            continue
+        det = item.get('detalhes') if isinstance(item.get('detalhes'), dict) else {}
+        base.update(_detalhes(det))
+        base.update(_renovacao(det))
+        base['estado'] = _ESTADOS[status]
+        if det:
+            base['com_detalhes'] = '1'
+        if status == '4':
+            # No status 4, as datas do registro são do pedido de saída; as do vínculo ficam em data_relation.
+            base['desvinculo_pedido_second'] = base['create_time_second']
+            base['desvinculo_conclui_second'] = str(item.get('expire_time_second') or '')
+            base['create_time_second'] = _simples(det, 'data_relation.create_time_second') or ''
+            base.pop('expire_time_second', None)
+            vinculo_expira = _simples(det, 'data_relation.expire_time_second')
+            if vinculo_expira:
+                base['expire_time_second'] = vinculo_expira
+        itens.append(base)
+    return {'total': total, 'completa': completa, 'itens': itens, 'contagens': data.get('statusCount')}
+
+
+def _listar(client, status):
+    code, data = client._call('agency', 'GET', '/relations', params={
+        'status': status, 'page_size': '100', 'page_limit': '100', 'fresh': '1', 'detalhes': '1'},
+        max_bytes=MAX_RESPOSTA_BYTES)
+    return _validar(code, data if isinstance(data, dict) else {}, status)
 
 
 def coletar(client, gateway, *, now=None):
-    """Uma coleta. Devolve o recibo da função do banco; levanta exceção se a ponte ou o banco falharem."""
+    """Uma coleta. Devolve o recibo da função do banco; levanta exceção se a ponte ou o banco falharem.
+
+    Vinculados (1) e em desvinculação (4) são obrigatórios: sem os dois, o banco marcaria saídas falsas.
+    Convites pendentes (2) são opcionais: se falharem, a coleta segue sem eles."""
     client._ready('agency')
-    code, data = client._call('agency', 'GET', '/relations', params={
-        'status': '1', 'page_size': '100', 'page_limit': '100', 'fresh': '1', 'detalhes': '1'},
-        max_bytes=MAX_RESPOSTA_BYTES)
-    lista = _validar(code, data)
-    observado = (now or datetime.now(timezone.utc)).isoformat()
-    payload = {'observado_em': observado, 'fonte': 'ponte_agenciamento:bia', **lista}
+    vinculados = _listar(client, '1')
+    saindo = _listar(client, '4')
+    try:
+        pendentes = _listar(client, '2')
+    except Exception:
+        pendentes = None
+    totais = (vinculados['total'], saindo['total'])
+    payload = {
+        'observado_em': (now or datetime.now(timezone.utc)).isoformat(),
+        'fonte': 'ponte_agenciamento:bia',
+        'total': None if None in totais else sum(totais),
+        'completa': vinculados['completa'] and saindo['completa'],
+        'itens': vinculados['itens'] + saindo['itens'],
+    }
+    if pendentes is not None:
+        payload['pendentes'] = {k: pendentes[k] for k in ('total', 'completa', 'itens')}
+    if isinstance(vinculados.get('contagens'), dict):
+        payload['contagens'] = vinculados['contagens']
     return gateway._rpc('registrar_coleta_agenciados_v5', {'p': payload})
 
 
@@ -111,7 +188,8 @@ class Agendador:
     def rodada(self):
         try:
             recibo = coletar(self.client, self.gateway)
-            resumo = {k: recibo.get(k) for k in ('status', 'recebidos', 'entraram', 'sairam', 'saidas_aplicadas')
+            resumo = {k: recibo.get(k) for k in ('status', 'recebidos', 'entraram', 'sairam', 'saidas_aplicadas',
+                                                       'desvinculando', 'pendentes')
                       } if isinstance(recibo, dict) else {'status': 'recibo_invalido'}
         except Exception as error:
             resumo = {'status': 'falhou', 'erro': type(error).__name__,
