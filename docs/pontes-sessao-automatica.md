@@ -79,7 +79,8 @@ Na **Agenciamento** e na **Pré-validação** (mesmo código, `pontes/tiktok-pon
 | Erro de configuração | Contexto nunca aprendido (ex.: relatório de GMV) não fecha mais o navegador |
 | Ver o estado | `/health` interno → `autoRecuperacao` (estado, tentativas, próxima, último resultado) |
 
-Resultado: 4 reinícios hoje, **4 reativações sozinhas** (12:25, 12:29, 12:37, 12:39 UTC), nenhum login.
+Resultado: 5 publicações hoje. 4 reativaram sozinhas (12:25, 12:29, 12:37, 12:39 UTC), nenhum login.
+A de 12:32 na Pré-validação não abriu o Chrome (trava órfã); a correção da trava saiu às 12:36 e resolveu.
 
 Lições do dia:
 - Às 12:21 uma operação passou de 2 min e a Agenciamento ficou parada esperando humano — o caso clássico.
