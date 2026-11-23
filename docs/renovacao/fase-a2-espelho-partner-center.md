@@ -140,3 +140,13 @@ Coluna `categoria` nas telas `agenciados_ficha`, `agenciados_movimento`, `agenci
 | Sem GMV | 24 | 0 | 5 | 7 (1) |
 
 ⚠️ O período desse GMV é o que o TikTok usa para o nível; pode não ser o mesmo período do print do cadastro.
+
+## Telefones do Chatwoot gravados (23/11/2026) ✅
+
+- Fonte nova `chatwoot` (`bia/sql/telefones_chatwoot.sql` + teste). Prioridade: formulário > ficha da Bia >
+  Chatwoot > base Amplify > Notion.
+- Cruzamento só leitura dos agenciados sem telefone com contatos do Chatwoot cujo **nome é exatamente o @**
+  (como o n8n cria): **248 gravados**, nenhum ambíguo. 37 consultas deram erro (repetir depois).
+- Agenciados ativos com telefone: **238 → 492** (formulário 179, Chatwoot 248, ficha da Bia 65).
+- A vencer em 45 dias: 107 de 315 com telefone (Diamond 2/9, Gold 2/8, Silver 2/9, Start 99/282).
+- O resto depende da base Amplify (outro Supabase) ou do Notion.
