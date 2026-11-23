@@ -121,3 +121,22 @@ Hoje, por nível:
 `agenciados_a_vencer` (45 dias): 315 pessoas, **77 com telefone**.
 
 Pendências: nomes dos níveis (ex.: Level 2 = Silver?) e telefones (base Amplify / Notion / Chatwoot).
+
+## Categoria Amplify (23/11/2026) ✅
+
+Regra oficial (card "Categorias e GMV" e Cadastro): Start até R$ 4.999 · Silver a partir de R$ 5 mil ·
+Gold a partir de R$ 30 mil · Diamond a partir de R$ 100 mil. Calculada pelo GMV que o Partner Center mostra
+para o nível (`gmv_nivel`). É diferente do "Level" do TikTok (0 a 6). Migration: `bia/sql/agenciados_categoria.sql`.
+
+Coluna `categoria` nas telas `agenciados_ficha`, `agenciados_movimento`, `agenciados_a_vencer`; telas novas
+`agenciados_por_categoria` e `agenciados_movimento_por_categoria` ("saíram 3 Silver hoje").
+
+| Categoria | Agenciados | GMV (soma) | Vencem em 30 dias | Vencem em 45 dias (com telefone) |
+|---|---|---|---|---|
+| Start | 1.391 | 437.137 | 200 | 282 (72) |
+| Silver | 66 | 811.295 | 6 | 9 (1) |
+| Gold | 25 | 1.406.373 | 5 | 8 (1) |
+| Diamond | 36 | 7.264.348 | 4 | 9 (2) |
+| Sem GMV | 24 | 0 | 5 | 7 (1) |
+
+⚠️ O período desse GMV é o que o TikTok usa para o nível; pode não ser o mesmo período do print do cadastro.
