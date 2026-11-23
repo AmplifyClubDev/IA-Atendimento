@@ -169,8 +169,8 @@
     },
     {
       "path": "playwright_client.py",
-      "bytes": 31357,
-      "sha256": "5823fcab056cde3452215ec3d5502ec2b68ef163b4dc665247551450d520dff6"
+      "bytes": 31590,
+      "sha256": "47716b9a019d618089bc73d3fb4d27d0db8b242e50c337cbe13254db9f67e078"
     },
     {
       "path": "real_journey.py",
@@ -274,8 +274,8 @@
     },
     {
       "path": "agenciados_sync.py",
-      "bytes": 6414,
-      "sha256": "ecd294794a1fb062a644e4ec4e04434a2d033a1aa80d2293bf9bab1f19bc94d4"
+      "bytes": 6576,
+      "sha256": "7de18ad283e883ee2867074072d8a846fcaa4dd3781f19c7996ec020e3e06480"
     },
     {
       "path": "turn_meaning.py",

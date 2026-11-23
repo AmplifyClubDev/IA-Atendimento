@@ -78,7 +78,7 @@ def _json_object(value):
     return value
 
 
-def _transport(*, method, url, headers, json_body=None, timeout=30):
+def _transport(*, method, url, headers, json_body=None, timeout=30, max_bytes=_LIMIT):
     data = json.dumps(json_body, allow_nan=False).encode() if json_body is not None else None
     request = Request(url, data=data, headers=headers, method=method)
     try:
@@ -87,8 +87,8 @@ def _transport(*, method, url, headers, json_body=None, timeout=30):
         response = error
     with response:
         status = response.status
-        raw = response.read(_LIMIT + 1)
-    if len(raw) > _LIMIT:
+        raw = response.read(max_bytes + 1)
+    if len(raw) > max_bytes:
         raise _CallError("response_too_large")
     try:
         return status, json.loads(raw)
@@ -246,7 +246,8 @@ class PlaywrightClient:
             raise _CallError("connection_target_invalid")
         return base.rstrip("/"), token
 
-    def _call(self, role, method, path, *, body=None, params=None, status_probe=False, timeout_cap=None):
+    def _call(self, role, method, path, *, body=None, params=None, status_probe=False, timeout_cap=None,
+              max_bytes=None):
         base, token = self._connection(role)
         default = 5 if status_probe else 135
         setting = "tiktok_status_timeout_seconds" if status_probe else "tiktok_timeout_seconds"
@@ -259,10 +260,12 @@ class PlaywrightClient:
             timeout = min(timeout, timeout_cap)
         url = base + path + ("?" + urlencode(params) if params else "")
         try:
+            # max_bytes só na coleta de agenciados (lista inteira com detalhes); o resto fica em 2 MB.
+            extra = {"max_bytes": max_bytes} if max_bytes else {}
             result = self.transport(method=method, url=url,
                                     headers={"Authorization": "Bearer " + token, "Accept": "application/json",
                                              "Content-Type": "application/json"},
-                                    json_body=body, timeout=timeout)
+                                    json_body=body, timeout=timeout, **extra)
         except _CallError:
             raise
         except Exception:

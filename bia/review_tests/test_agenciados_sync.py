@@ -31,6 +31,7 @@ class Cliente:
 
     def _call(self, role, method, path, params=None, **kw):
         self.chamadas.append((role, method, path, params))
+        self.kw = kw
         return self.code, self.data
 
 
@@ -109,6 +110,8 @@ class DetalhesTests(unittest.TestCase):
         cliente, banco = Cliente(data=data), Banco()
         agenciados_sync.coletar(cliente, banco, now=NOW)
         self.assertEqual(cliente.chamadas[1][3]['detalhes'], '1')
+        # Lista inteira com detalhes passa de 2 MB (7,5 MB em 23/11): só esta chamada aceita mais.
+        self.assertEqual(cliente.kw['max_bytes'], 16 * 1024 * 1024)
         item = banco.chamadas[0][1]['p']['itens'][0]
         self.assertEqual(item['nivel'], '2')
         self.assertEqual(item['nivel_nome'], 'Level 2')

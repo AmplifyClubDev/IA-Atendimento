@@ -14,6 +14,8 @@ import time
 INTERVAL_SECONDS = 3600
 FIRST_DELAY_SECONDS = 120
 MAX_ITEMS = 20000
+# Lista inteira com detalhes: ~3 KB por agenciado (1.542 em 23/11 passam de 2 MB).
+MAX_RESPOSTA_BYTES = 16 * 1024 * 1024
 
 
 class ColetaInvalida(ValueError):
@@ -91,7 +93,8 @@ def coletar(client, gateway, *, now=None):
     """Uma coleta. Devolve o recibo da função do banco; levanta exceção se a ponte ou o banco falharem."""
     client._ready('agency')
     code, data = client._call('agency', 'GET', '/relations', params={
-        'status': '1', 'page_size': '100', 'page_limit': '100', 'fresh': '1', 'detalhes': '1'})
+        'status': '1', 'page_size': '100', 'page_limit': '100', 'fresh': '1', 'detalhes': '1'},
+        max_bytes=MAX_RESPOSTA_BYTES)
     lista = _validar(code, data)
     observado = (now or datetime.now(timezone.utc)).isoformat()
     payload = {'observado_em': observado, 'fonte': 'ponte_agenciamento:bia', **lista}
