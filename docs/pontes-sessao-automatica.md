@@ -68,7 +68,7 @@ O login guardado em `/data` não é apagado em nenhum passo.
 
 ## Passo 1 publicado (23/11/2026) ✅
 
-Na **Agenciamento** e na **Pré-validação** (mesmo código, `pontes/tiktok-ponte`). A Partner Bridge ainda não.
+Na **Agenciamento** e na **Pré-validação** (mesmo código, `pontes/tiktok-ponte`) e na **Partner Bridge**.
 
 | O que | Como |
 |---|---|
@@ -86,4 +86,10 @@ Lições do dia:
 - Às 12:21 uma operação passou de 2 min e a Agenciamento ficou parada esperando humano — o caso clássico.
 - `/gmv-report` na Agenciamento derrubou a sessão (precisa da tela de relatórios). Voltou a ficar só no papel `gmv`.
 
-Próximos: passo 2 (aviso automático quando precisar de humano), levar o passo 1 para a Partner Bridge, passo 3.
+### Partner Bridge (23/11, 13:30 UTC)
+
+Código de outra geração: ela já reabria o navegador e voltava à página de parcerias sozinha. Faltava só a
+**trava órfã do Chrome** (`trava-chrome.mjs`). Publicada: subiu, removeu a trava do container antigo e ficou pronta
+sem login. Testes: 50 passando; 1 falha antiga (procura um arquivo de referência que não veio do container).
+
+Próximos: passo 2 (aviso automático quando precisar de humano), passo 3.
