@@ -236,4 +236,7 @@ async function initializeDesktop(){
   console.error(JSON.stringify({event:'desktop_startup_failed',code:desktopState.code}));
  }
 }
+// AUTO_RECONCILE: a ponte se reativa sozinha (auto-recuperacao.mjs); o supervisor acompanha sem humano.
+async function reconcileMode(){if(changing||closing||!app||desktopState.phase!=='ready'||!['login','bridge'].includes(mode))return;const h=await bridgeHealth();if(!h||changing)return;if(mode==='login'&&h.operatorLoginMode===false&&h.contextoPronto===true&&!h.interactiveChanging){mode='bridge';try{fs.writeFileSync('/data/mode.tmp','bridge',{mode:0o600});fs.renameSync('/data/mode.tmp','/data/mode');}catch{}console.error(JSON.stringify({event:'auto_reconcile',mode}));}}
+setInterval(()=>{void reconcileMode().catch(()=>{});},15000).unref();
 server.listen(Number(process.env.PORT||8080),'::',()=>{console.log('RAILWAY_BRIDGE_CONSOLE_STARTED');void initializeDesktop();});

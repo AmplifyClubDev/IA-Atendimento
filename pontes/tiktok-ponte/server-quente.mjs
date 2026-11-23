@@ -29,6 +29,9 @@
 import crypto from 'node:crypto';
 import { validRole, roleAllows, capturedRelationUrl, activateExistingSession } from './interactive-policy.mjs';
 import { relationDetails } from './relation-details.mjs';
+import {
+  arquivoContexto, classificarPagina, lerContextoSalvo, paginaDeParceiroValida, proximaEspera, salvarContexto,
+} from './auto-recuperacao.mjs';
 import http from 'node:http';
 import path from 'node:path';
 import process from 'node:process';
@@ -124,11 +127,18 @@ let ultimoProbeReadiness = null;
 let probeReadinessEmVoo = null;
 let bloqueioRisco = null;
 
+// Endereço da lista e página de parcerias aprendidos no último login (ficam no volume /data).
+const ARQUIVO_CONTEXTO = arquivoContexto(defaults.profileDir);
+
+function paginaInicial() {
+  return lerContextoSalvo(ARQUIVO_CONTEXTO)?.pageUrl || defaults.partnerUrl;
+}
+
 async function abrirContexto() {
   if (contexto && pagina && !pagina.isClosed()) return;
   if (contexto) {
     pagina = contexto.pages().find(p => !p.isClosed()) || await contexto.newPage();
-    await pagina.goto(defaults.partnerUrl, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+    await pagina.goto(paginaInicial(), { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
     return;
   }
   operatorLoginMode = true;
@@ -136,14 +146,77 @@ async function abrirContexto() {
   contexto = await chromium.launchPersistentContext(defaults.profileDir, {
     headless: defaults.headless, viewport: { width: 1440, height: 1000 },
   });
-  partnerContext = { relationListUrl: null, reportDimensionListUrl: null };
+  const salvo = lerContextoSalvo(ARQUIVO_CONTEXTO);
+  partnerContext = { relationListUrl: salvo?.relationListUrl || null, reportDimensionListUrl: null };
   contexto.on('request', request => {
     const url = request.url();
-    if (capturedRelationUrl(url)) partnerContext.relationListUrl = url;
+    if (!capturedRelationUrl(url)) return;
+    partnerContext.relationListUrl = url;
+    let paginaAtual = null;
+    try { paginaAtual = request.frame()?.url() || null; } catch { paginaAtual = null; }
+    try {
+      salvarContexto(ARQUIVO_CONTEXTO, {
+        relationListUrl: url,
+        pageUrl: paginaDeParceiroValida(paginaAtual) ? paginaAtual : salvo?.pageUrl,
+      });
+    } catch (erro) {
+      console.error(`[quente] nao salvou contexto: ${erro.message}`);
+    }
   });
   pagina = contexto.pages().find(p => !p.isClosed()) || await contexto.newPage();
-  // Navigation is exclusively for human authentication. No DOM is read or clicked.
-  await pagina.goto(defaults.partnerUrl, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+  // Navigation only: no DOM is read or clicked. The saved partnerships page lets the session resume by itself.
+  await pagina.goto(paginaInicial(), { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+}
+
+// ---- volta sozinha: reativa a sessão que ainda vale; só pede humano na tela de login ----
+const autoRecuperacao = { estado: 'aguardando', tentativas: 0, proximaEm: null, ultimo: null, timer: null };
+
+function agendarAutoAtivacao(motivo, esperaMs = proximaEspera(autoRecuperacao.tentativas)) {
+  if (process.env.NODE_ENV === 'test' && process.env.TIKTOK_DISABLE_WARMUP_FOR_TESTS === 'true') return;
+  if (autoRecuperacao.timer) clearTimeout(autoRecuperacao.timer);
+  let espera = esperaMs;
+  if (bloqueioRisco) espera = Math.max(espera, bloqueioRisco.ate - Date.now() + 1000);
+  autoRecuperacao.proximaEm = Date.now() + espera;
+  autoRecuperacao.timer = setTimeout(() => { void autoAtivar(motivo); }, espera);
+  autoRecuperacao.timer.unref?.();
+}
+
+async function autoAtivar(motivo) {
+  autoRecuperacao.timer = null;
+  autoRecuperacao.proximaEm = null;
+  if (contextoUtilizavel() && !operatorLoginMode) {
+    autoRecuperacao.estado = 'pronta';
+    return;
+  }
+  if (bloqueioRiscoAtivo()) return agendarAutoAtivacao(motivo);
+  if (interactiveChanging || ocupadoDesde || filaTamanho || preparando || probeReadinessEmVoo) {
+    return agendarAutoAtivacao(motivo, 15_000);
+  }
+  autoRecuperacao.estado = 'tentando';
+  try {
+    if (!contexto || !pagina || pagina.isClosed()) await abrirContexto();
+    // Dá tempo para a página de parcerias carregar e mostrar a lista (se a sessão vale).
+    for (let i = 0; i < 20 && !capturedRelationUrl(partnerContext?.relationListUrl); i += 1) {
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    if (classificarPagina(pagina?.url?.()) === 'login') {
+      autoRecuperacao.estado = 'precisa_humano';
+      autoRecuperacao.ultimo = { em: Date.now(), resultado: 'tela_de_login', motivo };
+      console.error('[quente] TikTok pediu login: precisa de humano');
+      return;
+    }
+    await interactiveCommand('activate');
+    autoRecuperacao.estado = 'pronta';
+    autoRecuperacao.tentativas = 0;
+    autoRecuperacao.ultimo = { em: Date.now(), resultado: 'reativada', motivo };
+    console.error(`[quente] sessao reativada sozinha (${motivo})`);
+  } catch (erro) {
+    autoRecuperacao.tentativas += 1;
+    autoRecuperacao.estado = 'aguardando';
+    autoRecuperacao.ultimo = { em: Date.now(), resultado: classificarErroReadiness(erro), motivo };
+    console.error(`[quente] reativacao falhou (${autoRecuperacao.tentativas}): ${classificarErroReadiness(erro)}`);
+    agendarAutoAtivacao(motivo);
+  }
 }
 
 async function interactiveCommand(command) {
@@ -245,6 +318,8 @@ function naFila(rotulo, operacao) {
       registrarErroContexto(erro);
       registrarBloqueioRiscoSeNecessario(erro, rotulo);
       await fecharContexto(`erro em ${rotulo}: ${erro.message}`);
+      autoRecuperacao.tentativas = 0;
+      agendarAutoAtivacao(`erro em ${rotulo}`);
       throw erro;
     } finally {
       chamadas += 1;
@@ -531,6 +606,14 @@ const servidor = http.createServer(async (req, res) => {
         idadeContextoMs: contextoPronto ? Date.now() - nascidoEm : null,
         queueLength: filaTamanho,
         activeMs: ocupadoDesde ? Date.now() - ocupadoDesde : null,
+        autoRecuperacao: {
+          estado: autoRecuperacao.estado,
+          tentativas: autoRecuperacao.tentativas,
+          proximaEmMs: autoRecuperacao.proximaEm ? Math.max(0, autoRecuperacao.proximaEm - Date.now()) : null,
+          ultimo: autoRecuperacao.ultimo
+            ? { em: new Date(autoRecuperacao.ultimo.em).toISOString(), resultado: autoRecuperacao.ultimo.resultado }
+            : null,
+        },
         ...telemetriaSanitizada(),
         relacoesEmCache: [...cacheRelacoes.entries()]
           .filter(([, v]) => v.valor)
@@ -724,6 +807,8 @@ servidor.listen(port, host, () => {
   if (!pularAquecimentoNoTeste) {
     preparando = abrirContexto().catch(() => { ultimoErroContexto = {code:'login_context_unavailable',em:Date.now()}; })
       .finally(() => { preparando = null; });
+    // Sessão do disco ainda vale? Ativa sozinha, sem esperar ninguém.
+    agendarAutoAtivacao('inicio', 15_000);
   }
   readinessTimer = setInterval(() => {
     if (!operatorLoginMode && !interactiveChanging) solicitarProbeReadiness();
