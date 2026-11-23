@@ -159,3 +159,26 @@ Coluna `categoria` nas telas `agenciados_ficha`, `agenciados_movimento`, `agenci
 - Agenciados ativos com telefone: 492 → **759** (formulário 179, Chatwoot 248, base Amplify 267, ficha da Bia 65).
 - A vencer em 45 dias com telefone: 107 → **254 de 315** (Diamond 5/9, Gold 4/8, Silver 5/9, Start 237/282).
 - Falta: ~780 agenciados sem telefone em nenhuma fonte; o Notion é a última fonte conhecida.
+
+## Levantamento do Partner Center: o que falta no banco (23/11/2026)
+
+Contagens oficiais (`statusCount`, vêm em toda resposta da lista):
+
+| Estado | Quantos | No banco hoje? |
+|---|---|---|
+| Vinculados (`bound`, status 1) | 1.549 | ✅ sim |
+| Vinculação solicitada (`pending`, status 2) | 99 | ❌ |
+| **Desvinculação solicitada** (`unbinding`, status 4) | 45 | ❌ — 10 estão marcados como "saiu" (errado), 35 nunca entraram |
+| Convite recusado (`binding_failed_reject`, status 6) | 425 | ❌ |
+| Convite expirado (`binding_failed_expired`) | 2.894 | ❌ |
+| Saíram (`unbound_unlink`) | 2.405 | ❌ (só as saídas vistas desde 21/11) |
+| Contrato venceu (`unbound_expired`) | 2.994 | ❌ |
+| Prestes a expirar (`binding_expire_soon`) | 220 / 139 / 8 | — (faixas) |
+
+**Pedido de renovação** = bloco `extend_relation` na parceria (74 vinculados hoje):
+`status` (1 = aguardando aceite: 51 · 2 = aceito, novo fim já aplicado: 18 · 3 = sem aceite, 0 pedidos restantes: 5),
+`create_time_second` (pedido enviado; todos nos últimos 7 dias), `expire_time_second` (pedido expira em até 7 dias),
+`effective_end_date_second` (novo fim: +365 dias), `original_effective_end_date_second`, `remaining_extend_request_count`.
+Os pedidos já são enviados ~7 dias antes do vencimento (74 dos 76 que vencem em 7 dias têm pedido).
+
+**Desvinculação solicitada**: status 4, `record.type = 7`; continuam vinculados até o TikTok concluir.
