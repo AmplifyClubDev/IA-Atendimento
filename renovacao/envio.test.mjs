@@ -18,7 +18,7 @@ test('horário: só das 9h às 20h de Brasília', () => {
 
 test('mensagem do template único com a data', () => {
   const m = montarMensagem({ etapa: 'convite', template: 'renovacao_contrato', parametros: ['02/12'] }, {});
-  assert.deepEqual(m.template_params, { name: 'renovacao_contrato', category: 'UTILITY', language: 'pt_BR',
+  assert.deepEqual(m.template_params, { name: 'renovacao_contrato', category: 'MARKETING', language: 'pt_BR',
     processed_params: { body: { 1: '02/12' } } });
   assert.throws(() => montarMensagem({ etapa: 'convite', template: 'renovacao_contrato', parametros: [] }, {}), /parâmetros/);
   assert.throws(() => montarMensagem({ etapa: 'convite', template: 'renovacao_contrato_anual', parametros: ['02/12'] }, {}), /template inesperado/);
@@ -35,6 +35,12 @@ test('enviarUm: acha o contato, abre a conversa na caixa 1 e etiqueta', async ()
     '5511999998888', {}, cw);
   assert.equal(id, 77);
   assert.deepEqual(feito, [['contato', '5511999998888', 'Ana'], ['conversa', 9, '5511999998888', 'renovacao_contrato'], ['etiqueta', 77]]);
+});
+
+test('sem a etiqueta o envio falha (a Bia responderia)', async () => {
+  const cw = { async contato() { return { contato: { id: 1 }, sourceId: 'x' }; }, async conversa() { return { id: 5 }; },
+    async etiqueta() { throw new Error('422'); } };
+  await assert.rejects(() => enviarUm({ etapa: 'convite', template: 'renovacao_contrato', parametros: ['02/12'] }, '5511999998888', {}, cw), /etiqueta não aplicada/);
 });
 
 test('enviar: desligado por padrão', async () => {

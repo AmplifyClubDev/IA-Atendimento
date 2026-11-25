@@ -1,4 +1,6 @@
-// Envio da régua de renovação pela caixa 1 do Chatwoot (25/11/2026). Node 22, sem dependências.
+// Envio da régua de renovação pela caixa 3 do Chatwoot (25/11/2026, decisão do Vitor). Node 22, sem dependências.
+// A Bia atende a caixa 3 e ignora conversas com a etiqueta "Renovacao de contrato" (real_operations.RENEWAL_LABELS):
+// por isso a etiqueta é obrigatória; sem ela o envio conta como falha.
 // Modos (nunca envia sem pedir):
 //   node envio.mjs seco                     -> mostra o que sairia da fila, não envia nada
 //   node envio.mjs teste <telefone>         -> manda 1 mensagem de cada etapa SÓ para esse número (não mexe na fila)
@@ -8,10 +10,10 @@
 // Régua (25/11): 1 mensagem entre 7 e 1 dias, template único renovacao_contrato; {{1}} = data do fim (dd/mm).
 // O resto da conversa (respostas aos botões) sai dentro das 24 h, sem template.
 
-export const CAIXA = 1;
+export const CAIXA = 3;
 export const ETIQUETA = 'Renovacao de contrato';
 export const TEMPLATES = {
-  renovacao_contrato: { category: 'UTILITY', parametros: 1 },
+  renovacao_contrato: { category: 'MARKETING', parametros: 1 }, // a Meta aprovou como Marketing (25/11)
 };
 export const HORARIO = { inicio: 9, fim: 20 }; // Brasília
 export const ESPERA_ENTRE_ENVIOS_MS = 8000;
@@ -101,7 +103,11 @@ export async function enviarUm(envio, telefone, env, cw = chatwoot(env)) {
   const mensagem = montarMensagem(envio, env);
   const { contato, sourceId } = await cw.contato(telefone, envio.nome);
   const conversa = await cw.conversa(contato, sourceId, mensagem);
-  await cw.etiqueta(conversa.id).catch(() => {});
+  try {
+    await cw.etiqueta(conversa.id);
+  } catch (erro) {
+    throw new Error(`etiqueta não aplicada na conversa ${conversa.id} (a Bia pode responder): ${erro.message}`);
+  }
   return conversa.id;
 }
 

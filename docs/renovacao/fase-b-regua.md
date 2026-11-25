@@ -82,6 +82,10 @@ Atenção ao nome: quem não passou pela Bia só tem o nome do TikTok, às vezes
 
 ## Templates finais (25/11/2026, decisão do Vitor)
 
+**Caixa 3** (decisão do Vitor no fim do dia): os 2 templates foram aprovados na conta da caixa 3 (final 4456), como **Marketing**.
+A Bia já ignora conversas com a etiqueta "Renovacao de contrato" (`real_operations.RENEWAL_LABELS`), então o envio põe a
+etiqueta e, se não conseguir, conta como falha.
+
 - `renovacao_contrato` (Utilidade): o alerta, para os dois tipos de contrato, sem nome. {{1}} = data do fim (dd/mm).
   Cabeçalho de texto "Renovação do seu contrato Amplify", 3 passos, botões Quero renovar · Não quero renovar · Tenho dúvidas.
 - `renovacao_confirmada` (Utilidade): {{1}} = nova data do fim. Sai quando a coleta vê o contrato estendido,
