@@ -5,13 +5,13 @@
 //   node envio.mjs enviar                   -> manda a fila "previsto" (só com RENOVACAO_ENVIO_LIGADO=true)
 // Variáveis: SUPABASE_URL, SUPABASE_SERVICE_KEY, CHATWOOT_BASE_URL, CHATWOOT_ACCOUNT_ID, CHATWOOT_API_TOKEN,
 //            RENOVACAO_VIDEO (opcional: link fixo do vídeo, se o template tiver vídeo no cabeçalho).
-// Régua nova (25/11): 1 mensagem entre 7 e 1 dias; template pelo tipo de contrato; {{1}} nome, {{2}} data do fim.
+// Régua (25/11): 1 mensagem entre 7 e 1 dias, template único renovacao_contrato; {{1}} = data do fim (dd/mm).
+// O resto da conversa (respostas aos botões) sai dentro das 24 h, sem template.
 
 export const CAIXA = 1;
 export const ETIQUETA = 'Renovacao de contrato';
 export const TEMPLATES = {
-  renovacao_primeiro_contrato: { category: 'UTILITY', parametros: 2 },
-  renovacao_contrato_anual: { category: 'UTILITY', parametros: 2 },
+  renovacao_contrato: { category: 'UTILITY', parametros: 1 },
 };
 export const HORARIO = { inicio: 9, fim: 20 }; // Brasília
 export const ESPERA_ENTRE_ENVIOS_MS = 8000;
@@ -124,8 +124,7 @@ export async function principal(argv = process.argv.slice(2), env = process.env,
     const telefone = telefoneValido(alvo);
     if (!telefone) throw new Error('teste precisa de um telefone 55DDDNUMERO');
     const exemplos = [
-      { etapa: 'convite', template: 'renovacao_primeiro_contrato', parametros: ['Teste', '02/12'], nome: 'Teste renovação' },
-      { etapa: 'convite', template: 'renovacao_contrato_anual', parametros: ['Teste', '02/12'], nome: 'Teste renovação' },
+      { etapa: 'convite', template: 'renovacao_contrato', parametros: ['02/12'], nome: 'Teste renovação' },
     ].filter((e) => !argv[2] || e.template === argv[2]);
     for (const e of exemplos) {
       const id = await enviarUm(e, telefone, env);

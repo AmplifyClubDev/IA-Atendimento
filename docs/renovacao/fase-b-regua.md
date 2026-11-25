@@ -79,3 +79,14 @@ Hoje: 44 podem receber (todos 1º contrato); segurados: 8 sem telefone, 6 sem pe
 sair, 2 vencem hoje. A fila só é preparada quando os templates forem aprovados.
 
 Atenção ao nome: quem não passou pela Bia só tem o nome do TikTok, às vezes nome de loja ("Ofertas", "Baratinho").
+
+## Templates finais (25/11/2026, decisão do Vitor)
+
+- `renovacao_contrato` (Utilidade): o alerta, para os dois tipos de contrato, sem nome. {{1}} = data do fim (dd/mm).
+  Cabeçalho de texto "Renovação do seu contrato Amplify", 3 passos, botões Quero renovar · Não quero renovar · Tenho dúvidas.
+- `renovacao_confirmada` (Utilidade): {{1}} = nova data do fim. Sai quando a coleta vê o contrato estendido,
+  mesmo depois de fechada a janela de 24 h.
+- O resto (resposta a cada botão, lista de motivos, agradecimento) sai dentro da conversa, sem template.
+
+`bia/sql/renovacao_regua_v3.sql`: régua com o template único (44 podem receber em 25/11, todas as mensagens montadas
+e com telefone válido). `renovacao/envio.mjs`: template único, 1 variável.
