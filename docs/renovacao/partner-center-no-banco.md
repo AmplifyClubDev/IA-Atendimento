@@ -63,3 +63,15 @@ vencidos, 2.903 convites expirados, 2.363 saídas, 426 recusas.
 Saiu (desvinculou) 2.364 · Contrato venceu 2.983 · outros 3.
 
 Pontes: Agenciamento ✅ e Partner Bridge ✅. A Pré-validação pediu login; o Vitor entrou às 12:02 UTC e ela voltou ao modo ponte ✅.
+
+## Origem "Partner Center" (25/11/2026) ✅
+
+Tarefa da reunião "Registrar Origem". Quem chegou direto pelo Partner Center, sem passar pela Bia, não tinha origem
+(1.290 agenciados ativos). Agora:
+
+- `agenciados_ficha.origem`: a origem da ficha da Bia (Anúncio, Indicação, Orgânico, Não informado) quando a pessoa
+  passou por ela; senão **"Partner Center"**.
+- `partner_center.origem_lead` (coluna nova no fim): a mesma regra para todas as parcerias, inclusive convites e histórico.
+
+É regra das telas (`bia/sql/origem_partner_center.sql`): vale sozinha para quem entrar depois e não cria leads falsos.
+Ativos hoje: Partner Center 1.290 · Anúncio 88 · Indicação 51 · Orgânico Meta 20 · Orgânico TikTok 17 · Não informado 115.
