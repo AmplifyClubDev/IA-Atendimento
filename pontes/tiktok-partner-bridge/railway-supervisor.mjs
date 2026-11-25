@@ -123,7 +123,7 @@ await refresh();setInterval(refresh,10000);
 // SESSION_PANEL_END
 const server=http.createServer(async(req,res)=>{try{
  const url=new URL(req.url,'http://localhost');
- if(req.method==='GET'&&url.pathname==='/health')return json(res,200,{ok:true,mode,persistent_profile:true});
+ if(req.method==='GET'&&url.pathname==='/health'){const h=await bridgeHealth();return json(res,200,{ok:true,mode,persistent_profile:true,precisa_login:h?.precisaLogin===true});}
  if(req.method==='GET'&&['/','/console','/console/'].includes(url.pathname)){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY','Content-Security-Policy':"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src 'self'; connect-src 'self'; frame-ancestors 'none'"});return res.end(SESSION_PANEL_HTML);}
  if(url.pathname==='/console/session'&&req.method==='POST'){if(!validOrigin(req)||!bearerAuthorized(req,consoleToken))return json(res,401,{ok:false});res.setHeader('Set-Cookie','__Host-bridge_console='+session(consoleToken)+'; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=7200');return json(res,200,{ok:true});}
  if(url.pathname.startsWith('/console/')){

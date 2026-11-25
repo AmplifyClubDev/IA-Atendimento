@@ -44,6 +44,15 @@ export function proximaEspera(tentativasFalhas) {
   return n < ESPERAS_MS.length ? ESPERAS_MS[n] : ESPERA_LENTA_MS;
 }
 
+// 25/11/2026: precisa de humano só quando a leitura de prova falhou numa tela de login/verificação do TikTok,
+// ou quando o próprio erro pede verificação (captcha, código). Ponte ocupada nunca conta.
+export function precisaLoginDeVerdade(telaDeLogin, erro) {
+  const mensagem = String(erro?.message || erro || '').toLowerCase();
+  if (mensagem.includes('interactive_session_busy')) return false;
+  if (telaDeLogin === true) return true;
+  return /captcha|2fa|mfa|verification|verify/.test(mensagem);
+}
+
 export function arquivoContexto(profileDir, env = process.env) {
   return env.TIKTOK_PARTNER_CONTEXT_FILE || path.join(path.dirname(profileDir), 'partner-context.json');
 }

@@ -65,6 +65,7 @@ async function harness({ enabled = true, ui = outcome(), verification, inspect, 
     'node:http': { default: { createServer(callback) { handler = callback; return server; } } },
     'node:os': { default: { hostname() { return 'offline-host'; } } },
     './trava-chrome.mjs': { limparTravaOrfa() { return false; } },
+    './tela-login.mjs': { paginaDeLogin() { return false; }, FALHAS_PARA_PEDIR_LOGIN: 2 },
     'playwright': { chromium: { async launchPersistentContext() { calls.browser++; return browser; } } },
     './invite.mjs': {
       defaults: { profileDir: '/offline-profile', headless: true, commission: '10', relatedBizTypes: '2,6', dueDays: 60 },

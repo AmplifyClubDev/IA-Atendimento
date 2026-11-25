@@ -67,3 +67,12 @@ test('salva e lê o contexto; rejeita lixo', () => {
   assert.equal(lerContextoSalvo(arq), null);
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('25/11: só pede humano quando a leitura falhou na tela de login ou o TikTok pede verificação', async () => {
+  const { precisaLoginDeVerdade } = await import('./auto-recuperacao.mjs');
+  assert.equal(precisaLoginDeVerdade(true, new Error('partner_probe_rejected')), true);
+  assert.equal(precisaLoginDeVerdade(false, new Error('partner_probe_rejected')), false);
+  assert.equal(precisaLoginDeVerdade(false, new Error('operação passou de 60000ms')), false);
+  assert.equal(precisaLoginDeVerdade(false, new Error('captcha_required')), true);
+  assert.equal(precisaLoginDeVerdade(true, new Error('interactive_session_busy')), false);
+});

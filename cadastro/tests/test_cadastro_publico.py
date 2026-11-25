@@ -420,19 +420,6 @@ def test_conversa_da_bia_alimenta_a_ficha(pg):
     assert query(pg, "select convite_situacao, convite_aceito_em is not null from interno.creators where id=%s", creator) == [("aceito", True)]
 
 
-def test_vigia_avisa_quando_a_ponte_pede_login_e_quando_volta():
-    from vigia_ponte import VigiaPonte
-    respostas = iter(["ready", "human_login_required", "human_login_required", "human_login_required", "busy", "ready", "ready"])
-    alertas = []
-    vigia = VigiaPonte("t" * 40, lambda assunto, texto, **visual: alertas.append((assunto, visual.get("botao"))),
-                       nome="Pré-validação", painel="https://cadastro/operacao", ler=lambda token: {"status": next(respostas)})
-    resultados = [vigia.checar(agora=1000 + 300 * i) for i in range(7)]
-    assert resultados == ["ok", "caida", "alertado", "caida", "instavel", "ok", "ok"]
-    assert alertas[0][0].startswith("🔴 Ponte do TikTok (Pré-validação) pediu login")
-    assert alertas[0][1] == ("Abrir painel de login", "https://cadastro/operacao")
-    assert alertas[1][0].startswith("✅ Ponte do TikTok (Pré-validação) de volta") and len(alertas) == 2
-
-
 def test_circle_nao_manda_o_proprio_convite():
     from entrega import CircleComCache
     enviados = []

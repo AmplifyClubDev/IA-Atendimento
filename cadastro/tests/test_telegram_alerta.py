@@ -48,7 +48,7 @@ def test_vigia_da_ponte_usa_os_dois_canais(monkeypatch):
     assert [v.nome for v in vigias] == ["Agenciamento"]
     enviados = []
     monkeypatch.setattr("telegram_alerta._post", lambda url, corpo, timeout=15: enviados.append(corpo) or {"ok": True})
-    vigias[0].ler = lambda token: {"status": "human_login_required"}
+    vigias[0].ler = lambda token: {"status": "human_login_required", "precisa_login": True}
     assert [vigias[0].checar(agora=1000 + 300 * i) for i in range(2)] == ["caida", "alertado"]
     assert len(enviados) == 1 and enviados[0]["text"].startswith("🔴 Ponte do TikTok (Agenciamento) pediu login")
     assert "/pontes/" + "s" * 40 in enviados[0]["text"]

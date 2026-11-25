@@ -29,6 +29,7 @@
 import crypto from 'node:crypto';
 import os from 'node:os';
 import { limparTravaOrfa } from './trava-chrome.mjs';
+import { FALHAS_PARA_PEDIR_LOGIN, paginaDeLogin } from './tela-login.mjs';
 import http from 'node:http';
 import path from 'node:path';
 import process from 'node:process';
@@ -122,6 +123,7 @@ let ultimoErroContexto = null;
 let ultimoProbeReadiness = null;
 let probeReadinessEmVoo = null;
 let bloqueioRisco = null;
+let falhasNaTelaDeLogin = 0;
 
 async function abrirContexto() {
   verificarBloqueioRisco();
@@ -155,9 +157,13 @@ async function abrirContexto() {
     nascidoEm = Date.now();
     contextoPronto = true;
     ultimoErroContexto = null;
+    falhasNaTelaDeLogin = 0;
     console.error(`[quente] contexto pronto em ${Date.now() - inicio}ms`);
   } catch (erro) {
     registrarErroContexto(erro);
+    let urlFalha = '';
+    try { urlFalha = pagina?.url?.() || ''; } catch { urlFalha = ''; }
+    falhasNaTelaDeLogin = paginaDeLogin(urlFalha) ? falhasNaTelaDeLogin + 1 : 0;
     const anterior = contexto;
     contexto = null;
     pagina = null;
@@ -552,6 +558,8 @@ const servidor = http.createServer(async (req, res) => {
       return responder(res, 200, {
         ok: true,
         liveness: 'alive',
+        // Para o vigia: só true quando a ponte caiu 2 vezes seguidas na tela de login do TikTok.
+        precisaLogin: !contextoUtilizavel() && falhasNaTelaDeLogin >= FALHAS_PARA_PEDIR_LOGIN,
         status: estadoContexto(),
         contextoAberto: Boolean(contexto),
         contextoPronto: contextoUtilizavel(),

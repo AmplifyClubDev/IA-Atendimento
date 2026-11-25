@@ -39,6 +39,23 @@ LOGIN = {"human_login_required", "login_required", "session_or_partner_context_i
          "partner_probe_rejected", "captcha_required", "mfa_required", "human_verification_required"}
 
 
+def ler_precisa_login(base, timeout=10):
+    """/health público da ponte (25/11/2026): True só quando o TikTok pediu login de verdade.
+
+    None quando não deu para ler (ponte antiga ou fora do ar): o vigia espera o limite de 45 min."""
+    request_ = Request(base + "/health", headers={"Accept": "application/json"})
+    try:
+        response = build_opener(ProxyHandler({}), SemRedirecionamento()).open(request_, timeout=timeout)
+        try:
+            corpo = json.loads(response.read(65536))
+        finally:
+            response.close()
+    except Exception:
+        return None
+    valor = corpo.get("precisa_login") if isinstance(corpo, dict) else None
+    return valor if isinstance(valor, bool) else None
+
+
 def ler_status(base, token, timeout=10):
     """Readiness não confunde HTTP 429/401/503 com necessidade de login."""
     request_ = Request(base + "/bridge/ready", headers={"Authorization": "Bearer " + token, "Accept": "application/json"})

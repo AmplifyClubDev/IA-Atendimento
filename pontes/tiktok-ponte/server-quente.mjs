@@ -30,8 +30,8 @@ import crypto from 'node:crypto';
 import { validRole, roleAllows, capturedRelationUrl, activateExistingSession } from './interactive-policy.mjs';
 import { relationDetails } from './relation-details.mjs';
 import {
-  arquivoContexto, classificarPagina, lerContextoSalvo, limparTravaOrfa, paginaDeParceiroValida, proximaEspera,
-  salvarContexto,
+  arquivoContexto, classificarPagina, ESPERA_LENTA_MS, lerContextoSalvo, limparTravaOrfa, paginaDeParceiroValida,
+  precisaLoginDeVerdade, proximaEspera, salvarContexto,
 } from './auto-recuperacao.mjs';
 import http from 'node:http';
 import os from 'node:os';
@@ -196,18 +196,20 @@ async function autoAtivar(motivo) {
     return agendarAutoAtivacao(motivo, 15_000);
   }
   autoRecuperacao.estado = 'tentando';
+  let telaDeLogin = false;
   try {
     if (!contexto || !pagina || pagina.isClosed()) await abrirContexto();
+    // 25/11/2026: uma tela de login pode ser só passagem (o botão "ativar" funcionou sem e-mail nem senha).
+    // Volta à página de parcerias (só navegação) e faz a mesma leitura de prova do botão.
+    if (classificarPagina(pagina?.url?.()) === 'login') {
+      telaDeLogin = true;
+      await pagina.goto(paginaInicial(), { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+    }
     // Dá tempo para a página de parcerias carregar e mostrar a lista (se a sessão vale).
     for (let i = 0; i < 20 && !capturedRelationUrl(partnerContext?.relationListUrl); i += 1) {
       await new Promise((r) => setTimeout(r, 1000));
     }
-    if (classificarPagina(pagina?.url?.()) === 'login') {
-      autoRecuperacao.estado = 'precisa_humano';
-      autoRecuperacao.ultimo = { em: Date.now(), resultado: 'tela_de_login', motivo };
-      console.error('[quente] TikTok pediu login: precisa de humano');
-      return;
-    }
+    telaDeLogin = classificarPagina(pagina?.url?.()) === 'login';
     await interactiveCommand('activate');
     autoRecuperacao.estado = 'pronta';
     autoRecuperacao.tentativas = 0;
@@ -215,8 +217,15 @@ async function autoAtivar(motivo) {
     console.error(`[quente] sessao reativada sozinha (${motivo})`);
   } catch (erro) {
     autoRecuperacao.tentativas += 1;
+    autoRecuperacao.ultimo = { em: Date.now(), resultado: telaDeLogin ? 'tela_de_login' : classificarErroReadiness(erro), motivo };
+    if (precisaLoginDeVerdade(telaDeLogin, erro)) {
+      // Só aqui precisa de humano (e-mail e senha). Continua tentando a cada 30 min, caso a sessão volte.
+      autoRecuperacao.estado = 'precisa_humano';
+      console.error('[quente] TikTok pediu login e a leitura de prova falhou: precisa de humano');
+      agendarAutoAtivacao(motivo, ESPERA_LENTA_MS);
+      return;
+    }
     autoRecuperacao.estado = 'aguardando';
-    autoRecuperacao.ultimo = { em: Date.now(), resultado: classificarErroReadiness(erro), motivo };
     console.error(`[quente] reativacao falhou (${autoRecuperacao.tentativas}): ${classificarErroReadiness(erro)}`);
     agendarAutoAtivacao(motivo);
   }
@@ -259,6 +268,11 @@ process.on('message', async message => {
       || !/^[a-f0-9]{32}$/.test(message.id) || !['login', 'activate'].includes(message.command)) return;
   try {
     const result = await interactiveCommand(message.command);
+    if (message.command === 'activate' && result?.ok === true) {
+      // Ativada pelo botão do painel: o aviso "precisa de login" para na hora.
+      autoRecuperacao.estado = 'pronta';
+      autoRecuperacao.tentativas = 0;
+    }
     process.send?.({ id: message.id, ...result });
   } catch {
     process.send?.({ id: message.id, ok: false, status: 'interactive_activation_rejected' });
@@ -612,6 +626,8 @@ const servidor = http.createServer(async (req, res) => {
         idadeContextoMs: contextoPronto ? Date.now() - nascidoEm : null,
         queueLength: filaTamanho,
         activeMs: ocupadoDesde ? Date.now() - ocupadoDesde : null,
+        // Para o vigia: só true quando o TikTok pediu login de verdade (e-mail e senha).
+        precisaLogin: autoRecuperacao.estado === 'precisa_humano',
         autoRecuperacao: {
           estado: autoRecuperacao.estado,
           tentativas: autoRecuperacao.tentativas,
