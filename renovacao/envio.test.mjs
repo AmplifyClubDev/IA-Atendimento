@@ -2,9 +2,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { telefoneValido, dentroDoHorario, montarMensagem, enviarUm, principal } from './envio.mjs';
 
-const VIDEOS = { RENOVACAO_VIDEO_SEMANA: 'https://v.exemplo/semana.mp4', RENOVACAO_VIDEO_LEMBRETE: 'https://v.exemplo/lembrete.mp4',
-  RENOVACAO_VIDEO_HOJE: 'https://v.exemplo/hoje.mp4' };
-
 test('telefone: só celular do Brasil com DDI', () => {
   assert.equal(telefoneValido('+55 (11) 99999-8888'), '5511999998888');
   assert.equal(telefoneValido('551133334444'), '551133334444');
@@ -19,14 +16,15 @@ test('horário: só das 9h às 20h de Brasília', () => {
   assert.equal(dentroDoHorario(new Date('2026-11-25T23:00:00Z')), false); // 20h
 });
 
-test('mensagem do template com vídeo e parâmetros', () => {
-  const m = montarMensagem({ etapa: 'lembrete', template: 'contrato_acompanhamento', parametros: ['2'] }, VIDEOS);
-  assert.deepEqual(m.template_params, { name: 'contrato_acompanhamento', category: 'MARKETING', language: 'pt_BR',
-    processed_params: { body: { 1: '2' }, header: { media_url: 'https://v.exemplo/lembrete.mp4', media_type: 'video' } } });
-  const s = montarMensagem({ etapa: 'semana', template: 'primeiro_contato_contrato', parametros: [] }, VIDEOS);
-  assert.equal(s.template_params.processed_params.body, undefined);
-  assert.throws(() => montarMensagem({ etapa: 'hoje', template: 'hoje_acompanhamento' }, {}), /falta o vídeo/);
-  assert.throws(() => montarMensagem({ etapa: 'hoje', template: 'outro' }, VIDEOS), /template inesperado/);
+test('mensagem do template pelo tipo de contrato, com nome e data', () => {
+  const m = montarMensagem({ etapa: 'convite', template: 'renovacao_primeiro_contrato', parametros: ['Ana', '02/12'] }, {});
+  assert.deepEqual(m.template_params, { name: 'renovacao_primeiro_contrato', category: 'UTILITY', language: 'pt_BR',
+    processed_params: { body: { 1: 'Ana', 2: '02/12' } } });
+  const v = montarMensagem({ etapa: 'convite', template: 'renovacao_contrato_anual', parametros: ['Ana', '02/12'] },
+    { RENOVACAO_VIDEO: 'https://v.exemplo/r.mp4' });
+  assert.deepEqual(v.template_params.processed_params.header, { media_url: 'https://v.exemplo/r.mp4', media_type: 'video' });
+  assert.throws(() => montarMensagem({ etapa: 'convite', template: 'renovacao_contrato_anual', parametros: ['Ana'] }, {}), /parâmetros/);
+  assert.throws(() => montarMensagem({ etapa: 'semana', template: 'primeiro_contato_contrato', parametros: [] }, {}), /template inesperado/);
 });
 
 test('enviarUm: acha o contato, abre a conversa na caixa 1 e etiqueta', async () => {
@@ -36,12 +34,13 @@ test('enviarUm: acha o contato, abre a conversa na caixa 1 e etiqueta', async ()
     async conversa(c, s, m) { feito.push(['conversa', c.id, s, m.template_params.name]); return { id: 77 }; },
     async etiqueta(id) { feito.push(['etiqueta', id]); },
   };
-  const id = await enviarUm({ etapa: 'hoje', template: 'hoje_acompanhamento', parametros: [], nome: 'Ana' }, '5511999998888', VIDEOS, cw);
+  const id = await enviarUm({ etapa: 'convite', template: 'renovacao_contrato_anual', parametros: ['Ana', '02/12'], nome: 'Ana' },
+    '5511999998888', {}, cw);
   assert.equal(id, 77);
-  assert.deepEqual(feito, [['contato', '5511999998888', 'Ana'], ['conversa', 9, '5511999998888', 'hoje_acompanhamento'], ['etiqueta', 77]]);
+  assert.deepEqual(feito, [['contato', '5511999998888', 'Ana'], ['conversa', 9, '5511999998888', 'renovacao_contrato_anual'], ['etiqueta', 77]]);
 });
 
 test('enviar: desligado por padrão', async () => {
-  await assert.rejects(() => principal(['enviar'], { ...VIDEOS }, () => {}), /envio desligado/);
-  await assert.rejects(() => principal(['teste', '123'], VIDEOS, () => {}), /teste precisa/);
+  await assert.rejects(() => principal(['enviar'], {}, () => {}), /envio desligado/);
+  await assert.rejects(() => principal(['teste', '123'], {}, () => {}), /teste precisa/);
 });

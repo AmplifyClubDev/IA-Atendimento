@@ -4,14 +4,14 @@
 //   node envio.mjs teste <telefone>         -> manda 1 mensagem de cada etapa SÓ para esse número (não mexe na fila)
 //   node envio.mjs enviar                   -> manda a fila "previsto" (só com RENOVACAO_ENVIO_LIGADO=true)
 // Variáveis: SUPABASE_URL, SUPABASE_SERVICE_KEY, CHATWOOT_BASE_URL, CHATWOOT_ACCOUNT_ID, CHATWOOT_API_TOKEN,
-//            RENOVACAO_VIDEO_SEMANA / _LEMBRETE / _HOJE (link fixo do vídeo de cada template).
+//            RENOVACAO_VIDEO (opcional: link fixo do vídeo, se o template tiver vídeo no cabeçalho).
+// Régua nova (25/11): 1 mensagem entre 7 e 1 dias; template pelo tipo de contrato; {{1}} nome, {{2}} data do fim.
 
 export const CAIXA = 1;
 export const ETIQUETA = 'Renovacao de contrato';
 export const TEMPLATES = {
-  semana: { name: 'primeiro_contato_contrato', category: 'UTILITY', video: 'RENOVACAO_VIDEO_SEMANA' },
-  lembrete: { name: 'contrato_acompanhamento', category: 'MARKETING', video: 'RENOVACAO_VIDEO_LEMBRETE' },
-  hoje: { name: 'hoje_acompanhamento', category: 'UTILITY', video: 'RENOVACAO_VIDEO_HOJE' },
+  renovacao_primeiro_contrato: { category: 'UTILITY', parametros: 2 },
+  renovacao_contrato_anual: { category: 'UTILITY', parametros: 2 },
 };
 export const HORARIO = { inicio: 9, fim: 20 }; // Brasília
 export const ESPERA_ENTRE_ENVIOS_MS = 8000;
@@ -29,17 +29,18 @@ export function dentroDoHorario(agora = new Date()) {
 
 // Mensagem no formato do Chatwoot 4.x (template do WhatsApp com vídeo no cabeçalho).
 export function montarMensagem(envio, env = process.env) {
-  const t = TEMPLATES[envio.etapa];
-  if (!t || envio.template !== t.name) throw new Error(`template inesperado: ${envio.etapa}/${envio.template}`);
-  const video = env[t.video];
-  if (!/^https:\/\/\S+$/.test(video || '')) throw new Error(`falta o vídeo ${t.video}`);
-  const corpo = {};
-  (Array.isArray(envio.parametros) ? envio.parametros : []).forEach((v, i) => { corpo[String(i + 1)] = String(v); });
+  const t = TEMPLATES[envio.template];
+  if (!t || envio.etapa !== 'convite') throw new Error(`template inesperado: ${envio.etapa}/${envio.template}`);
+  const valores = Array.isArray(envio.parametros) ? envio.parametros.map((v) => String(v ?? '').trim()) : [];
+  if (valores.length !== t.parametros || valores.some((v) => !v)) throw new Error('parâmetros incompletos');
+  const corpo = Object.fromEntries(valores.map((v, i) => [String(i + 1), v]));
+  const video = env.RENOVACAO_VIDEO;
+  if (video && !/^https:\/\/\S+$/.test(video)) throw new Error('RENOVACAO_VIDEO inválido');
   return {
     content: 'renovação de contrato',
     template_params: {
-      name: t.name, category: t.category, language: 'pt_BR',
-      processed_params: { ...(Object.keys(corpo).length ? { body: corpo } : {}), header: { media_url: video, media_type: 'video' } },
+      name: envio.template, category: t.category, language: 'pt_BR',
+      processed_params: { body: corpo, ...(video ? { header: { media_url: video, media_type: 'video' } } : {}) },
     },
   };
 }
@@ -123,13 +124,12 @@ export async function principal(argv = process.argv.slice(2), env = process.env,
     const telefone = telefoneValido(alvo);
     if (!telefone) throw new Error('teste precisa de um telefone 55DDDNUMERO');
     const exemplos = [
-      { etapa: 'semana', template: 'primeiro_contato_contrato', parametros: [], nome: 'Teste renovação' },
-      { etapa: 'lembrete', template: 'contrato_acompanhamento', parametros: ['3'], nome: 'Teste renovação' },
-      { etapa: 'hoje', template: 'hoje_acompanhamento', parametros: [], nome: 'Teste renovação' },
-    ].filter((e) => !argv[2] || e.etapa === argv[2]);
+      { etapa: 'convite', template: 'renovacao_primeiro_contrato', parametros: ['Teste', '02/12'], nome: 'Teste renovação' },
+      { etapa: 'convite', template: 'renovacao_contrato_anual', parametros: ['Teste', '02/12'], nome: 'Teste renovação' },
+    ].filter((e) => !argv[2] || e.template === argv[2]);
     for (const e of exemplos) {
       const id = await enviarUm(e, telefone, env);
-      saida(`teste ${e.etapa}: enviado para ${telefone.slice(0, 4)}…${telefone.slice(-4)} (conversa ${id})`);
+      saida(`teste ${e.template}: enviado para ${telefone.slice(0, 4)}…${telefone.slice(-4)} (conversa ${id})`);
       await espera(ESPERA_ENTRE_ENVIOS_MS);
     }
     return;

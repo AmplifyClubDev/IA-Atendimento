@@ -57,3 +57,25 @@ Cada envio é marcado na fila: enviado (com o nº da conversa), falhou (com o mo
 
 Falta: o **link fixo do vídeo** de cada template (`RENOVACAO_VIDEO_SEMANA`, `_LEMBRETE`, `_HOJE`; os do exemplo da Meta
 expiram) e o **teste com o número do Vitor**. Depois: onde roda de hora em hora (serviço pequeno no Railway) e desligar o n8n.
+
+## Régua nova (25/11/2026, decisão do Vitor) — substitui a de cima
+
+Sem n8n e sem os templates antigos. A caixa 1 vira o canal dos agenciados; a 1ª função é renovação.
+
+1. Faltam de **7 a 1 dias**: **uma** mensagem perguntando se a pessoa quer renovar (botões Quero renovar · Tenho dúvidas ·
+   Não quero renovar).
+2. "Quero renovar" → a ponte envia o pedido de renovação no Partner Center (Playwright) → resposta "aceite no TikTok"
+   (na janela de 24 h, sem template).
+3. A coleta vê o contrato estendido → confirmação.
+
+**Tipos de contrato** (medido em 25/11 em convites, histórico e ativos): o 1º contrato é de **2 meses** (todo convite
+propõe 61 dias) e a renovação estende **1 ano**. Ativos: 497 no 1º contrato, 1.049 renovados 1 vez, 11 renovados 2 vezes,
+10 com 1 ano direto, 14 com datas quebradas. Template pelo tipo: contrato atual ≤ 90 dias → `renovacao_primeiro_contrato`;
+senão → `renovacao_contrato_anual`. Parâmetros: {{1}} primeiro nome, {{2}} data do fim (dd/mm).
+
+`bia/sql/renovacao_regua_v2.sql`: régua nova, `interno.primeiro_nome` (pula títulos e palavras de loja), fila antiga
+cancelada (33 previstos, nada tinha sido enviado). `renovacao/envio.mjs` ajustado para os 2 templates (vídeo opcional).
+Hoje: 44 podem receber (todos 1º contrato); segurados: 8 sem telefone, 6 sem pedidos restantes no TikTok, 2 pediram para
+sair, 2 vencem hoje. A fila só é preparada quando os templates forem aprovados.
+
+Atenção ao nome: quem não passou pela Bia só tem o nome do TikTok, às vezes nome de loja ("Ofertas", "Baratinho").
