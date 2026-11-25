@@ -39,3 +39,21 @@ Todos com os botões "Já renovei / Não tenho interesse".
 2. Envio pela caixa 1 do Chatwoot (template + etiquetas), só das 9h às 20h, com espera entre envios.
 3. Teste só com o número do Vitor.
 4. Desligar o n8n de renovação no mesmo momento em que ligar o novo (não pode mandar em dobro).
+
+## Envio pronto, desligado (25/11/2026, noite)
+
+`renovacao/envio.mjs` (Node 22, sem dependências) + `bia/sql/renovacao_envio.sql` (`marcar_envio_renovacao_v5`).
+
+| Modo | O que faz |
+|---|---|
+| `node envio.mjs seco` | Mostra o que sairia da fila. Não envia. Rodado em 25/11: 33 mensagens, todas com telefone válido e template certo |
+| `node envio.mjs teste <telefone> [etapa]` | Manda 1 de cada etapa só para esse número. Não mexe na fila |
+| `node envio.mjs enviar` | Manda a fila "previsto". Só roda com `RENOVACAO_ENVIO_LIGADO=true` e das 9h às 20h |
+
+Como o n8n faz (visto no Chatwoot, conversa 61344): cria a conversa na **caixa 1** com o template e o texto
+"renovação de contrato", e etiqueta **"Renovacao de contrato"**. O envio novo faz igual (Chatwoot 4.15.1,
+`template_params` com vídeo no cabeçalho), acha ou cria o contato pelo telefone e espera 8 s entre envios.
+Cada envio é marcado na fila: enviado (com o nº da conversa), falhou (com o motivo) ou cancelado.
+
+Falta: o **link fixo do vídeo** de cada template (`RENOVACAO_VIDEO_SEMANA`, `_LEMBRETE`, `_HOJE`; os do exemplo da Meta
+expiram) e o **teste com o número do Vitor**. Depois: onde roda de hora em hora (serviço pequeno no Railway) e desligar o n8n.
