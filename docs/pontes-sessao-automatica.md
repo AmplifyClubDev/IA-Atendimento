@@ -106,3 +106,31 @@ Como a volta sozinha tenta em 30 s, 2 min e 10 min, o aviso só sai quando ela n
 de verdade ou ponte fora por mais de ~10 min).
 
 Próximo: passo 3 (renovou uma, renovou todas).
+
+## Volta sozinha de verdade + avisos certos (25/11/2026, 12:13–12:26 UTC) ✅
+
+Decisão do Vitor (25/11): **manter as 3 pontes** (uma só não daria conta: cada ponte faz uma coisa por vez) e
+**não fazer o passo 3** (sessão compartilhada) nem o 4 (juntar). Cada ponte renova sozinha; só para quando o TikTok
+pede login de verdade (e-mail e senha). Os avisos continuam no e-mail e no Telegram.
+
+**O que estava errado:** em 25/11 a Pré-validação ficou esperando login, mas bastou apertar o botão "ativar"
+(sem e-mail nem senha). A ponte desistia assim que via uma página parecida com login, sem tentar.
+
+**O que mudou (commit `df37cb0`):**
+
+| Onde | Antes | Agora |
+|---|---|---|
+| Agenciamento e Pré-validação | Página de login → para e espera humano | Volta à página de parcerias e faz a mesma leitura de prova do botão. Só pede humano se a leitura falhar na tela de login (ou o TikTok pedir verificação). Continua tentando a cada 30 min |
+| Partner Bridge | Não dizia se era login de verdade | Marca "precisa de login" depois de 2 aberturas seguidas na tela de login |
+| `/health` público das 3 | `ok`, `mode` | + `precisa_login` (true só quando é login de verdade) |
+| Vigia (Cadastro) | Botão de login 5–10 min depois de qualquer queda | Queda que volta sozinha → **"🔄 renovou sozinha"** (só informa, sem botão). Botão **só** quando a ponte diz `precisa_login` ou fica 45 min sem voltar. Depois do login → "✅ de volta" |
+
+Avisos: os mesmos canais (e-mail para `ALERTA_EMAIL` e Telegram Aquisição HQ). Oscilação de uma leitura só não avisa.
+
+**Publicação (uma ponte por vez):** Pré-validação 12:14, Agenciamento 12:15, Partner Bridge 12:17. As três voltaram
+sozinhas, sem login (`/ready` = ready nas três). Cadastro 12:26: no ar (`/health` 200).
+Testes: pontes 21 + 4 novos passando; vigia 5 testes novos; CI do Cadastro verde.
+
+Observação: o patch de inicialização do Cadastro (`CADASTRO_PONTES_BOOTSTRAP_B64`) agora registra
+`NOT_APPLIED source_mismatch`. É esperado: o `pontes.py` do repositório já tem o conteúdo dele e mais a leitura de
+`precisa_login`, então o patch não substitui o arquivo (só deixa de rodar o teste de fumaça dele no boot).
