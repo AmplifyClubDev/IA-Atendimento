@@ -9,7 +9,7 @@ separado da Bia e do Cadastro. Começa em 26/11, depois de tudo polido e testado
 |---|---|---|
 | Preparar a fila | De hora em hora | `preparar_fila_renovacao_v5()`: quem vence em 7 a 1 dias entra na fila (1 vez por contrato) |
 | Enviar | De hora em hora, das 9h às 20h | Template `renovacao_contrato` pela caixa 3, etiqueta "Renovacao de contrato", 8 s entre envios, marca cada envio no banco |
-| Ouvir respostas | Na hora (webhook do Chatwoot, só caixa 3 com a etiqueta) | Quero renovar → pedido no Partner Center + "aceite no TikTok"; Não quero → lista de motivos → grava + alerta retenção; Tenho dúvidas → time |
+| Ouvir respostas | Na hora (webhook do Chatwoot, só caixa 3 com a etiqueta) | Quero renovar → pedido no Partner Center + "aceite no TikTok"; Não quero → lista de motivos → grava + alerta retenção; Tenho dúvidas → **a Bia** (o serviço tira a etiqueta de renovação da conversa e a Bia responde, sabendo que é agenciado, o prazo e como renovar) |
 | Confirmar | De hora em hora | Coleta viu o contrato estendido → `renovacao_confirmada` e tira a etiqueta de renovação |
 | Etiquetas | De hora em hora | `Agenciado` em quem está vinculado; tira "Renovacao de contrato" de quem renovou, recusou ou saiu |
 
@@ -22,7 +22,8 @@ O Amplify OS mostra tudo (Régua de mensagens).
 2. Serviço no Railway com envio desligado; ligar o envio com a aprovação do Vitor.
 3. Respostas automáticas aos botões e motivos.
 4. Pedido de renovação automático no Partner Center (ponte, Playwright): teste com 1 agenciado antes de ligar.
-5. Etiqueta `Agenciado` e a Bia reconhecendo agenciados (inclusive "quero ser agenciado" → "você já é").
+5. Etiqueta `Agenciado` e a Bia reconhecendo agenciados (inclusive "quero ser agenciado" → "você já é") e tirando
+   dúvidas de renovação (necessário para o botão Tenho dúvidas).
 
 ## Já pronto (25/11)
 
