@@ -14,7 +14,7 @@ def test_vigia_avisa_quando_a_ponte_pede_login_e_quando_volta():
     vigia, alertas = _vigia(["ready", "human_login_required", "human_login_required", "human_login_required", "busy",
                              "ready", "ready"], precisa=True)
     resultados = [vigia.checar(agora=1000 + 300 * i) for i in range(7)]
-    assert resultados == ["ok", "caida", "alertado", "caida", "instavel", "ok", "ok"]
+    assert resultados == ["ok", "caida", "alertado", "caida", "caida", "ok", "ok"]  # "busy" com login pendente segue caída
     assert alertas[0][0].startswith("🔴 Ponte do TikTok (Pré-validação) pediu login")
     assert alertas[0][1] == ("Abrir painel de login", "https://cadastro/operacao")
     assert alertas[1][0].startswith("✅ Ponte do TikTok (Pré-validação) de volta") and len(alertas) == 2
@@ -67,3 +67,18 @@ def test_le_precisa_login_do_health_publico():
         assert [ler_precisa_login(base, timeout=5) for _ in range(3)] == [True, None, None]
     finally:
         servidor.shutdown()
+
+
+def test_vigia_avisa_ponte_em_preparing_parada_no_login():
+    """25/11: a Partner Bridge ficou em "preparing" na tela de login e o vigia não avisava."""
+    vigia, alertas = _vigia(["preparing", "preparing", "preparing", "ready"], precisa=True)
+    resultados = [vigia.checar(agora=1000 + 300 * i) for i in range(4)]
+    assert resultados == ["caida", "alertado", "caida", "ok"]
+    assert alertas[0][0].startswith("🔴 Ponte do TikTok (Pré-validação) pediu login")
+    assert alertas[1][0].startswith("✅ Ponte do TikTok (Pré-validação) de volta")
+
+
+def test_vigia_nao_alarma_preparing_sem_pedido_de_login():
+    vigia, alertas = _vigia(["preparing", "preparing", "busy", "ready"], precisa=False)
+    assert [vigia.checar(agora=1000 + 300 * i) for i in range(4)] == ["instavel", "instavel", "instavel", "ok"]
+    assert alertas == []

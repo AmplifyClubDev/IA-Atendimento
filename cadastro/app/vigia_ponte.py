@@ -72,8 +72,13 @@ class VigiaPonte:
                 self._voltou(agora)
             self.falhas, self.caida_desde, self.botao_enviado = 0, None, False
             return "ok"
+        precisa = None
         if status not in LOGIN:
-            return "instavel"  # oscilação/ocupada: não alarma
+            # 25/11: a Partner Bridge fica em "preparing" (tentando de novo) parada na tela de login do TikTok.
+            # Se a própria ponte diz que precisa de login, conta como queda; senão é oscilação e não alarma.
+            precisa = leitura["precisa_login"] if "precisa_login" in leitura else self.ler_precisa()
+            if precisa is not True:
+                return "instavel"
         self.falhas += 1
         if self.caida_desde is None:
             self.caida_desde = agora
@@ -81,7 +86,8 @@ class VigiaPonte:
             return "caida"
         if self.botao_enviado:
             return "caida"
-        precisa = leitura["precisa_login"] if "precisa_login" in leitura else self.ler_precisa()
+        if precisa is None:
+            precisa = leitura["precisa_login"] if "precisa_login" in leitura else self.ler_precisa()
         sem_voltar = agora - self.caida_desde >= self.limite_sem_voltar
         if precisa is not True and not sem_voltar:
             return "renovando"  # a ponte está tentando sozinha: não chama ninguém
