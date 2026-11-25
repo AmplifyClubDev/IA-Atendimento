@@ -114,6 +114,20 @@ if (!token) {
   process.exit(1);
 }
 
+import {createDiagnostics, errorClass, pageClass} from './diagnostico.mjs';
+const diagnostics = createDiagnostics({dir: process.env.RAILWAY_VOLUME_MOUNT_PATH || '/data'});
+const expectedClosures = new WeakSet();
+const observedPages = new WeakSet();
+function observePage(page) {
+  if (observedPages.has(page)) return;
+  observedPages.add(page);
+  page.on('crash', () => diagnostics.record('failure', {code: 'browser_crashed', pageClass: pageClass(page.url())}));
+  page.on('close', () => diagnostics.record('browser_closed', {code: 'page_closed', expected: expectedClosures.has(page.context())}));
+}
+diagnostics.record('startup');
+const diagnosticTimer = setInterval(() => diagnostics.sample(), 60_000);
+diagnosticTimer.unref();
+
 let contexto = null;
 let pagina = null;
 let partnerContext = null;
@@ -149,6 +163,10 @@ async function abrirContexto() {
   contexto = await chromium.launchPersistentContext(defaults.profileDir, {
     headless: defaults.headless, viewport: { width: 1440, height: 1000 },
   });
+  const observedContext = contexto;
+  observedContext.on('close', () => diagnostics.record('browser_closed', {code: 'context_closed', expected: expectedClosures.has(observedContext)}));
+  observedContext.on('page', observePage);
+  observedContext.pages().forEach(observePage);
   const salvo = lerContextoSalvo(ARQUIVO_CONTEXTO);
   partnerContext = { relationListUrl: salvo?.relationListUrl || null, reportDimensionListUrl: null };
   contexto.on('request', request => {
@@ -196,6 +214,7 @@ async function autoAtivar(motivo) {
     return agendarAutoAtivacao(motivo, 15_000);
   }
   autoRecuperacao.estado = 'tentando';
+  diagnostics.record('recovery', {result: 'started', reason: motivo, attempt: autoRecuperacao.tentativas + 1});
   let telaDeLogin = false;
   try {
     if (!contexto || !pagina || pagina.isClosed()) await abrirContexto();
@@ -214,9 +233,13 @@ async function autoAtivar(motivo) {
     autoRecuperacao.estado = 'pronta';
     autoRecuperacao.tentativas = 0;
     autoRecuperacao.ultimo = { em: Date.now(), resultado: 'reativada', motivo };
+    diagnostics.record('recovery', {result: 'authenticated_probe_passed', pageClass: pageClass(pagina?.url?.())});
     console.error(`[quente] sessao reativada sozinha (${motivo})`);
   } catch (erro) {
     autoRecuperacao.tentativas += 1;
+    diagnostics.record('failure', {code: errorClass(erro), sourceCode: classificarErroReadiness(erro),
+      errorType: erro?.name, pageClass: pageClass(pagina?.url?.()), reason: 'auto_activation'});
+    diagnostics.record('recovery', {result: 'failed', code: errorClass(erro), attempt: autoRecuperacao.tentativas});
     autoRecuperacao.ultimo = { em: Date.now(), resultado: telaDeLogin ? 'tela_de_login' : classificarErroReadiness(erro), motivo };
     if (precisaLoginDeVerdade(telaDeLogin, erro)) {
       // Só aqui precisa de humano (e-mail e senha). Continua tentando a cada 30 min, caso a sessão volte.
@@ -283,6 +306,8 @@ async function fecharContexto(motivo) {
   operatorLoginMode = true;
   console.error('[quente] context closed; human activation required');
   const anterior = contexto;
+  if (anterior) expectedClosures.add(anterior);
+  diagnostics.record('context_close_requested', {expected: true, reason: 'controlled_close'});
   contexto = null;
   pagina = null;
   partnerContext = null;
@@ -399,8 +424,13 @@ async function executarProbeReadiness() {
       const resultado = await naFila('readiness-probe', async (page, ctx) => {
         const leitura = await listRelations(page, ctx, { status: '1', pageSize: 1, pageLimit: 1 });
         if (!leitura.ok) {
+          const failed = leitura.pages?.find(item => !item.ok);
           const erro = new Error('Partner rejected the read-only readiness probe');
           erro.code = 'partner_probe_rejected';
+          erro.httpStatus = failed?.httpStatus;
+          erro.apiCode = typeof failed?.code === 'number' ? failed.code : undefined;
+          const specific = errorClass(new Error(leitura.error));
+          erro.diagnosticCode = specific === 'Error' ? 'partner_probe_rejected' : specific;
           throw erro;
         }
         return leitura;
@@ -424,6 +454,9 @@ async function executarProbeReadiness() {
         errorCode: classificarErroReadiness(erro),
       };
       ultimoProbeReadiness = probe;
+      diagnostics.record('failure', {code: erro.diagnosticCode || errorClass(erro), sourceCode: probe.errorCode,
+        httpStatus: erro.httpStatus, apiCode: erro.apiCode,
+        errorType: erro?.name, pageClass: pageClass(pagina?.url?.()), reason: 'readiness_probe'});
       return probe;
     }
   })().finally(() => {
@@ -510,6 +543,7 @@ function telemetriaSanitizada(avaliacao = avaliarReadiness()) {
     : { status: 'never' };
   return {
     modo: 'contexto-quente',
+    diagnostics: diagnostics.snapshot(),
     contexto: {
       status: estadoContexto(),
       aberto: Boolean(contexto),
@@ -548,6 +582,8 @@ function telemetriaSanitizada(avaliacao = avaliarReadiness()) {
 }
 
 function registrarErroContexto(erro) {
+  diagnostics.record('failure', {code: errorClass(erro), sourceCode: classificarErroReadiness(erro),
+    errorType: erro?.name, pageClass: pageClass(pagina?.url?.()), reason: 'context_error'});
   ultimoErroContexto = {
     code: classificarErroReadiness(erro),
     em: Date.now(),
