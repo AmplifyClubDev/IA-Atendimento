@@ -134,3 +134,11 @@ Testes: pontes 21 + 4 novos passando; vigia 5 testes novos; CI do Cadastro verde
 Observação: o patch de inicialização do Cadastro (`CADASTRO_PONTES_BOOTSTRAP_B64`) agora registra
 `NOT_APPLIED source_mismatch`. É esperado: o `pontes.py` do repositório já tem o conteúdo dele e mais a leitura de
 `precisa_login`, então o patch não substitui o arquivo (só deixa de rodar o teste de fumaça dele no boot).
+
+## Correção do vigia: ponte presa no login em "preparing" (25/11/2026, 18:20 UTC) ✅
+
+Às ~18h a Partner Bridge caiu na tela de login do TikTok e ficou em `preparing` (tentando de novo). O vigia só contava
+como queda os estados de login (`login_required` etc.) e tratava `preparing` como oscilação, então **não avisou**.
+Agora, se a ponte não está pronta e o `/health` público diz `precisa_login: true`, conta como queda e manda o aviso com
+botão. Sem `precisa_login`, `preparing`/`busy` continuam sem alarme. Commit `ab58a1b` (2 testes novos), Cadastro
+publicado 18:20 UTC (`/health` ok). O Vitor fez o login às 18:01 e a ponte ficou estável.
