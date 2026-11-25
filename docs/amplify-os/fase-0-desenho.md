@@ -66,3 +66,12 @@ Observação: o Hub mostra a categoria **Safira** (GMV R$ 612 mil), que não exi
 2. **Onde fica o código:** repositório próprio `Amplify-OS` na AmplifyClubDev (recomendado, como o Hub) ou pasta
    dentro do IA-Atendimento.
 3. **Régua de categorias:** existe Safira (e acima de Diamond)? Quais valores?
+
+## Decisões do Vitor (25/11/2026)
+
+1. **Login:** Google, só e-mails `@amplifyugc.co`. O admin define o time de cada pessoa.
+2. **Código:** repositório próprio `Amplify-OS` na AmplifyClubDev.
+3. **Categorias:** Start · Silver (R$ 5 mil) · Gold (R$ 30 mil) · Diamond (R$ 100 mil), como no banco.
+
+Para a fase 1 vai precisar: criar o repositório `Amplify-OS` no GitHub; ligar o login Google no Supabase da Bia
+(credencial OAuth do Google Cloud); um serviço novo no Railway para o OS.
