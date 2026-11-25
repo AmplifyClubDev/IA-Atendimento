@@ -240,6 +240,61 @@ class PartnerCompletoTests(unittest.TestCase):
         self.assertFalse(p['completa'])
 
 
+class HistoricoTests(unittest.TestCase):
+    """25/11/2026: o histórico (recusas, convites expirados, saídas, contratos vencidos) atualiza uma vez por dia."""
+
+    def _item(self, rid, status):
+        return {'arroba': f'p{rid}', 'creator_name': 'P', 'status': 'expirada', 'tiktok_status': int(status),
+                'tiktok_data_status': 3, 'relation_id': rid, 'create_time_second': '1795457509',
+                'expire_time_second': '1796062309', 'effective_end_date_second': '1796035722'}
+
+    def test_le_as_quatro_listas_sem_detalhes_e_grava(self):
+        outros = {s: resposta_status(s, [self._item(f'{s}1', s), self._item(f'{s}2', s)]) for s in ('6', '7', '9', '10')}
+        outros['9']['items'].append(self._item('errado', '1'))  # outro status na lista: fica de fora
+        cliente, banco = Cliente(outros=outros), Banco()
+        resumo = agenciados_sync.atualizar_historico(cliente, banco, now=NOW)
+        self.assertEqual(resumo, {'6': 2, '7': 2, '9': 2, '10': 2})
+        chamadas = [c for c in cliente.chamadas if c[0] != 'ready']
+        self.assertEqual([c[3]['status'] for c in chamadas], ['6', '7', '9', '10'])
+        self.assertTrue(all('detalhes' not in c[3] and c[1] == 'GET' for c in chamadas))
+        self.assertEqual({n for n, _ in banco.chamadas}, {'importar_parcerias_v5'})
+        item = banco.chamadas[2][1]['p']['itens'][0]
+        self.assertEqual(item, {'relation_id': '91', 'arroba': 'p91', 'creator_name': 'P', 'status': '9',
+                                'status_dados': '3', 'create_time_second': '1795457509',
+                                'expire_time_second': '1796062309', 'effective_end_date_second': '1796035722'})
+
+    def test_lista_ruim_nao_grava_o_resto(self):
+        cliente, banco = Cliente(outros={'7': dict(resposta_status('7', []), ok=False)}), Banco()
+        with self.assertRaises(agenciados_sync.ColetaInvalida):
+            agenciados_sync.atualizar_historico(cliente, banco, now=NOW)
+        self.assertEqual(len(banco.chamadas), 0)  # o 6 veio vazio; o 7 falhou antes de gravar
+
+    def test_roda_uma_vez_por_dia_depois_da_coleta(self):
+        relogio = [1000.0]
+        cliente, banco = Cliente(), Banco()
+        agendador = agenciados_sync.Agendador(cliente, banco, sleep=lambda s: None, clock=lambda: relogio[0])
+        agendador.rodada()
+        status = [c[3]['status'] for c in cliente.chamadas if c[0] != 'ready']
+        self.assertEqual(status, ['1', '4', '2', '6', '7', '9', '10'])  # coleta primeiro, histórico depois
+        cliente.chamadas.clear()
+        relogio[0] += 3600
+        agendador.rodada()
+        self.assertEqual([c[3]['status'] for c in cliente.chamadas if c[0] != 'ready'], ['1', '4', '2'])
+        relogio[0] += 24 * 3600
+        cliente.chamadas.clear()
+        agendador.rodada()
+        self.assertIn('10', [c[3]['status'] for c in cliente.chamadas if c[0] != 'ready'])
+
+    def test_historico_com_falha_tenta_de_novo_na_proxima_hora(self):
+        relogio = [0.0]
+        cliente = Cliente(outros={'6': RuntimeError('ponte')})
+        agendador = agenciados_sync.Agendador(cliente, Banco(), sleep=lambda s: None, clock=lambda: relogio[0])
+        self.assertEqual(agendador.rodada_historico()['status'], 'falhou')
+        relogio[0] += 3600
+        cliente.outros = {}
+        self.assertEqual(agendador.rodada_historico()['status'], 'registrado')
+
+
 class ClienteRealTests(unittest.TestCase):
     """23/11: a lista com detalhes (7,5 MB) passava do limite de 2 MB em dois lugares do cliente."""
 

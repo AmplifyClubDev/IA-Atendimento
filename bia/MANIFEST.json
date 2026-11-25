@@ -274,8 +274,8 @@
     },
     {
       "path": "agenciados_sync.py",
-      "bytes": 10132,
-      "sha256": "50d1c31c5b943082967b03189218bcacf6fbbb102c254838ece2e1fe6d67d0d2"
+      "bytes": 13577,
+      "sha256": "40cdbf42115b134f378c04741c907a87306f90777ff47b6bab8cfee32e93cd7d"
     },
     {
       "path": "turn_meaning.py",

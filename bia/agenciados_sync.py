@@ -178,12 +178,58 @@ def coletar(client, gateway, *, now=None):
     return gateway._rpc('registrar_coleta_agenciados_v5', {'p': payload})
 
 
+# Histórico (25/11/2026): uma vez por dia, as parcerias que não estão mais ativas -> public.importar_parcerias_v5.
+# 6 = recusou o convite, 7 = convite expirou, 9 = saiu (desvinculou), 10 = contrato venceu. Sem detalhes (leve).
+HISTORICO_STATUS = ('6', '7', '9', '10')
+HISTORICO_INTERVALO_SECONDS = 24 * 3600
+HISTORICO_LOTE = 2000
+
+
+def atualizar_historico(client, gateway, *, now=None):
+    """Lê as listas do histórico e grava no banco. Devolve {status: gravados}; levanta exceção se a ponte falhar."""
+    client._ready('agency')
+    observado = (now or datetime.now(timezone.utc)).isoformat()
+    resumo = {}
+    for status in HISTORICO_STATUS:
+        code, data = client._call('agency', 'GET', '/relations', params={
+            'status': status, 'page_size': '100', 'page_limit': '100', 'fresh': '1'}, max_bytes=MAX_RESPOSTA_BYTES)
+        data = data if isinstance(data, dict) else {}
+        query = data.get('query')
+        if not (code == 200 and data.get('ok') is True and isinstance(data.get('items'), list)
+                and isinstance(query, dict) and str(query.get('status')) == status
+                and query.get('creators') in ([], None) and len(data['items']) <= MAX_ITEMS):
+            raise ColetaInvalida('historico_' + status)
+        itens = []
+        for item in data['items']:
+            if not isinstance(item, dict) or str(item.get('tiktok_status')) != status:
+                continue
+            relation = str(item.get('relation_id') or '')
+            if not relation or len(relation) > 64:
+                continue
+            itens.append({
+                'relation_id': relation,
+                'arroba': item.get('arroba') if isinstance(item.get('arroba'), str) else None,
+                'creator_name': item.get('creator_name') if isinstance(item.get('creator_name'), str) else None,
+                'status': status,
+                'status_dados': str(item.get('tiktok_data_status') or ''),
+                'create_time_second': str(item.get('create_time_second') or ''),
+                'expire_time_second': str(item.get('expire_time_second') or ''),
+                'effective_end_date_second': str(item.get('effective_end_date_second') or ''),
+            })
+        for inicio in range(0, len(itens), HISTORICO_LOTE):
+            gateway._rpc('importar_parcerias_v5', {'p': {'observado_em': observado,
+                                                         'itens': itens[inicio:inicio + HISTORICO_LOTE]}})
+        resumo[status] = len(itens)
+    return resumo
+
+
 class Agendador:
     def __init__(self, client, gateway, *, interval=INTERVAL_SECONDS, first_delay=FIRST_DELAY_SECONDS,
-                 sleep=time.sleep):
+                 sleep=time.sleep, clock=time.monotonic):
         self.client, self.gateway = client, gateway
-        self.interval, self.first_delay, self.sleep = interval, first_delay, sleep
+        self.interval, self.first_delay, self.sleep, self.clock = interval, first_delay, sleep, clock
         self.thread = None
+        self.historico_em = None
 
     def rodada(self):
         try:
@@ -195,6 +241,21 @@ class Agendador:
             resumo = {'status': 'falhou', 'erro': type(error).__name__,
                       'motivo': str(error)[:80] if isinstance(error, ColetaInvalida) else ''}
         print('[bia] agenciados_coleta ' + json.dumps(resumo, sort_keys=True), flush=True)
+        self.rodada_historico()
+        return resumo
+
+    def rodada_historico(self):
+        """Depois da coleta (nunca junto, para não disputar a ponte); uma vez por dia."""
+        agora = self.clock()
+        if self.historico_em is not None and agora - self.historico_em < HISTORICO_INTERVALO_SECONDS:
+            return None
+        try:
+            resumo = {'status': 'registrado', 'gravados': atualizar_historico(self.client, self.gateway)}
+            self.historico_em = agora
+        except Exception as error:
+            resumo = {'status': 'falhou', 'erro': type(error).__name__,
+                      'motivo': str(error)[:80] if isinstance(error, ColetaInvalida) else ''}
+        print('[bia] parcerias_historico ' + json.dumps(resumo, sort_keys=True), flush=True)
         return resumo
 
     def iniciar(self):
