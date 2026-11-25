@@ -62,4 +62,4 @@ vencidos, 2.903 convites expirados, 2.363 saídas, 426 recusas.
 `partner_center_resumo`: Vinculado 1.544 · Saindo 42 · Convite pendente 88 · Recusou 426 · Convite expirou 2.904 ·
 Saiu (desvinculou) 2.364 · Contrato venceu 2.983 · outros 3.
 
-Pontes no momento: Agenciamento ✅ e Partner Bridge ✅. A Pré-validação está esperando login (modo "login").
+Pontes: Agenciamento ✅ e Partner Bridge ✅. A Pré-validação pediu login; o Vitor entrou às 12:02 UTC e ela voltou ao modo ponte ✅.
