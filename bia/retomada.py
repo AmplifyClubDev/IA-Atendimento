@@ -1,7 +1,8 @@
 """Retomada de quem parou de responder e de quem ficou sem resposta (release 39).
 
 Retomada: 10 min e 20 min depois da última mensagem do lead (dentro da
-janela de 24 h do WhatsApp), uma vez cada, sempre com uma ação concreta. Nunca
+janela de 24 h do WhatsApp): um lembrete da etapa e, depois de dar tempo
+para responder, um aviso separado de encerramento. Nunca
 logo depois de uma resposta da Bia, nunca com operação pendente ou incerta,
 nunca sob controle humano/manutenção, e para quando o lead encerra.
 
@@ -153,7 +154,7 @@ def _message(state, step, policy, *, now=None):
     # Stay on the active qualification question, never jump ahead to the @.
     from lead_validation import stage as validation_stage, QUESTIONS
     current_stage = validation_stage(cycle)
-    if current_stage == 'specialist':
+    if current_stage in {'specialist', 'priority_alert'}:
         return None
     if current_stage in QUESTIONS:
         return QUESTIONS[current_stage]
@@ -190,10 +191,9 @@ def _message(state, step, policy, *, now=None):
         return hello + conversao.consent_reminder(step, policy), list(conversao.CONSENT_BUTTONS)
     if cycle.get('educational_invite_help') and facts.get('interesse_agenciamento') is not True:
         return None
-    if not facts.get('tiktok_declarado') and phase in {'intro', 'origin', 'tiktok', 'shop', 'agency'}:
-        text, buttons = conversao.intro_reminder(step)
-        return hello + text, buttons
-    return None
+    if phase == 'tiktok' and facts.get('tiktok_declarado'):
+        return None
+    return EARLY_WAITING.get(phase)
 
 
 def message(state, step, policy, *, now=None):
@@ -206,9 +206,8 @@ def message(state, step, policy, *, now=None):
     text, buttons = result
     text = re.sub(r'^Oi(?:, [^!\n]+)?!\s*', '', text)
     if step == 2:
-        text = text.split('\n\nSe preferir parar por aqui')[0]
-        text += '\n\nVou encerrar este atendimento por agora. Quando quiser continuar, é só me chamar. 💙'
-    return text, buttons
+        return FOLLOWUP_CLOSE, []
+    return text + '\n\n' + FOLLOWUP_CHOICE, buttons
 
 
 def reminder_base(state, last_inbound):
@@ -220,6 +219,22 @@ def reminder_base(state, last_inbound):
                 and clock(effect.get('created_at'))):
             moments.append(clock(effect['created_at']))
     return max(moments)
+
+
+FOLLOWUP_CLOSE = 'Como não tivemos resposta, encerrei este atendimento por agora. Quando quiser continuar, é só me chamar. 💙'
+FOLLOWUP_CHOICE = 'Se preferir parar, é só me dizer “encerrar atendimento”.'
+EARLY_WAITING = {
+    'intro': ('Quer conhecer melhor a Amplify ou prefere seguir com o agenciamento?', ['Conhecer a Amplify', 'Quero me agenciar']),
+    'origin': ('Me conta como você conheceu a Amplify para eu dar sequência por aqui.', []),
+    'tiktok': ('Para conferir seu perfil, me manda seu @ do TikTok.', []),
+    'agency': ('Você já tem vínculo com alguma agência no TikTok Shop?', ['Sim', 'Não']),
+    'shop': ('Seu TikTok Shop Creator já está ativo?', ['Sim', 'Não', 'Não sei']),
+}
+
+
+def reminder_stage(cycle):
+    from lead_validation import stage
+    return [cycle.get('phase'), stage(cycle)]
 
 
 LAST_SEND = (20, 45)
@@ -312,9 +327,21 @@ class Retomada:
         base = reminder_base(state, last_inbound)
         steps = steps_for(state)
         due = [step for step, after in steps if now >= due_at(base, after, last=step == steps[-1][0])]
-        if not due or self.repository.get_operation(step_key(cycle['id'], source['event_key'], due[-1])):
+        if not due:
             return None
-        return due[-1]
+        source_key = source['event_key']
+        previous = cycle.get('retomada') or {}
+        warned = (previous.get('step') == 1 and previous.get('source_key') == source_key
+                  and previous.get('stage') == reminder_stage(cycle))
+        if not warned:
+            step = 1
+            # After rollout, an existing old reminder never counts as the new warning.
+            # Do not replay it and do not close that episode with the new rule.
+        elif 2 in due and clock(previous.get('at')) and now - clock(previous['at']) >= MIN_GAP:
+            step = 2
+        else:
+            return None
+        return None if self.repository.get_operation(step_key(cycle['id'], source_key, step)) else step
 
     def _conversation(self, conv, now):
         if production_blocked(self.settings, conversation_key=conv):
@@ -392,14 +419,9 @@ class Retomada:
             if not self._source_unchanged(event, state, conv):
                 return {'status': 'source_changed', 'motivo': 'mudou_no_chatwoot'}
             key = step_key(cycle['id'], source['event_key'], step)
-            # Earlier missed steps are retired with this one: never two nudges in a row.
+            # Never close before the same-stage warning has been accepted and the gap elapsed.
             if not self.repository.reserve_followup(conv, source, state, key, {'text': payload[0], 'buttons': payload[1]}):
                 return {'status': 'blocked', 'motivo': 'lembrete_ja_reservado'}
-            for earlier, _ in steps_for(state)[:step - 1]:
-                retired = step_key(cycle['id'], source['event_key'], earlier)
-                if self.repository.reserve_operation(retired, source['event_key'], 'followup'):
-                    self.repository.complete_operation(retired, {'status': 'skipped'}, 'completed')
-
             def before_write():
                 current = clock(self.now())
                 control = self.guard(event)
@@ -418,10 +440,19 @@ class Retomada:
             self.repository.complete_operation(key, safe, 'completed' if status == 'accepted' else status)
             if status == 'accepted':
                 live = self.repository.load_session(conv)
-                if (live.get('cycle') or {}).get('id') == cycle['id']:
-                    live['cycle']['retomada'] = {'step': step, 'at': now.isoformat()}
-                    if not (live['cycle'].get('facts') or {}).get('tiktok_declarado'):
-                        # The lead may answer this ask with the bare @.
+                latest = (live.get('processed_inbound') or [None])[-1]
+                if ((live.get('cycle') or {}).get('id') == cycle['id']
+                        and latest == source['event_key']
+                        and reminder_stage(live['cycle']) == reminder_stage(cycle)
+                        and live['cycle'].get('status') == 'open'
+                        and not live.get('human_control') and not live.get('opt_out') and not live['cycle'].get('opt_out')):
+                    live['cycle']['retomada'] = {
+                        'step': step, 'at': now.isoformat(), 'source_key': source['event_key'],
+                        'stage': reminder_stage(cycle),
+                    }
+                    pending = reminder_stage(cycle)
+                    if step == 1 and (pending[1] in {'existing_profile', 'priority_profile'}
+                                      or pending[0] == 'tiktok' and '@' in payload[0]):
                         live['cycle']['arroba_pedido'] = True
                     if step == 2:
                         # Preserve all facts/effects/receipts for reconciliation on return.
