@@ -43,6 +43,8 @@ test('dados do agenciado: pelo contrato, pelo telefone e o número de teste', as
   assert.equal(await dadosDoAgenciado(db, { telefone: '+55 11 99999-0000' }, {}), null);
   assert.equal((await dadosDoAgenciado(db, { telefone: '+55 47 99115-4859' }, {})).tiktok, '@ana');
   assert.equal((await dadosDoAgenciado(db, { telefone: '5511988887777' }, { RENOVACAO_TESTE_TELEFONE: '5511988887777', RENOVACAO_TESTE_RELATION: 'R1' })).tiktok, '@ana');
+  const dois = { RENOVACAO_TESTE_TELEFONE: '5511900000001, +55 11 98888-7777', RENOVACAO_TESTE_RELATION: 'R1' };
+  assert.equal((await dadosDoAgenciado(db, { telefone: '5511988887777' }, dois)).tiktok, '@ana');
 });
 
 function cwFalso() {

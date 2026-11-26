@@ -29,7 +29,9 @@ export async function carregarCartoes(db, agora = Date.now()) {
 export async function dadosDoAgenciado(db, { relationId, telefone }, env = process.env) {
   const tel = String(telefone || '').replace(/\D/g, '');
   let rel = relationId;
-  if (!rel && env.RENOVACAO_TESTE_TELEFONE && tel === String(env.RENOVACAO_TESTE_TELEFONE).replace(/\D/g, '')) rel = env.RENOVACAO_TESTE_RELATION;
+  // Números de teste (um ou mais, separados por vírgula) usam o contrato de RENOVACAO_TESTE_RELATION.
+  const testes = String(env.RENOVACAO_TESTE_TELEFONE || '').split(',').map((t) => t.replace(/\D/g, '')).filter(Boolean);
+  if (!rel && tel && testes.includes(tel)) rel = env.RENOVACAO_TESTE_RELATION;
   const campos = 'select=tiktok,nome,situacao,agenciado_em,contrato_inicio,contrato_fim,dias_para_vencer,categoria,gmv_nivel,comissao_pct,renovacao,renovacao_expira_em,renovacao_novo_fim';
   if (rel && /^[0-9A-Za-z_-]{1,64}$/.test(rel)) {
     const r = await db.ler('agenciados_ficha', `${campos}&relation_id=eq.${rel}&limit=1`);
