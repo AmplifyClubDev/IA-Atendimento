@@ -15,8 +15,9 @@ const CONHECIMENTO_RENOVACAO = `Renovação de contrato (regras confirmadas):
 - Renovar mantém a parceria ativa com a Amplify. Se a pessoa perguntar de mudança de condições, comissão nova ou benefícios
   específicos depois da renovação, isso não está confirmado aqui: passe para o time.
 - Para renovar por aqui, a pessoa pode responder "RENOVAR".
-- Nunca afirme nada sobre multa, cobrança, aviso prévio ou regras para sair: isso não está confirmado. Se perguntarem,
-  diga que o time confirma e passe para o time. Só use fatos desta lista, dos dados da pessoa e do conhecimento da Amplify.`;
+- Não renovar NÃO tem cobrança nem multa: a parceria só termina na data de fim do contrato (confirmado pela Amplify em 26/11).
+  Diga isso de forma direta ("não há cobrança nenhuma"), sem "confirmada" e sem oferecer conferir com o time.
+- Só use fatos desta lista, dos dados da pessoa e do conhecimento da Amplify.`;
 
 export async function carregarCartoes(db, agora = Date.now()) {
   if (agora - cache.em < CACHE_MS && cache.cartoes.length) return cache.cartoes;
@@ -63,6 +64,7 @@ Esta pessoa JÁ É AGENCIADA da Amplify. Ela recebeu o aviso de renovação de c
 - Depois uma linha em branco e 1 a 3 linhas curtas de explicação. Se houver itens ou passos, use "• " ou 1️⃣ 2️⃣ 3️⃣, um por linha.
 - Datas e valores importantes em *negrito*. No máximo 2 emojis na mensagem toda. Sem parágrafos longos.
 - Se fizer sentido, termine com uma linha curta de próximo passo (ex.: como renovar) ou "Posso te ajudar em mais alguma coisa? 💙".
+- Nunca termine oferecendo "pedir pro time conferir" quando você já respondeu. Responda com segurança o que está aqui.
 Exemplo de formato:
 *Não precisa pagar nada pra renovar!* 💙
 
@@ -71,7 +73,9 @@ Exemplo de formato:
 
 Quer renovar? É só abrir *TikTok › Notificações* e tocar em *Aceitar*.
 - Se a pessoa disser que quer renovar, intencao = "quero_renovar". Se disser que não quer, intencao = "nao_quero".
-- Se não souber, se a pergunta for de outro assunto (pagamento, problema na conta, campanha específica, saque) ou se ela pedir uma pessoa: passar_para_time = true e diga que alguém do time vai responder.
+- Só passe para o time (passar_para_time = true, dizendo que alguém do time vai responder) quando a pergunta for de outro assunto
+  que não está aqui (saque, problema na conta, campanha específica) ou quando a pessoa pedir para falar com alguém.
+  Dúvidas sobre o contrato e a renovação você responde sozinha.
 
 ${ficha}
 
