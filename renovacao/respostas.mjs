@@ -58,11 +58,11 @@ export function planejar(resposta, envio = null, motivo = null) {
     };
   }
   if (resposta === 'duvida') {
-    // A Bia assume: tira a etiqueta de renovação (a Bia ignora conversas com ela) e convida a pessoa a perguntar.
+    // A Bia dos agenciados (ia.mjs) responde as próximas mensagens; a etiqueta fica para a Bia de aquisição não entrar.
     return {
       mensagens: ['*Claro, estamos aqui pra te ajudar!* 💬\n\nPode mandar sua dúvida sobre a renovação que eu te respondo. 💙'],
-      nota: '💬 Agenciado com dúvida sobre renovação: a Bia assumiu a conversa.',
-      etiquetas: [], tirarRenovacao: true,
+      nota: '💬 Agenciado com dúvida sobre renovação: a Bia dos agenciados está respondendo.',
+      etiquetas: [], tirarRenovacao: false,
     };
   }
   return { nota: '👀 Resposta fora dos botões na conversa de renovação: conferir.', etiquetas: [ETIQUETA_ATENCAO], tirarRenovacao: false };
@@ -82,17 +82,46 @@ export function lerEvento(evento, caixa) {
 }
 
 // Trata uma mensagem: registra no banco e responde. Devolve o que foi feito (para o log).
-export async function tratar(msg, { db, cw }) {
+export async function tratar(msg, { db, cw, ia = null }) {
   const anteriores = await db.ultimaResposta(msg.conversa);
   const { resposta, motivo } = classificar(msg.texto, anteriores);
   const reg = await db.rpc('registrar_resposta_renovacao_v5', {
     mensagem: msg.mensagem, conversa: msg.conversa, telefone: msg.telefone, resposta, motivo, texto: msg.texto });
   if (reg.status === 'repetida') return { resposta, status: 'repetida' };
+  if (resposta === 'outro' && ia) return responderComIA(msg, reg.envio, { cw, ia });
   const plano = planejar(resposta, reg.envio, motivo);
+  return executar(msg, plano, cw, resposta);
+}
+
+async function executar(msg, plano, cw, resposta) {
   for (const texto of plano.mensagens || []) await cw.mensagem(msg.conversa, texto);
   if (plano.lista) await cw.lista(msg.conversa, plano.lista.texto, plano.lista.opcoes);
   for (const e of plano.etiquetas || []) await cw.etiqueta(msg.conversa, e);
   if (plano.nota) await cw.nota(msg.conversa, plano.nota);
   if (plano.tirarRenovacao) await cw.tirarEtiqueta(msg.conversa, ETIQUETA);
   return { resposta, status: 'tratada' };
+}
+
+// Texto livre na conversa de renovação: a Bia dos agenciados responde. Se a IA falhar ou não tiver certeza, o time assume.
+// ia = { responder(msg, envio) -> {resposta, intencao, passarParaTime} }
+export async function responderComIA(msg, envio, { cw, ia }) {
+  let r;
+  try {
+    r = await ia.responder(msg, envio);
+  } catch (erro) {
+    await cw.mensagem(msg.conversa, 'Recebi sua mensagem! 💙 Vou chamar alguém do nosso time pra te responder certinho.');
+    await cw.etiqueta(msg.conversa, ETIQUETA_ATENCAO);
+    await cw.nota(msg.conversa, `👀 A Bia dos agenciados não conseguiu responder (${String(erro.message).slice(0, 80)}). Responder manualmente.`);
+    return { resposta: 'outro', status: 'time' };
+  }
+  if (r.intencao === 'quero_renovar' || r.intencao === 'nao_quero') {
+    return executar(msg, planejar(r.intencao === 'quero_renovar' ? 'quero' : 'nao_quero', envio), cw, r.intencao);
+  }
+  await cw.mensagem(msg.conversa, r.resposta);
+  if (r.passarParaTime) {
+    await cw.etiqueta(msg.conversa, ETIQUETA_ATENCAO);
+    await cw.nota(msg.conversa, '👀 A Bia dos agenciados passou esta dúvida para o time. Responder na conversa.');
+    return { resposta: 'outro', status: 'time' };
+  }
+  return { resposta: 'outro', status: 'ia' };
 }

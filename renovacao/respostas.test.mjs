@@ -34,7 +34,7 @@ test('planejar: não quero pede o motivo; motivo agradece e avisa a retenção; 
   assert.match(mot.nota, /Retenção.*Outra agência/);
   assert.equal(mot.tirarRenovacao, false);
   const duv = planejar('duvida');
-  assert.equal(duv.tirarRenovacao, true);
+  assert.equal(duv.tirarRenovacao, false);
 });
 
 const evento = (extra = {}) => ({ event: 'message_created', message_type: 'incoming', id: 501, content: 'Quero renovar',
@@ -68,10 +68,10 @@ test('tratar: "Não quero renovar" manda a lista de motivos; repetida não faz n
   assert.deepEqual(rep.feito, [['rpc', 'nao_quero']]);
 });
 
-test('tratar: "Tenho dúvidas" responde, deixa nota e tira a etiqueta (a Bia assume)', async () => {
+test('tratar: "Tenho dúvidas" responde e deixa nota; a etiqueta fica (a Bia de aquisição não entra)', async () => {
   const { db, cw, feito } = falsos();
   await tratar({ mensagem: '2', conversa: '9', texto: 'Tenho dúvidas' }, { db, cw });
-  assert.deepEqual(feito.map((f) => f[0]), ['rpc', 'mensagem', 'nota', 'tirar']);
+  assert.deepEqual(feito.map((f) => f[0]), ['rpc', 'mensagem', 'nota']);
 });
 
 test('webhook: segredo errado = 404; respostas desligadas não tratam', async () => {

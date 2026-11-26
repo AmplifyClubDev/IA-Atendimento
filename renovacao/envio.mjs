@@ -98,6 +98,9 @@ export function chatwoot(env) {
         content: texto, message_type: 'outgoing', content_type: 'input_select',
         content_attributes: { items: opcoes.map((t) => ({ title: t, value: t })) } });
     },
+    async mensagens(conversaId) {
+      return (await chamar('GET', `/conversations/${conversaId}/messages`)).payload || [];
+    },
     async nota(conversaId, texto) {
       return chamar('POST', `/conversations/${conversaId}/messages`, { content: texto, message_type: 'outgoing', private: true });
     },

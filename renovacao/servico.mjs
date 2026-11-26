@@ -8,6 +8,7 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import { CAIXA, banco, chatwoot, enviarFila } from './envio.mjs';
 import { lerEvento, tratar } from './respostas.mjs';
+import { carregarCartoes, dadosDoAgenciado, historicoDe, montarInstrucoes, perguntarIA } from './ia.mjs';
 
 const HORA_MS = 3600000;
 const PRIMEIRA_RODADA_MS = 60000;
@@ -31,6 +32,11 @@ export function criarBanco(env) {
     if (!r.ok) throw new Error(`ultima resposta: ${r.status}`);
     return (await r.json())[0]?.resposta || null;
   };
+  db.ler = async (tela, consulta) => {
+    const r = await fetch(`${base}/rest/v1/${tela}?${consulta}`, { headers: h });
+    if (!r.ok) throw new Error(`${tela}: ${r.status}`);
+    return r.json();
+  };
   return db;
 }
 
@@ -49,7 +55,19 @@ export async function rodada(env, db, cw) {
   return resumo;
 }
 
-export function criarServidor(env, db = criarBanco(env), cw = chatwoot(env)) {
+// A Bia dos agenciados: só existe com OPENAI_API_KEY (sem ela, texto livre vira nota para o time).
+export function criarIA(env, db, cw) {
+  if (!env.OPENAI_API_KEY) return null;
+  return {
+    async responder(msg, envio) {
+      const [cartoes, ag, mensagens] = await Promise.all([
+        carregarCartoes(db), dadosDoAgenciado(db, { relationId: envio?.relation_id, telefone: msg.telefone }, env), cw.mensagens(msg.conversa)]);
+      return perguntarIA({ instrucoes: montarInstrucoes(cartoes, ag), historico: historicoDe(mensagens), env });
+    },
+  };
+}
+
+export function criarServidor(env, db = criarBanco(env), cw = chatwoot(env), ia = criarIA(env, db, cw)) {
   const fila = [];
   let ocupado = false;
   // Uma mensagem por vez, na ordem em que chegaram (a mesma pessoa pode tocar 2 botões em seguida).
@@ -59,7 +77,7 @@ export function criarServidor(env, db = criarBanco(env), cw = chatwoot(env)) {
     while (fila.length) {
       const msg = fila.shift();
       try {
-        const r = await tratar(msg, { db, cw });
+        const r = await tratar(msg, { db, cw, ia });
         estado.respostas += 1;
         estado.ultimaResposta = { em: new Date().toISOString(), ...r };
         log('resposta', { conversa: msg.conversa, ...r });
@@ -75,7 +93,7 @@ export function criarServidor(env, db = criarBanco(env), cw = chatwoot(env)) {
     const responder = (codigo, corpo) => { res.writeHead(codigo, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(corpo)); };
     if (req.method === 'GET' && url.pathname === '/health') {
       return responder(200, { ok: true, caixa: CAIXA, envio_ligado: env.RENOVACAO_ENVIO_LIGADO === 'true',
-        respostas_ligadas: env.RENOVACAO_RESPOSTAS_LIGADAS === 'true', ...estado });
+        respostas_ligadas: env.RENOVACAO_RESPOSTAS_LIGADAS === 'true', bia_agenciados: Boolean(ia), ...estado });
     }
     const m = url.pathname.match(/^\/webhook\/([A-Za-z0-9_-]{32,128})$/);
     if (req.method === 'POST' && m) {
