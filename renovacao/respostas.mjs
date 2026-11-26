@@ -12,6 +12,7 @@ export const MOTIVOS = [
 export const ETIQUETA_PEDIDO = 'renovacao-enviar-pedido';
 export const ETIQUETA_NAO_QUER = 'renovacao-nao-quer';
 export const ETIQUETA_ATENCAO = 'renovacao-atencao';
+export const BOTOES_DECISAO = ['Quero renovar', 'Não quero renovar'];
 
 const normalizar = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
@@ -117,7 +118,9 @@ export async function responderComIA(msg, envio, { cw, ia }) {
   if (r.intencao === 'quero_renovar' || r.intencao === 'nao_quero') {
     return executar(msg, planejar(r.intencao === 'quero_renovar' ? 'quero' : 'nao_quero', envio), cw, r.intencao);
   }
-  await cw.mensagem(msg.conversa, r.resposta);
+  if (r.passarParaTime) await cw.mensagem(msg.conversa, r.resposta);
+  // Depois de tirar a dúvida, a pessoa decide ali mesmo (botões do WhatsApp; texto até 1.000 caracteres).
+  else await cw.lista(msg.conversa, r.resposta.slice(0, 1000), BOTOES_DECISAO);
   if (r.passarParaTime) {
     await cw.etiqueta(msg.conversa, ETIQUETA_ATENCAO);
     await cw.nota(msg.conversa, '👀 A Bia dos agenciados passou esta dúvida para o time. Responder na conversa.');

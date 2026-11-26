@@ -47,7 +47,7 @@ test('dados do agenciado: pelo contrato, pelo telefone e o número de teste', as
 
 function cwFalso() {
   const feito = [];
-  return { feito, async mensagem(c, t) { feito.push(['mensagem', t]); }, async lista() { feito.push(['lista']); },
+  return { feito, async mensagem(c, t) { feito.push(['mensagem', t]); }, async lista(c, t, o) { feito.push(['lista', t, o]); },
     async etiqueta(c, e) { feito.push(['etiqueta', e]); }, async nota() { feito.push(['nota']); }, async tirarEtiqueta() { feito.push(['tirar']); } };
 }
 
@@ -55,7 +55,7 @@ test('responderComIA: responde; passa para o time; falha vira time; "quero renov
   const msg = { conversa: '9', texto: 'Preciso pagar?' };
   let cw = cwFalso();
   assert.equal((await responderComIA(msg, null, { cw, ia: { responder: async () => ({ resposta: 'Oi!', intencao: 'duvida', passarParaTime: false }) } })).status, 'ia');
-  assert.deepEqual(cw.feito, [['mensagem', 'Oi!']]);
+  assert.deepEqual(cw.feito, [['lista', 'Oi!', ['Quero renovar', 'Não quero renovar']]]);
   cw = cwFalso();
   assert.equal((await responderComIA(msg, null, { cw, ia: { responder: async () => ({ resposta: 'Vou chamar o time', intencao: 'outro', passarParaTime: true }) } })).status, 'time');
   assert.deepEqual(cw.feito.map((f) => f[0]), ['mensagem', 'etiqueta', 'nota']);
