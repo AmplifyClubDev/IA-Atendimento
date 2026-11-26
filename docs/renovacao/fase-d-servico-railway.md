@@ -36,3 +36,13 @@ Régua e fila no banco, envio (`renovacao/envio.mjs`: seco, teste, enviar deslig
 **entregue** (status delivered, com ID do WhatsApp), etiqueta **"Renovacao de contrato"** aplicada, sem responsável,
 e a Bia não respondeu. No Chatwoot a mensagem aparece com o texto "renovação de contrato" (como o n8n fazia); no
 WhatsApp chega o template completo.
+
+## Serviço no ar (26/11/2026, 12:51 UTC) ✅
+
+Aprovado pelo Vitor ("Sim, pode criar").
+- Railway: serviço **"Renovação de contrato"** (`e2a98282…`), `https://renovacao-de-contrato-production.up.railway.app`
+  (`/health`), código de `renovacao/` (commit `961b427`). Variáveis: banco da Bia, Chatwoot (as do Cadastro),
+  `RENOVACAO_WEBHOOK_SEGREDO` (gerado, só no Railway), `RENOVACAO_ENVIO_LIGADO=false`, `RENOVACAO_RESPOSTAS_LIGADAS`.
+- Chatwoot: webhook **11** "Renovação de contrato" → `/webhook/<segredo>`, só `message_created`.
+- 1ª rodada (12:51): fila com **46 previstos**, envio desligado.
+- 12:53: respostas ligadas para o teste no número do Vitor (única conversa com a etiqueta: 61617).
