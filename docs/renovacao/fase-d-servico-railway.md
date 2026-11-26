@@ -29,3 +29,10 @@ O Amplify OS mostra tudo (Régua de mensagens).
 
 Régua e fila no banco, envio (`renovacao/envio.mjs`: seco, teste, enviar desligado), 2 templates aprovados na caixa 3
 (Marketing), a Bia ignora a etiqueta de renovação, tela no Amplify OS.
+
+## Teste 1 (26/11/2026, 11:55 UTC) ✅
+
+`node envio.mjs teste` para o número do Vitor: conversa **61617** na **caixa 3**, template `renovacao_contrato`
+**entregue** (status delivered, com ID do WhatsApp), etiqueta **"Renovacao de contrato"** aplicada, sem responsável,
+e a Bia não respondeu. No Chatwoot a mensagem aparece com o texto "renovação de contrato" (como o n8n fazia); no
+WhatsApp chega o template completo.
