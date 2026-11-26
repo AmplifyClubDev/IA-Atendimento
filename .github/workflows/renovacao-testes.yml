@@ -1,0 +1,19 @@
+name: Testes da Renovação
+on:
+  push:
+    paths: ['renovacao/**', '.github/workflows/renovacao-testes.yml']
+  pull_request:
+    paths: ['renovacao/**', '.github/workflows/renovacao-testes.yml']
+jobs:
+  testes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: renovacao
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test

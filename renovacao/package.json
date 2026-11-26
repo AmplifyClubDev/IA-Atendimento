@@ -1,0 +1,12 @@
+{
+  "name": "renovacao-contrato",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node servico.mjs",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

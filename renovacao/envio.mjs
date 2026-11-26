@@ -47,7 +47,7 @@ export function montarMensagem(envio, env = process.env) {
   };
 }
 
-function chatwoot(env) {
+export function chatwoot(env) {
   const base = String(env.CHATWOOT_BASE_URL || '').replace(/\/$/, '');
   const conta = env.CHATWOOT_ACCOUNT_ID;
   const chamar = async (metodo, caminho, corpo) => {
@@ -75,13 +75,36 @@ function chatwoot(env) {
     async conversa(contato, sourceId, mensagem) {
       return chamar('POST', '/conversations', { inbox_id: CAIXA, contact_id: contato.id, source_id: sourceId, message: mensagem });
     },
-    async etiqueta(conversaId) {
-      return chamar('POST', `/conversations/${conversaId}/labels`, { labels: [ETIQUETA] });
+    // O Chatwoot troca a lista inteira de etiquetas: lê as atuais e só acrescenta/tira a nossa.
+    async etiquetas(conversaId) {
+      return (await chamar('GET', `/conversations/${conversaId}/labels`)).payload || [];
+    },
+    async etiqueta(conversaId, nome = ETIQUETA) {
+      const atuais = await this.etiquetas(conversaId);
+      if (atuais.includes(nome)) return atuais;
+      return chamar('POST', `/conversations/${conversaId}/labels`, { labels: [...atuais, nome] });
+    },
+    async tirarEtiqueta(conversaId, nome = ETIQUETA) {
+      const atuais = await this.etiquetas(conversaId);
+      if (!atuais.includes(nome)) return atuais;
+      return chamar('POST', `/conversations/${conversaId}/labels`, { labels: atuais.filter((x) => x !== nome) });
+    },
+    async mensagem(conversaId, texto) {
+      return chamar('POST', `/conversations/${conversaId}/messages`, { content: texto, message_type: 'outgoing' });
+    },
+    // Lista de opções (no WhatsApp vira lista/botões interativos).
+    async lista(conversaId, texto, opcoes) {
+      return chamar('POST', `/conversations/${conversaId}/messages`, {
+        content: texto, message_type: 'outgoing', content_type: 'input_select',
+        content_attributes: { items: opcoes.map((t) => ({ title: t, value: t })) } });
+    },
+    async nota(conversaId, texto) {
+      return chamar('POST', `/conversations/${conversaId}/messages`, { content: texto, message_type: 'outgoing', private: true });
     },
   };
 }
 
-function banco(env) {
+export function banco(env) {
   const base = String(env.SUPABASE_URL || '').replace(/\/$/, '');
   const h = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`, 'Content-Type': 'application/json' };
   return {
@@ -94,6 +117,11 @@ function banco(env) {
       const r = await fetch(`${base}/rest/v1/rpc/marcar_envio_renovacao_v5`, {
         method: 'POST', headers: h, body: JSON.stringify({ p: { id, situacao, ...extra } }) });
       if (!r.ok) throw new Error(`marcar ${id}: ${r.status}`);
+      return r.json();
+    },
+    async rpc(nome, p) {
+      const r = await fetch(`${base}/rest/v1/rpc/${nome}`, { method: 'POST', headers: h, body: JSON.stringify(p === undefined ? {} : { p }) });
+      if (!r.ok) throw new Error(`${nome}: ${r.status} ${(await r.text()).slice(0, 200)}`);
       return r.json();
     },
   };
@@ -140,24 +168,33 @@ export async function principal(argv = process.argv.slice(2), env = process.env,
     return;
   }
   if (modo === 'enviar') {
-    if (env.RENOVACAO_ENVIO_LIGADO !== 'true') throw new Error('envio desligado (RENOVACAO_ENVIO_LIGADO)');
-    if (!dentroDoHorario()) { saida('fora do horário (9h às 20h): nada enviado'); return; }
-    for (const e of await db.fila()) {
-      const telefone = telefoneValido(e.telefone);
-      if (!telefone) { await db.marcar(e.id, 'cancelado', { motivo: 'Telefone inválido' }); continue; }
-      try {
-        const conversa = await enviarUm(e, telefone, env);
-        await db.marcar(e.id, 'enviado', { chatwoot_conversa: String(conversa) });
-        saida(`enviado ${e.etapa} ${e.tiktok}`);
-      } catch (erro) {
-        await db.marcar(e.id, 'falhou', { motivo: String(erro.message).slice(0, 200) });
-        saida(`falhou ${e.etapa} ${e.tiktok}: ${erro.message}`);
-      }
-      await espera(ESPERA_ENTRE_ENVIOS_MS);
-    }
+    await enviarFila(env, saida, db);
     return;
   }
   throw new Error('modo: seco | teste <telefone> [etapa] | enviar');
+}
+
+// Manda a fila "previsto" (usado pelo comando e pela rotina de hora em hora do serviço).
+export async function enviarFila(env, saida = console.log, db = banco(env), cw = chatwoot(env), pausa = espera) {
+  if (env.RENOVACAO_ENVIO_LIGADO !== 'true') throw new Error('envio desligado (RENOVACAO_ENVIO_LIGADO)');
+  if (!dentroDoHorario()) { saida('fora do horário (9h às 20h): nada enviado'); return { enviados: 0, falhas: 0 }; }
+  let enviados = 0, falhas = 0;
+  for (const e of await db.fila()) {
+    const telefone = telefoneValido(e.telefone);
+    if (!telefone) { await db.marcar(e.id, 'cancelado', { motivo: 'Telefone inválido' }); continue; }
+    try {
+      const conversa = await enviarUm(e, telefone, env, cw);
+      await db.marcar(e.id, 'enviado', { chatwoot_conversa: String(conversa) });
+      enviados += 1;
+      saida(`enviado ${e.etapa} ${e.tiktok}`);
+    } catch (erro) {
+      await db.marcar(e.id, 'falhou', { motivo: String(erro.message).slice(0, 200) });
+      falhas += 1;
+      saida(`falhou ${e.etapa} ${e.tiktok}: ${erro.message}`);
+    }
+    await pausa(ESPERA_ENTRE_ENVIOS_MS);
+  }
+  return { enviados, falhas };
 }
 
 if (process.argv[1]?.endsWith('envio.mjs')) {
