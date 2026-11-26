@@ -1,7 +1,7 @@
 from datetime import datetime,timedelta,timezone
 from types import SimpleNamespace
 from unittest import TestCase
-from retomada import Retomada, STEPS, LINKED_STEPS, MIN_GAP, message, step_key
+from retomada import Retomada, STEPS, LINKED_STEPS, MIN_GAP, message, step_key, FOLLOWUP_CLOSE
 
 class Followup55476(TestCase):
     def setUp(self):
@@ -22,6 +22,8 @@ class Followup55476(TestCase):
         self.assertIsNone(self.worker._due(self.state,self.source,self.now+timedelta(minutes=9,seconds=59)))
         self.assertEqual(self.worker._due(self.state,self.source,self.now+timedelta(minutes=10)),1)
         self.rows[step_key('cycle','chatwoot:1:1',1)]={'status':'completed'}
+        self.state['cycle']['retomada']={'step':1,'source_key':'chatwoot:1:1','stage':['await_acceptance',None],
+                                         'at':(self.now+timedelta(minutes=10)).isoformat()}
         self.assertIsNone(self.worker._due(self.state,self.source,self.now+timedelta(minutes=19)))
         self.assertEqual(self.worker._due(self.state,self.source,self.now+timedelta(minutes=20)),2)
         self.rows[step_key('cycle','chatwoot:1:1',2)]={'status':'completed'}
@@ -29,7 +31,7 @@ class Followup55476(TestCase):
     def test_no_repeated_greeting_closure_notice_only_second(self):
         first=message(self.state,1,{},now=self.now)[0]; second=message(self.state,2,{},now=self.now)[0]
         self.assertFalse(first.startswith('Oi'));self.assertFalse(second.startswith('Oi'))
-        self.assertNotIn('Vou encerrar',first);self.assertIn('Vou encerrar',second)
+        self.assertIn('encerrar atendimento',first);self.assertEqual(second,FOLLOWUP_CLOSE)
         self.assertNotEqual(first,second)
         self.assertIsNone(message(self.state,3,{}))
     def test_unknown_invitation_has_no_proactive_message(self):
@@ -50,6 +52,8 @@ class Followup55476(TestCase):
             state['effects']['old-invite']={'result_receipt':{'status':'sent','confirmed':True}}
             state['cycle']['real_operations']['relationship']['observed_at']=(self.now+timedelta(minutes=15)).isoformat()
             state['cycle'].update(mode='real',status='open',opened_at=self.now.isoformat(),expires_at=(self.now+timedelta(days=1)).isoformat())
+            state['cycle']['retomada']={'step':1,'source_key':'chatwoot:1:1','stage':['await_acceptance',None],
+                                         'at':(self.now+timedelta(minutes=10)).isoformat()}
             source={**self.source,'cycle_id':'cycle','event':{'created_at':self.now.isoformat()}}
             saved=[];stopped=[]
             repo=SimpleNamespace(followup_source=lambda c:source,load_session=lambda c:deepcopy(state),

@@ -1,7 +1,7 @@
 import unittest
 from datetime import datetime,timezone
 import lead_validation as v
-from retomada import message
+from retomada import FOLLOWUP_CHOICE, message
 AT=datetime(2026,11,13,18,tzinfo=timezone.utc)
 class GenericAgency(unittest.TestCase):
  def cycle(self):return {'phase':'intro','facts':{'interesse_agenciamento':True}}
@@ -9,7 +9,7 @@ class GenericAgency(unittest.TestCase):
   c=self.cycle();q=v.begin(c,AT)
   self.assertEqual(q,('Você já é agenciado por alguma agência?',['Sim','Não']))
   self.assertNotIn('Amplify',q[0])
-  self.assertEqual(message({'cycle':c},1,{})[0],q[0])
+  self.assertEqual(message({'cycle':c},1,{}),(q[0]+'\n\n'+FOLLOWUP_CHOICE,q[1]))
  def test_yes_asks_which_agency_without_assuming_amplify(self):
   for answer in ['Sim','Sou agenciada','já sou agenciado','sim sou agenciada','tenho agência']:
    c=self.cycle();v.begin(c,AT);q=v.advance(c,answer,AT)
