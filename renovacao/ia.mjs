@@ -14,7 +14,9 @@ const CONHECIMENTO_RENOVACAO = `Renovação de contrato (regras confirmadas):
 - Se a pessoa não renovar, o vínculo com a Amplify termina na data de fim do contrato.
 - Renovar mantém a parceria ativa com a Amplify. Se a pessoa perguntar de mudança de condições, comissão nova ou benefícios
   específicos depois da renovação, isso não está confirmado aqui: passe para o time.
-- Para renovar por aqui, a pessoa pode responder "RENOVAR".`;
+- Para renovar por aqui, a pessoa pode responder "RENOVAR".
+- Nunca afirme nada sobre multa, cobrança, aviso prévio ou regras para sair: isso não está confirmado. Se perguntarem,
+  diga que o time confirma e passe para o time. Só use fatos desta lista, dos dados da pessoa e do conhecimento da Amplify.`;
 
 export async function carregarCartoes(db, agora = Date.now()) {
   if (agora - cache.em < CACHE_MS && cache.cartoes.length) return cache.cartoes;
