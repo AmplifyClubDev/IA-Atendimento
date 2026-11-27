@@ -105,15 +105,18 @@ RENEWAL_LABELS = frozenset({'renovacao de contrato', 'renovacao_de_contrato', 'r
 
 
 def gate_exclusion(gate, event, detail):
-    """Release 47: no modo 'todos', quem a Bia não atende (o número de teste sempre entra). None = pode atender."""
-    from contracts import gate_mode, is_test_phone
+    """Quem a Bia não atende: conversas do serviço de renovação (etiqueta ou "Já sou Amplify"). None = pode atender."""
     import unicodedata
-    if gate_mode(gate) != 'todos' or is_test_phone(gate, event.get('sender_phone')):
-        return None
+
+    def _plain(value):
+        return ''.join(c for c in unicodedata.normalize('NFKD', str(value)).lower() if not unicodedata.combining(c)).strip()
+
+    # 27/11/2026: "Já sou Amplify" e a etiqueta de renovação são do serviço de renovação (a Bia dos agenciados),
+    # em qualquer modo e também no número de teste: a Bia de aquisição não responde nessas conversas.
+    if ' '.join(re.sub(r'[^a-z0-9 ]+', ' ', _plain(event.get('text') or '')).split()) == 'ja sou amplify':
+        return 'fora_do_gate:renovacao_de_contrato'
     labels = detail.get('labels') if isinstance(detail.get('labels'), list) else []
-    normal = {''.join(c for c in unicodedata.normalize('NFKD', str(label)).lower() if not unicodedata.combining(c)).strip()
-              for label in labels}
-    if normal & RENEWAL_LABELS:
+    if {_plain(label) for label in labels} & RENEWAL_LABELS:
         return 'fora_do_gate:renovacao_de_contrato'
     return None
 

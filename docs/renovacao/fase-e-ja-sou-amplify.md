@@ -39,3 +39,30 @@ se a pessoa voltar, reabre sozinha. Nenhuma mensagem é apagada.
 
 Decisões assumidas (Vitor não escolheu opção; usar as recomendadas até ele corrigir): resolver (não apagar), 1 FUP,
 controle pelo Chatwoot.
+
+## Feito em 27/11/2026: "Já sou Amplify" (pronto para teste, ainda não em produção)
+
+Fluxo:
+1. A pessoa toca **Já sou Amplify** no menu da Bia (caixa 3).
+2. A Bia **não responde** (`gate_exclusion`: o texto exato "Já sou Amplify" e a etiqueta de renovação são do serviço,
+   em qualquer modo e também no número de teste). A demo continua com o seu próprio "Já sou Amplify".
+3. O serviço de renovação põe a etiqueta `Renovacao de contrato` e pede o **@ do TikTok**.
+4. Acha o agenciado (Ativo ou Saindo) e pede os **4 últimos dígitos do CPF**.
+5. O banco confere (`atendimento_agenciado_v5`, SECURITY DEFINER, só service_role). **O CPF nunca sai do banco.**
+   - 3 erros de @ → time. 3 erros de CPF → bloqueia por 24 h e chama o time.
+   - Sem CPF no cadastro → manda o link do formulário (`/cadastro`, a mesma validação de hoje).
+6. Conferido → mostra o **perfil**: situação, categoria, GMV, agenciado desde, contrato (início, fim, dias), renovação.
+   Com os botões **Quero renovar / Não quero renovar** (menos para quem já renovou ou está saindo).
+7. Depois disso, a conversa segue no fluxo de renovação: botões, motivos e a Bia dos agenciados para dúvidas.
+   `registrar_resposta_renovacao_v5` passou a aceitar conversa de agenciado conferido (sem envio do alerta).
+
+Segurança: os dígitos só vão ao banco; não são gravados nas respostas; a IA vê "[número oculto]" no histórico.
+
+Arquivos: `bia/sql/agenciado_atendimento.sql` (+ teste), `renovacao/agenciado.mjs` (+ teste), `bia/real_operations.py`,
+`bia/server.py`, `bia/review_tests/test_ja_sou_amplify_gate.py`.
+
+Testes: SQL simulado e desfeito (novo + 3 antigos ok; o teste antigo de "sem envio" foi atualizado para a regra da
+auditoria). Serviço: 38 ok. Bia: teste novo ok; nenhuma falha nova na suíte offline.
+
+Falta (precisa de aprovação): aplicar o SQL, publicar o serviço e a Bia, e simular no número de teste.
+Usar o **47 99115-4859** (o 47 99291-6992 está na demo da Bia e receberia 2 respostas).

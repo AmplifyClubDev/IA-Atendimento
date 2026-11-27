@@ -8,6 +8,7 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import { CAIXA, ETIQUETA, banco, chatwoot, enviarFila } from './envio.mjs';
 import { avisarFalha, lerEvento, tratar } from './respostas.mjs';
+import { atenderAgenciado } from './agenciado.mjs';
 import { carregarCartoes, dadosDoAgenciado, historicoDe, montarInstrucoes, perguntarIA } from './ia.mjs';
 
 const HORA_MS = 3600000;
@@ -115,7 +116,7 @@ export function criarServidor(env, db = criarBanco(env), cw = chatwoot(env), ia 
     while (fila.length) {
       const msg = fila.shift();
       try {
-        const r = await tratar(msg, { db, cw, ia });
+        const r = (await atenderAgenciado(msg, { db, cw })) ?? await tratar(msg, { db, cw, ia });
         estado.respostas += 1;
         estado.ultimaResposta = { em: new Date().toISOString(), ...r };
         log('resposta', { conversa: msg.conversa, ...r });

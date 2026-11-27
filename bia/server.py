@@ -22,7 +22,7 @@ from guided_ai import plan_turn
 from contracts import allow_inbound, allow_image_inbound, IMAGE_ONLY_REPLY, inbound_key, same_phone, normalize_phone, pilot_phone
 from repository import Repository
 from transport import ChatwootTransport, ChatwootProgress
-from real_operations import RealExecutor, build_jobs, business_key, chatwoot_control_guard, policy_for
+from real_operations import RealExecutor, build_jobs, business_key, chatwoot_control_guard, gate_exclusion, policy_for
 from demo_router import build_demo_router, production_blocked, excluded_conversations, ProductionTransportFence
 
 
@@ -1664,6 +1664,10 @@ def create_app(settings=None, repository=None, transport=None, answerer=None, pl
         if event and gate.get('enabled') is True and demo_router and demo_router.claims(event):
             body, code = handle_demo(event, payload)
             return jsonify(**body), code
+        # 27/11/2026: "Já sou Amplify" na caixa da Bia é atendido pelo serviço de renovação (a Bia dos agenciados).
+        if (event and str(event.get('inbox_id')) == str(gate.get('inbox_id'))
+                and gate_exclusion(gate, event, {}) == 'fora_do_gate:renovacao_de_contrato'):
+            return jsonify(accepted=False, status="ignored", reason='fora_do_gate:renovacao_de_contrato'), 202
         if event and allow_image_inbound(gate, event):
             body, code = process_image_inbound(event)
             return jsonify(**body), code

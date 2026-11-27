@@ -90,12 +90,14 @@ export function lerEvento(evento, caixa, testes = []) {
   const conversa = evento.conversation || {};
   const inbox = conversa.inbox_id ?? evento.inbox?.id;
   if (Number(inbox) !== Number(caixa)) return null;
-  if (!temEtiqueta(conversa.labels)) return null;
+  // "Já sou Amplify" (botão do menu da Bia) entra mesmo sem a etiqueta: é o começo do atendimento ao agenciado.
+  const jaSou = normalizar(evento.content) === 'ja sou amplify';
+  if (!jaSou && !temEtiqueta(conversa.labels)) return null;
   const id = String(evento.id || ''), conversaId = String(conversa.id || '');
   if (!/^\d{1,18}$/.test(id) || !/^\d{1,18}$/.test(conversaId)) return null;
   const telefone = evento.sender?.phone_number || conversa.meta?.sender?.phone_number || null;
   return { mensagem: id, conversa: conversaId, texto: String(evento.content || '').slice(0, 500), telefone,
-    teste: testes.includes(String(telefone || '').replace(/\D/g, '')) };
+    teste: testes.includes(String(telefone || '').replace(/\D/g, '')), jaSou };
 }
 
 // Trata uma mensagem: registra no banco e responde. Devolve o que foi feito (para o log).

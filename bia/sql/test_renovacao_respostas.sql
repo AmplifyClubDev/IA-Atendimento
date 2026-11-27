@@ -12,7 +12,8 @@ BEGIN
   r := public.registrar_resposta_renovacao_v5(jsonb_build_object('mensagem', '888000001', 'conversa', '999999001', 'resposta', 'nao_quero'));
   IF r ->> 'status' <> 'repetida' THEN RAISE EXCEPTION 'duplicou'; END IF;
   r := public.registrar_resposta_renovacao_v5(jsonb_build_object('mensagem', '888000002', 'conversa', '123', 'resposta', 'duvida'));
-  IF r ->> 'status' <> 'registrada' OR r -> 'envio' <> 'null'::jsonb THEN RAISE EXCEPTION 'sem_envio %', r; END IF;
+  -- Desde a auditoria de 27/11: conversa sem envio (e sem agenciado conferido, e não teste) fica "fora".
+  IF r ->> 'status' <> 'fora' THEN RAISE EXCEPTION 'sem_envio %', r; END IF;
   RESET ROLE;
   IF NOT EXISTS (SELECT 1 FROM interno.renovacao_respostas WHERE chatwoot_mensagem = '888000001' AND telefone = '5547999990000') THEN
     RAISE EXCEPTION 'telefone_normalizado'; END IF;

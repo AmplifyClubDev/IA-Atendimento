@@ -41,7 +41,10 @@ const evento = (extra = {}) => ({ event: 'message_created', message_type: 'incom
   conversation: { id: 61617, inbox_id: 3, labels: ['Renovacao de contrato'] }, sender: { phone_number: '+5547999990000' }, ...extra });
 
 test('lerEvento: só mensagem recebida, da caixa 3, com a etiqueta de renovação', () => {
-  assert.deepEqual(lerEvento(evento(), 3), { mensagem: '501', conversa: '61617', texto: 'Quero renovar', telefone: '+5547999990000', teste: false });
+  assert.deepEqual(lerEvento(evento(), 3), { mensagem: '501', conversa: '61617', texto: 'Quero renovar', telefone: '+5547999990000', teste: false, jaSou: false });
+  // "Já sou Amplify" entra mesmo sem etiqueta (começo do atendimento ao agenciado).
+  assert.equal(lerEvento(evento({ content: 'Já sou Amplify', conversation: { id: 1, inbox_id: 3, labels: [] } }), 3).jaSou, true);
+  assert.equal(lerEvento(evento({ content: 'Já sou Amplify', conversation: { id: 1, inbox_id: 1, labels: [] } }), 3), null);
   assert.equal(lerEvento(evento(), 3, ['5547999990000']).teste, true);
   assert.ok(lerEvento(evento({ conversation: { id: 1, inbox_id: 3, labels: ['renovacao de contrato'] } }), 3)); // etiqueta em minúsculas
   assert.equal(lerEvento(evento({ message_type: 'outgoing' }), 3), null);

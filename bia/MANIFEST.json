@@ -179,8 +179,8 @@
     },
     {
       "path": "real_operations.py",
-      "bytes": 31287,
-      "sha256": "e15ef688e1ced25bd0b4390256f2fda886fa3e071a8994d1b4a13fdc8a976df9"
+      "bytes": 31544,
+      "sha256": "c2b249d4cc794bbf97df7aabc7bb811abe5cde7836881b4ca7d84d81ab43c8ac"
     },
     {
       "path": "receipt_grounding.py",
@@ -219,8 +219,8 @@
     },
     {
       "path": "server.py",
-      "bytes": 110016,
-      "sha256": "0f3403e54b3c3757e17e2eebed99d849a21ec9c24d7b4c11553ec6885627b9a2"
+      "bytes": 110436,
+      "sha256": "2c61bc8360860065d5ba3202285be0846d08c4366e491012c107b2d979397ed6"
     },
     {
       "path": "smtp.py",
