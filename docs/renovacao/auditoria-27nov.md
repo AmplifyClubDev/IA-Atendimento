@@ -39,3 +39,20 @@ Pedida pelo Vitor. Revisão do código por um revisor independente + conferênci
 - Conferir a conversa 54162 (resposta real de "não quero renovar" gerada nesse cenário).
 - Ainda abertos (menores): etiqueta é lida-e-trocada (corrida rara com outra mudança na mesma conversa); a etiqueta de
   renovação nunca sai (entra na fase E).
+
+## Aplicado (27/11, aprovado pelo Vitor: "Ajuste tudo isso") ✅
+
+- Banco: `renovacao_auditoria_27nov.sql` (fila 49 válidos, 3 cancelados) e `renovacao_liberar.sql` (fim do ciclo).
+- Serviço publicado 11:09 UTC (commits `2775600` e `9f8b202`), 29 testes. Respostas religadas.
+- Conferido no ar: mensagem simulada na conversa 54162 (n8n) → `status: fora`, nada enviado.
+- Item 14: etiquetas conferidas depois de gravar (regrava se uma mudança simultânea apagou).
+- Item 15: fim do ciclo de hora em hora — renovou: `renovacao_confirmada` (só com envio ligado) e tira a etiqueta;
+  saiu ou venceu: tira a etiqueta (a Bia volta a atender). Ciclo fechado uma vez só (`fechar_ciclo_renovacao_v5`).
+
+## Item 16 — troca do n8n (plano, depende do Vitor)
+O fluxo "Renovação de Contratos" do n8n (`uA9Wlh6y3ylKCSU8`, a cada 30 min das 18h às 23h30) ainda envia pela caixa 3.
+Na troca, no mesmo dia e antes das 18h:
+1. Desativar o fluxo no n8n (precisa do login do Vitor no n8n; desativar, não apagar — fica de referência).
+2. Ligar `RENOVACAO_ENVIO_LIGADO=true` no serviço; a próxima rodada envia a fila (das 9h às 20h).
+3. Conferir no Amplify OS (Régua de mensagens) e no Chatwoot as primeiras mensagens.
+As conversas antigas do n8n continuam com a etiqueta e a Bia não as atende (como antes); o serviço não mexe nelas.
