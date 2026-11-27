@@ -129,5 +129,19 @@ test('perfil: renovação confirmada e pedido aberto', () => {
   assert.match(textoRenovacao({ ...PERFIL, renovacao: 'Aceita', renovacao_novo_fim: '01/12/2027' }), /confirmada.*01\/12\/2027/);
   assert.match(textoRenovacao({ ...PERFIL, renovacao: 'Aguardando aceite', renovacao_expira_em: '05/12/2026' }), /Aceitar/);
   assert.match(textoRenovacao({ ...PERFIL, dias_para_vencer: 200 }), /em dia/);
-  assert.match(textoPerfil(PERFIL), /GMV: \*R\$\s?7\.250\*/);
+  assert.match(textoPerfil(PERFIL), /GMV \(nível TikTok\): \*R\$\s?7\.250\*/);
+  assert.match(textoPerfil(PERFIL), /Na Amplify desde: 01\/10\/2026/);
+});
+
+test('longe do fim (mais de 30 dias, sem pedido): perfil sem botões de renovação', async () => {
+  const f = falso([{ etapa: 'pedir_cpf' }, { etapa: 'verificado', status: 'ok', perfil: { ...PERFIL, dias_para_vencer: 51 } }]);
+  await atenderAgenciado(msg('1234'), f);
+  assert.equal(f.feito[0][0], 'mensagem');
+  assert.match(f.feito[0][1], /em dia/);
+  assert.match(f.feito[0][1], /eu te aviso por aqui/);
+  assert.doesNotMatch(f.feito[0][1], /Quer renovar/);
+  const g = falso([{ etapa: 'pedir_cpf' }, { etapa: 'verificado', status: 'ok',
+    perfil: { ...PERFIL, dias_para_vencer: 51, renovacao: 'Aguardando aceite' } }]);
+  await atenderAgenciado(msg('1234'), g);
+  assert.equal(g.feito[0][0], 'lista'); // pedido aberto no TikTok: botões mesmo longe do fim
 });
