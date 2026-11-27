@@ -9,11 +9,12 @@ test('telefone: só celular do Brasil com DDI', () => {
   assert.equal(telefoneValido(null), null);
 });
 
-test('horário: só das 9h às 20h de Brasília', () => {
-  assert.equal(dentroDoHorario(new Date('2026-11-25T11:59:00Z')), false); // 8h59
-  assert.equal(dentroDoHorario(new Date('2026-11-25T12:00:00Z')), true);  // 9h
-  assert.equal(dentroDoHorario(new Date('2026-11-25T22:59:00Z')), true);  // 19h59
-  assert.equal(dentroDoHorario(new Date('2026-11-25T23:00:00Z')), false); // 20h
+test('horário: só das 12h às 14h de Brasília (envio ao meio-dia)', () => {
+  assert.equal(dentroDoHorario(new Date('2026-11-25T14:59:00Z')), false); // 11h59
+  assert.equal(dentroDoHorario(new Date('2026-11-25T15:00:00Z')), true);  // 12h
+  assert.equal(dentroDoHorario(new Date('2026-11-25T16:59:00Z')), true);  // 13h59
+  assert.equal(dentroDoHorario(new Date('2026-11-25T17:00:00Z')), false); // 14h
+  assert.equal(dentroDoHorario(new Date('2026-11-25T03:00:00Z')), false); // meia-noite
 });
 
 test('mensagem do template único com a data', () => {

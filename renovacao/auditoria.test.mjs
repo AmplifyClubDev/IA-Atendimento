@@ -34,7 +34,7 @@ function filaFalsa(linhas) {
   return { marcados, db: { async fila() { return linhas; }, async marcar(id, s, x) { marcados.push([id, s, x?.motivo || x?.chatwoot_conversa]); } } };
 }
 const cwOk = { async contato(t) { return { contato: { id: 1 }, sourceId: t }; }, async conversa() { return { id: 70 }; }, async etiqueta() {} };
-const DEZ_DA_MANHA = () => new Date('2026-11-27T13:00:00Z');
+const DEZ_DA_MANHA = () => new Date('2026-11-27T15:30:00Z'); // 12h30 em Brasília (janela de envio)
 
 test('enviarFila: cancela vencido, envia o válido, para fora do horário', async () => {
   const { db, marcados } = filaFalsa([

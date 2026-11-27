@@ -15,7 +15,9 @@ export const ETIQUETA = 'Renovacao de contrato';
 export const TEMPLATES = {
   renovacao_contrato: { category: 'MARKETING', parametros: 1 }, // a Meta aprovou como Marketing (25/11)
 };
-export const HORARIO = { inicio: 9, fim: 20 }; // Brasília
+// Envio ao meio-dia (decisão do Vitor, 27/11): é quando a pessoa vê o celular. A rodada das ~12h envia; a das ~13h
+// completa o que faltar. Depois das 14h nada sai até o dia seguinte.
+export const HORARIO = { inicio: 12, fim: 14 }; // Brasília
 export const ESPERA_ENTRE_ENVIOS_MS = 8000;
 
 // Telefone do Brasil com DDI, só números (5511999998888). Devolve null se não parecer celular válido.
@@ -213,7 +215,7 @@ export async function enviarFila(env, saida = console.log, db = banco(env), cw =
   let enviados = 0, falhas = 0;
   try {
     for (const e of await db.fila()) {
-      if (!dentroDoHorario(relogio())) { saida('fora do horário (9h às 20h): para por aqui'); break; }
+      if (!dentroDoHorario(relogio())) { saida('fora do horário (12h às 14h): para por aqui'); break; }
       const motivo = aindaVale(e, relogio());
       if (motivo) { await db.marcar(e.id, 'cancelado', { motivo }); continue; }
       const telefone = telefoneValido(e.telefone);

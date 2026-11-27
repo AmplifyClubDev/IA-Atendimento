@@ -46,3 +46,8 @@ Aprovado pelo Vitor ("Sim, pode criar").
 - Chatwoot: webhook **11** "Renovação de contrato" → `/webhook/<segredo>`, só `message_created`.
 - 1ª rodada (12:51): fila com **46 previstos**, envio desligado.
 - 12:53: respostas ligadas para o teste no número do Vitor (única conversa com a etiqueta: 61617).
+
+## Horário do envio: meio-dia (27/11/2026, decisão do Vitor)
+
+O envio sai **ao meio-dia (horário de Brasília)**, quando a pessoa vê o celular: janela 12h–14h. A rodada de ~12h envia
+a fila; a de ~13h completa o que faltar. Fora disso nada sai até o dia seguinte. (Antes: 9h–20h.)

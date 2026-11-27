@@ -1,5 +1,5 @@
 // Serviço "Renovação de contrato" (26/11/2026). Node 22, sem dependências. Roda no Railway, separado da Bia.
-//  - De hora em hora: prepara a fila no banco e, se o envio estiver ligado, envia (só das 9h às 20h).
+//  - De hora em hora: prepara a fila no banco e, se o envio estiver ligado, envia (só das 12h às 14h, horário de Brasília).
 //  - Webhook do Chatwoot: responde aos botões nas conversas da caixa 3 com a etiqueta "Renovacao de contrato".
 // Variáveis: SUPABASE_URL, SUPABASE_SERVICE_KEY, CHATWOOT_BASE_URL, CHATWOOT_ACCOUNT_ID, CHATWOOT_API_TOKEN,
 //            RENOVACAO_WEBHOOK_SEGREDO (32+ caracteres, vai no caminho do webhook),
