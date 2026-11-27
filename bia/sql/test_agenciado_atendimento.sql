@@ -26,17 +26,19 @@ BEGIN
   IF r ->> 'status' <> 'registrada' OR r -> 'envio' ->> 'relation_id' IS NULL THEN RAISE EXCEPTION 'registrar_verificado %', r; END IF;
   r := public.registrar_resposta_renovacao_v5('{"mensagem": "990000102", "conversa": "990000002", "resposta": "duvida"}');
   IF r ->> 'status' <> 'fora' THEN RAISE EXCEPTION 'registrar_nao_verificado %', r; END IF;
-  -- 3 erros seguidos bloqueiam por 1 dia.
+  -- Sem limite: vários erros seguidos continuam pedindo o CPF, e o certo depois ainda confere.
   r := public.atendimento_agenciado_v5('{"conversa": "990000002", "acao": "iniciar"}');
   r := public.atendimento_agenciado_v5(jsonb_build_object('conversa', '990000002', 'acao', 'arroba', 'arroba', arr));
   r := public.atendimento_agenciado_v5(jsonb_build_object('conversa', '990000002', 'acao', 'cpf', 'digitos', errado));
   r := public.atendimento_agenciado_v5(jsonb_build_object('conversa', '990000002', 'acao', 'cpf', 'digitos', errado));
   r := public.atendimento_agenciado_v5(jsonb_build_object('conversa', '990000002', 'acao', 'cpf', 'digitos', errado));
-  IF r ->> 'etapa' <> 'bloqueado' THEN RAISE EXCEPTION 'bloqueio %', r; END IF;
+  r := public.atendimento_agenciado_v5(jsonb_build_object('conversa', '990000002', 'acao', 'cpf', 'digitos', errado));
+  IF r ->> 'etapa' <> 'pedir_cpf' OR r ->> 'status' <> 'nao_confere' THEN RAISE EXCEPTION 'sem_limite %', r; END IF;
+  -- Antes do CPF certo, a conversa 990000002 não é aceita nos botões.
+  r := public.registrar_resposta_renovacao_v5('{"mensagem": "990000102", "conversa": "990000002", "resposta": "duvida"}');
+  IF r ->> 'status' <> 'fora' THEN RAISE EXCEPTION 'registrar_nao_verificado %', r; END IF;
   r := public.atendimento_agenciado_v5(jsonb_build_object('conversa', '990000002', 'acao', 'cpf', 'digitos', fim4));
-  IF r ->> 'status' = 'ok' THEN RAISE EXCEPTION 'bloqueado_passou'; END IF;
-  r := public.atendimento_agenciado_v5('{"conversa": "990000002", "acao": "iniciar"}');
-  IF r ->> 'etapa' <> 'bloqueado' THEN RAISE EXCEPTION 'reiniciar_bloqueado %', r; END IF;
+  IF r ->> 'status' <> 'ok' THEN RAISE EXCEPTION 'certo_depois_de_erros %', r; END IF;
   RESET ROLE;
   SET LOCAL ROLE anon;
   BEGIN

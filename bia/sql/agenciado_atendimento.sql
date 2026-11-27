@@ -40,10 +40,7 @@ BEGIN
   IF conv !~ '^[0-9]{1,18}$' THEN RAISE EXCEPTION USING errcode = '23514', message = 'Conversa inválida.'; END IF;
   IF p ->> 'acao' = 'iniciar' THEN
     INSERT INTO interno.agenciado_atendimentos (conversa, etapa) VALUES (conv, 'pedir_arroba')
-    ON CONFLICT (conversa) DO UPDATE SET etapa = CASE WHEN interno.agenciado_atendimentos.etapa = 'bloqueado'
-           AND interno.agenciado_atendimentos.atualizado_em > now() - interval '1 day' THEN 'bloqueado' ELSE 'pedir_arroba' END,
-         tentativas = CASE WHEN interno.agenciado_atendimentos.etapa = 'bloqueado'
-           AND interno.agenciado_atendimentos.atualizado_em > now() - interval '1 day' THEN interno.agenciado_atendimentos.tentativas ELSE 0 END,
+    ON CONFLICT (conversa) DO UPDATE SET etapa = 'pedir_arroba', tentativas = 0,
          arroba = NULL, relation_id = NULL, atualizado_em = now();
   END IF;
   SELECT * INTO a FROM interno.agenciado_atendimentos WHERE conversa = conv;
@@ -77,10 +74,9 @@ BEGIN
     WHERE lower(btrim(ltrim(c.tiktok, '@'))) = a.arroba AND nullif(btrim(c.cpf), '') IS NOT NULL
     ORDER BY c.atualizado_em DESC NULLS LAST LIMIT 1;
     IF cpf_final IS DISTINCT FROM p ->> 'digitos' THEN
-      UPDATE interno.agenciado_atendimentos SET tentativas = tentativas + 1,
-             etapa = CASE WHEN tentativas + 1 >= 3 THEN 'bloqueado' ELSE etapa END, atualizado_em = now() WHERE conversa = conv;
-      RETURN jsonb_build_object('etapa', CASE WHEN a.tentativas + 1 >= 3 THEN 'bloqueado' ELSE 'pedir_cpf' END,
-                                'status', 'nao_confere', 'tentativas', a.tentativas + 1);
+      -- Sem limite de tentativas (decisão do Vitor, 27/11): só conta, para o time ver.
+      UPDATE interno.agenciado_atendimentos SET tentativas = tentativas + 1, atualizado_em = now() WHERE conversa = conv;
+      RETURN jsonb_build_object('etapa', 'pedir_cpf', 'status', 'nao_confere', 'tentativas', a.tentativas + 1);
     END IF;
     UPDATE interno.agenciado_atendimentos SET etapa = 'verificado', tentativas = 0, atualizado_em = now() WHERE conversa = conv;
     RETURN jsonb_build_object('etapa', 'verificado', 'status', 'ok', 'perfil', interno.perfil_agenciado(a.relation_id));

@@ -34,7 +34,7 @@ test('Já sou Amplify: etiqueta primeiro (a Bia sai) e pede o @', async () => {
   assert.equal(f.pedidos[0].acao, 'iniciar');
 });
 
-test('@ encontrado → pede os 4 dígitos; não encontrado → pede de novo; 3 vezes → time', async () => {
+test('@ encontrado → pede os 4 dígitos; não encontrado → pede de novo, sem limite', async () => {
   let f = falso([{ etapa: 'pedir_arroba' }, { etapa: 'pedir_cpf', status: 'encontrado', tiktok: '@ana', nome: 'Ana Souza' }]);
   await atenderAgenciado(msg('@ana'), f);
   assert.equal(f.pedidos[1].arroba, '@ana');
@@ -43,9 +43,10 @@ test('@ encontrado → pede os 4 dígitos; não encontrado → pede de novo; 3 v
   f = falso([{ etapa: 'pedir_arroba' }, { etapa: 'pedir_arroba', status: 'nao_encontrado', tentativas: 1 }]);
   await atenderAgenciado(msg('@zz'), f);
   assert.match(f.feito[0][1], /Não achei esse @/);
-  f = falso([{ etapa: 'pedir_arroba' }, { etapa: 'pedir_arroba', status: 'nao_encontrado', tentativas: 3 }]);
+  f = falso([{ etapa: 'pedir_arroba' }, { etapa: 'pedir_arroba', status: 'nao_encontrado', tentativas: 7 }]);
   await atenderAgenciado(msg('@zz'), f);
-  assert.deepEqual(f.feito.map((x) => x[0]), ['mensagem', 'etiqueta', 'nota']);
+  assert.deepEqual(f.feito.map((x) => x[0]), ['mensagem']);
+  assert.match(f.feito[0][1], /Não achei esse @/);
 });
 
 test('sem CPF no banco → link do formulário', async () => {
@@ -66,13 +67,12 @@ test('CPF: só os dígitos vão ao banco; confere → perfil com botões de reno
   assert.doesNotMatch(JSON.stringify(f.feito), /1234/); // os dígitos não voltam para a conversa
 });
 
-test('CPF errado → tentativas; 3 erros → bloqueia e chama o time', async () => {
-  let f = falso([{ etapa: 'pedir_cpf' }, { etapa: 'pedir_cpf', status: 'nao_confere', tentativas: 1 }]);
+test('CPF errado → pede de novo, sem limite e sem chamar o time', async () => {
+  const f = falso([{ etapa: 'pedir_cpf' }, { etapa: 'pedir_cpf', status: 'nao_confere', tentativas: 5 }]);
   await atenderAgenciado(msg('9999'), f);
-  assert.match(f.feito[0][1], /mais \*2 tentativas\*/);
-  f = falso([{ etapa: 'pedir_cpf' }, { etapa: 'bloqueado', status: 'nao_confere', tentativas: 3 }]);
-  await atenderAgenciado(msg('9999'), f);
-  assert.deepEqual(f.feito.map((x) => x[0]), ['mensagem', 'etiqueta', 'nota']);
+  assert.deepEqual(f.feito.map((x) => x[0]), ['mensagem']);
+  assert.match(f.feito[0][1], /não conferem/);
+  assert.doesNotMatch(f.feito[0][1], /tentativa/);
 });
 
 test('conferido ou fora da conferência → segue para o fluxo de renovação', async () => {

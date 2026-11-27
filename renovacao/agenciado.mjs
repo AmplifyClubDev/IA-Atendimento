@@ -12,10 +12,9 @@ const MSG = {
   pedirArroba: '*Que bom te ver por aqui!* 💙\n\nPra eu abrir o seu perfil, me manda o seu *@ do TikTok*.',
   naoAchei: '*Não achei esse @ entre os agenciados* 🤔\n\n• Confere se está escrito igual ao TikTok.\n• Pode mandar só o @ (ex.: @seuperfil).',
   naoAcheiTime: '*Não consegui achar o seu perfil* 🤔\n\nVou chamar alguém do nosso time pra te ajudar. 💙',
+  naoConfere: '*Esses dígitos não conferem* 😕\n\nConfere e manda de novo os *4 últimos dígitos do seu CPF*.',
   pedirCpf: (nome) => `*Achei você${nome ? `, ${nome}` : ''}!* 🙌\n\nPra sua segurança, me manda os *4 últimos dígitos do seu CPF*.\n\n🔒 Eu só confiro; o número não fica salvo na conversa.`,
   formato: '*Preciso só dos 4 últimos dígitos do CPF* 🔢\n\nExemplo: se o CPF termina em 12-34, mande *1234*.',
-  naoConfere: (resta) => `*Esses dígitos não conferem* 😕\n\nConfere e manda de novo. ${resta === 1 ? 'Você tem mais *1 tentativa*.' : `Você tem mais *${resta} tentativas*.`}`,
-  bloqueado: '*Não consegui confirmar seus dados* 🔒\n\nPra sua segurança, vou passar pro nosso time te atender. 💙',
   semCpf: `*Achei você, mas falta atualizar seu cadastro* 📝\n\nPra eu mostrar seu perfil com segurança, preciso que você preencha o formulário:\n${FORMULARIO}\n\n• Informe o seu @ do TikTok.\n• Ele confere seu agenciamento antes de liberar o cadastro.\n\nDepois é só tocar em *Já sou Amplify* de novo. 😉`,
 };
 
@@ -73,23 +72,18 @@ export async function atenderAgenciado(msg, { db, cw }) {
   if (msg.jaSou) {
     // Etiqueta primeiro: com ela, a Bia de aquisição não responde mais nesta conversa.
     await cw.etiqueta(msg.conversa, ETIQUETA);
-    const r = await rpc('iniciar');
-    if (r.etapa === 'bloqueado') {
-      await passarParaTime(msg, cw, MSG.bloqueado, '🔒 Já sou Amplify: conferência bloqueada (3 erros nas últimas 24h). Atender manualmente.');
-      return { status: 'agenciado', etapa: 'bloqueado' };
-    }
+    await rpc('iniciar');
     await cw.mensagem(msg.conversa, MSG.pedirArroba);
     return { status: 'agenciado', etapa: 'pedir_arroba' };
   }
   const atual = await rpc('consultar');
   if (!atual.etapa || atual.etapa === 'verificado') return null;
-  if (atual.etapa === 'bloqueado' || atual.etapa === 'sem_cpf') return { status: 'agenciado', etapa: atual.etapa, silencio: true };
+  if (atual.etapa === 'sem_cpf') return { status: 'agenciado', etapa: atual.etapa, silencio: true };
 
   if (atual.etapa === 'pedir_arroba') {
     const r = await rpc('arroba', { arroba: msg.texto.trim().slice(0, 120) });
     if (r.status === 'nao_encontrado') {
-      if (r.tentativas >= 3) await passarParaTime(msg, cw, MSG.naoAcheiTime, '👀 Já sou Amplify: @ não encontrado 3 vezes. Atender manualmente.');
-      else await cw.mensagem(msg.conversa, MSG.naoAchei);
+      await cw.mensagem(msg.conversa, MSG.naoAchei); // sem limite de tentativas
     } else if (r.status === 'sem_cpf') {
       await cw.mensagem(msg.conversa, MSG.semCpf);
       await cw.nota(msg.conversa, `📝 Já sou Amplify: ${r.tiktok} é agenciado, mas não tem CPF no cadastro. Link do formulário enviado.`);
@@ -102,9 +96,7 @@ export async function atenderAgenciado(msg, { db, cw }) {
   // pedir_cpf: só os dígitos vão para o banco; a resposta nunca traz o CPF.
   const r = await rpc('cpf', { digitos: msg.texto.replace(/\D/g, '') });
   if (r.status === 'formato') await cw.mensagem(msg.conversa, MSG.formato);
-  else if (r.status === 'nao_confere' && r.etapa === 'bloqueado') {
-    await passarParaTime(msg, cw, MSG.bloqueado, '🔒 Já sou Amplify: CPF não conferiu 3 vezes. Atender manualmente.');
-  } else if (r.status === 'nao_confere') await cw.mensagem(msg.conversa, MSG.naoConfere(3 - r.tentativas));
+  else if (r.status === 'nao_confere') await cw.mensagem(msg.conversa, MSG.naoConfere); // sem limite de tentativas
   else if (r.status === 'ok') await mostrarPerfil(msg, cw, r.perfil);
   return { status: 'agenciado', etapa: r.etapa };
 }

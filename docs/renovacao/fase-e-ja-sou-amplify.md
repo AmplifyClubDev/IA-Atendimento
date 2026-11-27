@@ -49,7 +49,8 @@ Fluxo:
 3. O serviço de renovação põe a etiqueta `Renovacao de contrato` e pede o **@ do TikTok**.
 4. Acha o agenciado (Ativo ou Saindo) e pede os **4 últimos dígitos do CPF**.
 5. O banco confere (`atendimento_agenciado_v5`, SECURITY DEFINER, só service_role). **O CPF nunca sai do banco.**
-   - 3 erros de @ → time. 3 erros de CPF → bloqueia por 24 h e chama o time.
+   - @ ou CPF errado → pede de novo. **Sem limite de tentativas e sem chamar o time** (decisão do Vitor, 27/11).
+     O banco só conta as tentativas.
    - Sem CPF no cadastro → manda o link do formulário (`/cadastro`, a mesma validação de hoje).
 6. Conferido → mostra o **perfil**: situação, categoria, GMV, agenciado desde, contrato (início, fim, dias), renovação.
    Com os botões **Quero renovar / Não quero renovar** (menos para quem já renovou ou está saindo).
