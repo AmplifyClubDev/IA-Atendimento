@@ -79,15 +79,28 @@ export function chatwoot(env) {
     async etiquetas(conversaId) {
       return (await chamar('GET', `/conversations/${conversaId}/labels`)).payload || [];
     },
+    // Item 14 da auditoria: o Chatwoot troca a lista inteira, então depois de gravar confere. Se outra mudança ao mesmo
+    // tempo apagou o que esperávamos (ex.: a etiqueta de renovação), grava de novo uma vez.
+    async gravarEtiquetas(conversaId, mudar) {
+      for (let tentativa = 1; tentativa <= 2; tentativa += 1) {
+        const atuais = await this.etiquetas(conversaId);
+        const desejadas = mudar(atuais);
+        if (desejadas === null) return atuais; // nada a mudar
+        await chamar('POST', `/conversations/${conversaId}/labels`, { labels: desejadas });
+        const depois = await this.etiquetas(conversaId);
+        if (mudar(depois) === null) return depois;
+      }
+      throw new Error(`etiquetas não conferem na conversa ${conversaId}`);
+    },
     async etiqueta(conversaId, nome = ETIQUETA) {
-      const atuais = await this.etiquetas(conversaId);
-      if (atuais.includes(nome)) return atuais;
-      return chamar('POST', `/conversations/${conversaId}/labels`, { labels: [...atuais, nome] });
+      return this.gravarEtiquetas(conversaId, (atuais) => (atuais.includes(nome) ? null : [...atuais, nome]));
     },
     async tirarEtiqueta(conversaId, nome = ETIQUETA) {
-      const atuais = await this.etiquetas(conversaId);
-      if (!atuais.includes(nome)) return atuais;
-      return chamar('POST', `/conversations/${conversaId}/labels`, { labels: atuais.filter((x) => x !== nome) });
+      return this.gravarEtiquetas(conversaId, (atuais) => (atuais.includes(nome) ? atuais.filter((x) => x !== nome) : null));
+    },
+    // Template numa conversa que já existe (ex.: renovacao_confirmada).
+    async template(conversaId, mensagem) {
+      return chamar('POST', `/conversations/${conversaId}/messages`, { ...mensagem, message_type: 'outgoing' });
     },
     async mensagem(conversaId, texto) {
       return chamar('POST', `/conversations/${conversaId}/messages`, { content: texto, message_type: 'outgoing' });

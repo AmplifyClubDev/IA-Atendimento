@@ -90,3 +90,41 @@ test('IA: no máximo LIMITE_IA_DIA respostas por conversa por dia', async () => 
   for (let i = 0; i < LIMITE_IA_DIA; i += 1) await ia.responder({ conversa: '9' }, null).catch(() => {});
   await assert.rejects(() => ia.responder({ conversa: '9' }, null), /limite diário/);
 });
+
+test('item 14: etiqueta conferida depois de gravar; se outra mudança apagou, grava de novo', async () => {
+  const { chatwoot } = await import('./envio.mjs');
+  let atuais = ['Renovacao de contrato'];
+  let gravacoes = 0;
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, op = {}) => {
+    if (op.method === 'POST') {
+      gravacoes += 1;
+      // Na 1ª gravação, alguém do time trocou as etiquetas ao mesmo tempo e a de renovação sumiu.
+      atuais = gravacoes === 1 ? ['outra'] : JSON.parse(op.body).labels;
+    }
+    return { ok: true, text: async () => JSON.stringify({ payload: atuais }) };
+  };
+  try {
+    const cw = chatwoot({ CHATWOOT_BASE_URL: 'https://cw', CHATWOOT_ACCOUNT_ID: '1', CHATWOOT_API_TOKEN: 't' });
+    await cw.etiqueta('9', 'renovacao-nao-quer');
+    assert.ok(atuais.includes('renovacao-nao-quer'));
+    assert.equal(gravacoes, 2);
+  } finally { globalThis.fetch = original; }
+});
+
+test('item 15: fim do ciclo — renovou manda confirmação (envio ligado) e tira a etiqueta; venceu só tira', async () => {
+  const { liberar } = await import('./servico.mjs');
+  const feito = [];
+  const db = { async ler() { return [{ id: 1, chatwoot_conversa: '10', ciclo_fim: 'renovou', novo_fim: '02/12/2027' },
+    { id: 2, chatwoot_conversa: '11', ciclo_fim: 'venceu', novo_fim: '01/12/2026' }]; },
+  async rpc(n, p) { feito.push(['fechar', p.id, p.confirmacao]); } };
+  const cw = { async template(c, m) { feito.push(['template', c, m.template_params.name, m.template_params.processed_params.body[1]]); },
+    async tirarEtiqueta(c) { feito.push(['tirar', c]); } };
+  const r = await liberar({ RENOVACAO_ENVIO_LIGADO: 'true' }, db, cw);
+  assert.deepEqual(r, { liberadas: 2, confirmacoes: 1, falhas: 0 });
+  assert.deepEqual(feito, [['template', '10', 'renovacao_confirmada', '02/12/2027'], ['tirar', '10'], ['fechar', '1', true],
+    ['tirar', '11'], ['fechar', '2', false]]);
+  feito.length = 0;
+  await liberar({}, db, cw); // envio desligado: não manda confirmação
+  assert.ok(!feito.some((f) => f[0] === 'template'));
+});

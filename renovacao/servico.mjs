@@ -6,7 +6,7 @@
 //            RENOVACAO_ENVIO_LIGADO=true para enviar a fila, RENOVACAO_RESPOSTAS_LIGADAS=true para responder aos botões.
 import http from 'node:http';
 import crypto from 'node:crypto';
-import { CAIXA, banco, chatwoot, enviarFila } from './envio.mjs';
+import { CAIXA, ETIQUETA, banco, chatwoot, enviarFila } from './envio.mjs';
 import { avisarFalha, lerEvento, tratar } from './respostas.mjs';
 import { carregarCartoes, dadosDoAgenciado, historicoDe, montarInstrucoes, perguntarIA } from './ia.mjs';
 
@@ -40,11 +40,37 @@ export function criarBanco(env) {
   return db;
 }
 
+// Item 15 da auditoria: fim do ciclo. Renovou → manda renovacao_confirmada (se o envio estiver ligado) e tira a etiqueta;
+// saiu ou venceu → só tira a etiqueta. Assim a Bia volta a atender a pessoa normalmente.
+export async function liberar(env, db, cw) {
+  const resumo = { liberadas: 0, confirmacoes: 0, falhas: 0 };
+  for (const c of await db.ler('renovacao_para_liberar', 'select=id,chatwoot_conversa,ciclo_fim,novo_fim&limit=100')) {
+    try {
+      let confirmou = false;
+      if (c.ciclo_fim === 'renovou' && env.RENOVACAO_ENVIO_LIGADO === 'true' && c.novo_fim) {
+        await cw.template(c.chatwoot_conversa, { content: 'renovação confirmada',
+          template_params: { name: 'renovacao_confirmada', category: 'MARKETING', language: 'pt_BR',
+            processed_params: { body: { 1: c.novo_fim } } } });
+        confirmou = true;
+        resumo.confirmacoes += 1;
+      }
+      await cw.tirarEtiqueta(c.chatwoot_conversa, ETIQUETA);
+      await db.rpc('fechar_ciclo_renovacao_v5', { id: String(c.id), ciclo_fim: c.ciclo_fim, confirmacao: confirmou });
+      resumo.liberadas += 1;
+    } catch (erro) {
+      resumo.falhas += 1;
+      log('erro_liberar', { conversa: c.chatwoot_conversa, erro: String(erro.message).slice(0, 160) });
+    }
+  }
+  return resumo;
+}
+
 export async function rodada(env, db, cw) {
   const resumo = { em: new Date().toISOString() };
   try {
     resumo.fila = await db.rpc('preparar_fila_renovacao_v5');
     resumo.envio = env.RENOVACAO_ENVIO_LIGADO === 'true' ? await enviarFila(env, (t) => log('envio', t), db, cw) : 'desligado';
+    resumo.ciclos = await liberar(env, db, cw);
   } catch (erro) {
     resumo.erro = String(erro.message).slice(0, 200);
     estado.erros += 1;
