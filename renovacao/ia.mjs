@@ -117,7 +117,9 @@ export async function perguntarIA({ instrucoes, historico, env = process.env, ch
 
 // CPF e números longos que a pessoa digitar não vão para a IA.
 // Uma mensagem que é só um número curto (ex.: os 4 últimos dígitos do CPF no "Já sou Amplify") também fica oculta.
-const soNumeroCurto = (t) => /^[\s\d.\-]+$/.test(t) && /^\d{3,6}$/.test(t.replace(/\D/g, ''));
+// Também uma mensagem que é só uma data com ano (a data de nascimento do "Já sou Amplify").
+const soNumeroCurto = (t) => (/^[\s\d.\-]+$/.test(t) && /^\d{3,8}$/.test(t.replace(/\D/g, '')))
+  || /^\s*\d{1,2}\s*[/.\-\s]\s*\d{1,2}\s*[/.\-\s]\s*(\d{2}|\d{4})\s*$/.test(t);
 export const mascarar = (t) => (soNumeroCurto(String(t)) ? '[número oculto]'
   : String(t).replace(/\d{9,}/g, '[número oculto]').replace(/\d{3}\.\d{3}\.\d{3}-?\d{2}/g, '[número oculto]'));
 

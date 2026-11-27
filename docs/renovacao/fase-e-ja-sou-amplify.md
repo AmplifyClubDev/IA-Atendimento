@@ -48,22 +48,27 @@ Fluxo:
    em qualquer modo e também no número de teste). A demo continua com o seu próprio "Já sou Amplify".
 3. O serviço de renovação põe a etiqueta `Renovacao de contrato` e pede o **@ do TikTok**.
 4. Acha o agenciado (Ativo ou Saindo) e pede os **4 últimos dígitos do CPF**.
-5. O banco confere (`atendimento_agenciado_v5`, SECURITY DEFINER, só service_role). **O CPF nunca sai do banco.**
-   - @ ou CPF errado → pede de novo. **Sem limite de tentativas e sem chamar o time** (decisão do Vitor, 27/11).
-     O banco só conta as tentativas.
+5. **Segunda pergunta** (escolha do Vitor, 27/11: "CPF + nascimento"):
+   - WhatsApp da conversa = telefone do cadastro (DDD + 8 últimos dígitos) → basta o CPF.
+   - Outro número → depois do CPF, pede a **data de nascimento**. Os 234 agenciados ativos com CPF têm a data.
+6. O banco confere (`atendimento_agenciado_v5`, SECURITY DEFINER, só service_role). **CPF e nascimento nunca saem do banco.**
+   - Algo errado → "Os dados não conferem", **sem dizer qual**, e recomeça pelo CPF.
+   - **Sem limite de tentativas e sem chamar o time** (decisão do Vitor, 27/11). O banco só conta as tentativas.
+   - Com as duas perguntas, adivinhar fica inviável (10 mil finais de CPF × milhares de datas).
    - Sem CPF no cadastro → manda o link do formulário (`/cadastro`, a mesma validação de hoje).
 6. Conferido → mostra o **perfil**: situação, categoria, GMV, agenciado desde, contrato (início, fim, dias), renovação.
    Com os botões **Quero renovar / Não quero renovar** (menos para quem já renovou ou está saindo).
 7. Depois disso, a conversa segue no fluxo de renovação: botões, motivos e a Bia dos agenciados para dúvidas.
    `registrar_resposta_renovacao_v5` passou a aceitar conversa de agenciado conferido (sem envio do alerta).
 
-Segurança: os dígitos só vão ao banco; não são gravados nas respostas; a IA vê "[número oculto]" no histórico.
+Segurança: os dígitos e a data só vão ao banco. Os dígitos ficam guardados só entre a pergunta do CPF e a da data,
+e são apagados na conferência. Nada disso vai para as respostas; a IA vê "[número oculto]" no histórico.
 
 Arquivos: `bia/sql/agenciado_atendimento.sql` (+ teste), `renovacao/agenciado.mjs` (+ teste), `bia/real_operations.py`,
 `bia/server.py`, `bia/review_tests/test_ja_sou_amplify_gate.py`.
 
 Testes: SQL simulado e desfeito (novo + 3 antigos ok; o teste antigo de "sem envio" foi atualizado para a regra da
-auditoria). Serviço: 38 ok. Bia: teste novo ok; nenhuma falha nova na suíte offline.
+auditoria; o novo cobre os dois caminhos: outro número e WhatsApp do cadastro). Serviço: 41 ok. Bia: teste novo ok; nenhuma falha nova na suíte offline.
 
 Falta (precisa de aprovação): aplicar o SQL, publicar o serviço e a Bia, e simular no número de teste.
 Usar o **47 99115-4859** (o 47 99291-6992 está na demo da Bia e receberia 2 respostas).

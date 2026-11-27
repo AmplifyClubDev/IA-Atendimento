@@ -1,5 +1,6 @@
 // "Já sou Amplify" (27/11/2026): quem toca esse botão no menu da Bia (caixa 3) é atendido aqui, pela Bia dos agenciados.
-// Pede o @ → acha o agenciado → pede os 4 últimos dígitos do CPF → o banco confere (o CPF nunca sai do banco)
+// Pede o @ → acha o agenciado → pede os 4 últimos dígitos do CPF → se o WhatsApp não é o do cadastro, pede também
+// a data de nascimento → o banco confere (CPF e nascimento nunca saem do banco; sem limite de tentativas)
 // → mostra o perfil (contrato, categoria, GMV, renovação) com os botões de renovação. Depois disso, a conversa
 // segue no fluxo de renovação (respostas.mjs), que passa a aceitar esta conversa porque o agenciado foi conferido.
 import { ETIQUETA } from './envio.mjs';
@@ -12,11 +13,28 @@ const MSG = {
   pedirArroba: '*Que bom te ver por aqui!* 💙\n\nPra eu abrir o seu perfil, me manda o seu *@ do TikTok*.',
   naoAchei: '*Não achei esse @ entre os agenciados* 🤔\n\n• Confere se está escrito igual ao TikTok.\n• Pode mandar só o @ (ex.: @seuperfil).',
   naoAcheiTime: '*Não consegui achar o seu perfil* 🤔\n\nVou chamar alguém do nosso time pra te ajudar. 💙',
-  naoConfere: '*Esses dígitos não conferem* 😕\n\nConfere e manda de novo os *4 últimos dígitos do seu CPF*.',
+  // Não diz qual dado errou (CPF ou nascimento): recomeça pelo CPF.
+  naoConfere: '*Os dados não conferem* 😕\n\nVamos de novo: me manda os *4 últimos dígitos do seu CPF*.',
+  pedirNascimento: '*Só mais uma confirmação* 🔒\n\nComo este número é diferente do seu cadastro, me manda também a sua *data de nascimento*.\n\nExemplo: *15/03/1998*',
+  formatoData: '*Não entendi a data* 📅\n\nManda assim: *dia/mês/ano*. Exemplo: *15/03/1998*',
   pedirCpf: (nome) => `*Achei você${nome ? `, ${nome}` : ''}!* 🙌\n\nPra sua segurança, me manda os *4 últimos dígitos do seu CPF*.\n\n🔒 Eu só confiro; o número não fica salvo na conversa.`,
   formato: '*Preciso só dos 4 últimos dígitos do CPF* 🔢\n\nExemplo: se o CPF termina em 12-34, mande *1234*.',
   semCpf: `*Achei você, mas falta atualizar seu cadastro* 📝\n\nPra eu mostrar seu perfil com segurança, preciso que você preencha o formulário:\n${FORMULARIO}\n\n• Informe o seu @ do TikTok.\n• Ele confere seu agenciamento antes de liberar o cadastro.\n\nDepois é só tocar em *Já sou Amplify* de novo. 😉`,
 };
+
+// "15/03/1998", "15-03-98", "15.3.1998", "15031998" → "1998-03-15". Data impossível → null (o banco pede de novo).
+export function lerData(texto) {
+  const t = String(texto || '').trim();
+  let m = t.match(/^(\d{1,2})\s*[/.\-\s]\s*(\d{1,2})\s*[/.\-\s]\s*(\d{2}|\d{4})$/);
+  if (!m) m = t.match(/^(\d{2})(\d{2})(\d{4})$/);
+  if (!m) return null;
+  const dia = Number(m[1]), mes = Number(m[2]);
+  let ano = Number(m[3]);
+  if (m[3].length === 2) ano += ano > (new Date().getFullYear() % 100) ? 1900 : 2000;
+  const d = new Date(Date.UTC(ano, mes - 1, dia));
+  if (d.getUTCFullYear() !== ano || d.getUTCMonth() !== mes - 1 || d.getUTCDate() !== dia) return null;
+  return d.toISOString().slice(0, 10);
+}
 
 const real = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
 
@@ -81,7 +99,8 @@ export async function atenderAgenciado(msg, { db, cw }) {
   if (atual.etapa === 'sem_cpf') return { status: 'agenciado', etapa: atual.etapa, silencio: true };
 
   if (atual.etapa === 'pedir_arroba') {
-    const r = await rpc('arroba', { arroba: msg.texto.trim().slice(0, 120) });
+    // O telefone da conversa: se for o do cadastro, o banco dispensa a data de nascimento.
+    const r = await rpc('arroba', { arroba: msg.texto.trim().slice(0, 120), telefone: msg.telefone || null });
     if (r.status === 'nao_encontrado') {
       await cw.mensagem(msg.conversa, MSG.naoAchei); // sem limite de tentativas
     } else if (r.status === 'sem_cpf') {
@@ -93,9 +112,13 @@ export async function atenderAgenciado(msg, { db, cw }) {
     return { status: 'agenciado', etapa: r.etapa };
   }
 
-  // pedir_cpf: só os dígitos vão para o banco; a resposta nunca traz o CPF.
-  const r = await rpc('cpf', { digitos: msg.texto.replace(/\D/g, '') });
+  // pedir_cpf / pedir_nascimento: só os dados vão para o banco; a resposta nunca traz CPF nem data.
+  const r = atual.etapa === 'pedir_nascimento'
+    ? await rpc('nascimento', { nascimento: lerData(msg.texto) })
+    : await rpc('cpf', { digitos: msg.texto.replace(/\D/g, '') });
   if (r.status === 'formato') await cw.mensagem(msg.conversa, MSG.formato);
+  else if (r.status === 'formato_data') await cw.mensagem(msg.conversa, MSG.formatoData);
+  else if (r.status === 'pedir_nascimento') await cw.mensagem(msg.conversa, MSG.pedirNascimento);
   else if (r.status === 'nao_confere') await cw.mensagem(msg.conversa, MSG.naoConfere); // sem limite de tentativas
   else if (r.status === 'ok') await mostrarPerfil(msg, cw, r.perfil);
   return { status: 'agenciado', etapa: r.etapa };

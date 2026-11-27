@@ -75,6 +75,41 @@ test('CPF errado → pede de novo, sem limite e sem chamar o time', async () => 
   assert.doesNotMatch(f.feito[0][1], /tentativa/);
 });
 
+test('o telefone da conversa vai junto com o @ (atalho do WhatsApp do cadastro)', async () => {
+  const f = falso([{ etapa: 'pedir_arroba' }, { etapa: 'pedir_cpf', status: 'encontrado', tiktok: '@ana', nome: 'Ana' }]);
+  await atenderAgenciado(msg('@ana', { telefone: '+5547999990000' }), f);
+  assert.equal(f.pedidos[1].telefone, '+5547999990000');
+});
+
+test('outro número: depois do CPF pede a data; data vai ao banco em AAAA-MM-DD; errado não diz qual', async () => {
+  let f = falso([{ etapa: 'pedir_cpf' }, { etapa: 'pedir_nascimento', status: 'pedir_nascimento' }]);
+  await atenderAgenciado(msg('1234'), f);
+  assert.match(f.feito[0][1], /data de nascimento/);
+  f = falso([{ etapa: 'pedir_nascimento' }, { etapa: 'verificado', status: 'ok', perfil: PERFIL }]);
+  await atenderAgenciado(msg('15/03/1998'), f);
+  assert.deepEqual(f.pedidos[1], { conversa: '50', acao: 'nascimento', nascimento: '1998-03-15' });
+  assert.equal(f.feito[0][0], 'lista');
+  f = falso([{ etapa: 'pedir_nascimento' }, { etapa: 'pedir_cpf', status: 'nao_confere', tentativas: 1 }]);
+  await atenderAgenciado(msg('15/03/1998'), f);
+  assert.match(f.feito[0][1], /Os dados não conferem/);
+  assert.match(f.feito[0][1], /CPF/);
+  f = falso([{ etapa: 'pedir_nascimento' }, { etapa: 'pedir_nascimento', status: 'formato_data' }]);
+  await atenderAgenciado(msg('ontem'), f);
+  assert.equal(f.pedidos[1].nascimento, null);
+  assert.match(f.feito[0][1], /dia\/mês\/ano/);
+});
+
+test('lerData: formatos comuns e datas impossíveis', async () => {
+  const { lerData } = await import('./agenciado.mjs');
+  assert.equal(lerData('15/03/1998'), '1998-03-15');
+  assert.equal(lerData('5-3-98'), '1998-03-05');
+  assert.equal(lerData('15.03.2001'), '2001-03-15');
+  assert.equal(lerData('15031998'), '1998-03-15');
+  assert.equal(lerData('15 03 1998'), '1998-03-15');
+  assert.equal(lerData('30/02/2000'), null);
+  assert.equal(lerData('1998'), null);
+});
+
 test('conferido ou fora da conferência → segue para o fluxo de renovação', async () => {
   assert.equal(await atenderAgenciado(msg('Quero renovar'), falso([{ etapa: 'verificado' }])), null);
   assert.equal(await atenderAgenciado(msg('Quero renovar'), falso([{ etapa: null }])), null);
@@ -84,6 +119,8 @@ test('os dígitos do CPF não vão para a IA', async () => {
   const { mascarar } = await import('./ia.mjs');
   assert.equal(mascarar('1234'), '[número oculto]');
   assert.equal(mascarar('12-34'), '[número oculto]');
+  assert.equal(mascarar('15/03/1998'), '[número oculto]');
+  assert.equal(mascarar('15031998'), '[número oculto]');
   assert.equal(mascarar('faltam 4 dias'), 'faltam 4 dias');
   assert.equal(mascarar('01/12'), '01/12');
 });

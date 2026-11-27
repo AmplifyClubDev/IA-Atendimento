@@ -1,6 +1,8 @@
 -- "Já sou Amplify" (27/11/2026): atendimento de quem já é agenciado, com conferência de identidade.
--- Fluxo (serviço de renovação): pede o @ → acha o agenciado → pede os 4 últimos dígitos do CPF → confere aqui no banco
--- (o CPF nunca sai do banco: as funções só respondem se confere) → mostra o perfil e a renovação.
+-- Fluxo (serviço de renovação): pede o @ → acha o agenciado → pede os 4 últimos dígitos do CPF
+-- → se o WhatsApp não for o do cadastro, pede também a data de nascimento → confere aqui no banco
+-- (CPF e nascimento nunca saem do banco: as funções só respondem se confere) → mostra o perfil e a renovação.
+-- Sem limite de tentativas (decisão do Vitor, 27/11). Errou → "não conferem", sem dizer qual, e recomeça pelo CPF.
 -- O CPF está em interno.creators (formulário); quem não tem CPF recebe o caminho do formulário.
 -- As funções são SECURITY DEFINER (leem interno.creators) e só o service_role pode executá-las.
 BEGIN;
@@ -8,9 +10,11 @@ SET LOCAL lock_timeout = '5s';
 
 CREATE TABLE IF NOT EXISTS interno.agenciado_atendimentos (
   conversa text PRIMARY KEY,                 -- id da conversa no Chatwoot
-  etapa text NOT NULL CHECK (etapa IN ('pedir_arroba', 'pedir_cpf', 'verificado', 'bloqueado', 'sem_cpf')),
+  etapa text NOT NULL CHECK (etapa IN ('pedir_arroba', 'pedir_cpf', 'pedir_nascimento', 'verificado', 'sem_cpf')),
   arroba text,
   relation_id text,
+  precisa_nascimento boolean NOT NULL DEFAULT true, -- false quando o WhatsApp da conversa é o do cadastro
+  cpf_digitos text,                                  -- só entre a pergunta do CPF e a do nascimento; apagado na conferência
   tentativas smallint NOT NULL DEFAULT 0,
   criado_em timestamptz NOT NULL DEFAULT now(),
   atualizado_em timestamptz NOT NULL DEFAULT now()
@@ -32,16 +36,26 @@ RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $fn$
 $fn$;
 REVOKE ALL ON FUNCTION interno.perfil_agenciado(text) FROM PUBLIC, anon, authenticated;
 
--- p = {"conversa", "acao": "iniciar"|"consultar"|"arroba"|"cpf", "arroba"?, "digitos"?}
+-- Chave do telefone: DDD + 8 últimos dígitos (o WhatsApp às vezes manda sem o 9; com ou sem o 55).
+CREATE OR REPLACE FUNCTION interno.tel_chave(t text)
+RETURNS text LANGUAGE sql IMMUTABLE SET search_path = '' AS $fn$
+  SELECT CASE WHEN length(d) BETWEEN 10 AND 11 THEN left(d, 2) || right(d, 8) END
+  FROM (SELECT regexp_replace(regexp_replace(coalesce(t, ''), '\D', '', 'g'), '^55(?=[0-9]{10,11}$)', '') AS d) x
+$fn$;
+REVOKE ALL ON FUNCTION interno.tel_chave(text) FROM PUBLIC, anon, authenticated;
+
+-- p = {"conversa", "acao": "iniciar"|"consultar"|"arroba"|"cpf"|"nascimento", "arroba"?, "telefone"?, "digitos"?,
+--      "nascimento"? (AAAA-MM-DD)}
 CREATE OR REPLACE FUNCTION public.atendimento_agenciado_v5(p jsonb)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $fn$
-DECLARE conv text := p ->> 'conversa'; a record; achado record; cpf_final text; arr text;
+DECLARE conv text := p ->> 'conversa'; a record; achado record; cpf_final text; nasc_real date; nasc date; arr text;
+        mesmo_tel boolean;
 BEGIN
   IF conv !~ '^[0-9]{1,18}$' THEN RAISE EXCEPTION USING errcode = '23514', message = 'Conversa inválida.'; END IF;
   IF p ->> 'acao' = 'iniciar' THEN
     INSERT INTO interno.agenciado_atendimentos (conversa, etapa) VALUES (conv, 'pedir_arroba')
-    ON CONFLICT (conversa) DO UPDATE SET etapa = 'pedir_arroba', tentativas = 0,
-         arroba = NULL, relation_id = NULL, atualizado_em = now();
+    ON CONFLICT (conversa) DO UPDATE SET etapa = 'pedir_arroba', tentativas = 0, precisa_nascimento = true,
+         cpf_digitos = NULL, arroba = NULL, relation_id = NULL, atualizado_em = now();
   END IF;
   SELECT * INTO a FROM interno.agenciado_atendimentos WHERE conversa = conv;
   IF NOT FOUND THEN RETURN jsonb_build_object('etapa', NULL); END IF;
@@ -61,24 +75,49 @@ BEGIN
       WHERE conversa = conv;
       RETURN jsonb_build_object('etapa', 'sem_cpf', 'status', 'sem_cpf', 'tiktok', achado.tiktok);
     END IF;
+    -- Atalho: o WhatsApp que está escrevendo é o do cadastro → basta o CPF.
+    mesmo_tel := interno.tel_chave(p ->> 'telefone') IS NOT NULL AND EXISTS (
+      SELECT 1 FROM interno.creators c WHERE lower(btrim(ltrim(c.tiktok, '@'))) = arr
+        AND interno.tel_chave(p ->> 'telefone') IN (interno.tel_chave(c.whatsapp), interno.tel_chave(c.telefone)));
     UPDATE interno.agenciado_atendimentos SET etapa = 'pedir_cpf', arroba = arr, relation_id = achado.relation_id, tentativas = 0,
-           atualizado_em = now() WHERE conversa = conv;
-    RETURN jsonb_build_object('etapa', 'pedir_cpf', 'status', 'encontrado', 'tiktok', achado.tiktok, 'nome', achado.nome);
+           precisa_nascimento = NOT mesmo_tel, cpf_digitos = NULL, atualizado_em = now() WHERE conversa = conv;
+    RETURN jsonb_build_object('etapa', 'pedir_cpf', 'status', 'encontrado', 'tiktok', achado.tiktok, 'nome', achado.nome,
+                              'precisa_nascimento', NOT mesmo_tel);
   END IF;
 
   IF p ->> 'acao' = 'cpf' AND a.etapa = 'pedir_cpf' THEN
     IF coalesce(p ->> 'digitos', '') !~ '^[0-9]{4}$' THEN
       RETURN jsonb_build_object('etapa', 'pedir_cpf', 'status', 'formato');
     END IF;
-    SELECT right(regexp_replace(c.cpf, '\D', '', 'g'), 4) INTO cpf_final FROM interno.creators c
+    IF a.precisa_nascimento THEN
+      -- Ainda não confere: guarda os dígitos até a data chegar (assim o "não confere" não diz qual dos dois errou).
+      UPDATE interno.agenciado_atendimentos SET etapa = 'pedir_nascimento', cpf_digitos = p ->> 'digitos', atualizado_em = now()
+      WHERE conversa = conv;
+      RETURN jsonb_build_object('etapa', 'pedir_nascimento', 'status', 'pedir_nascimento');
+    END IF;
+  END IF;
+
+  IF p ->> 'acao' = 'nascimento' AND a.etapa = 'pedir_nascimento' THEN
+    BEGIN
+      nasc := CASE WHEN p ->> 'nascimento' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN (p ->> 'nascimento')::date END;
+    EXCEPTION WHEN others THEN nasc := NULL;
+    END;
+    IF nasc IS NULL THEN RETURN jsonb_build_object('etapa', 'pedir_nascimento', 'status', 'formato_data'); END IF;
+  END IF;
+
+  IF (p ->> 'acao' = 'cpf' AND a.etapa = 'pedir_cpf') OR (p ->> 'acao' = 'nascimento' AND a.etapa = 'pedir_nascimento') THEN
+    SELECT right(regexp_replace(c.cpf, '\D', '', 'g'), 4), c.data_nascimento INTO cpf_final, nasc_real FROM interno.creators c
     WHERE lower(btrim(ltrim(c.tiktok, '@'))) = a.arroba AND nullif(btrim(c.cpf), '') IS NOT NULL
     ORDER BY c.atualizado_em DESC NULLS LAST LIMIT 1;
-    IF cpf_final IS DISTINCT FROM p ->> 'digitos' THEN
-      -- Sem limite de tentativas (decisão do Vitor, 27/11): só conta, para o time ver.
-      UPDATE interno.agenciado_atendimentos SET tentativas = tentativas + 1, atualizado_em = now() WHERE conversa = conv;
+    IF cpf_final IS DISTINCT FROM coalesce(a.cpf_digitos, p ->> 'digitos')
+       OR (a.precisa_nascimento AND (nasc_real IS NULL OR nasc_real IS DISTINCT FROM nasc)) THEN
+      -- Sem limite de tentativas (decisão do Vitor, 27/11): só conta, para o time ver. Recomeça pelo CPF.
+      UPDATE interno.agenciado_atendimentos SET etapa = 'pedir_cpf', cpf_digitos = NULL, tentativas = tentativas + 1,
+             atualizado_em = now() WHERE conversa = conv;
       RETURN jsonb_build_object('etapa', 'pedir_cpf', 'status', 'nao_confere', 'tentativas', a.tentativas + 1);
     END IF;
-    UPDATE interno.agenciado_atendimentos SET etapa = 'verificado', tentativas = 0, atualizado_em = now() WHERE conversa = conv;
+    UPDATE interno.agenciado_atendimentos SET etapa = 'verificado', cpf_digitos = NULL, tentativas = 0, atualizado_em = now()
+    WHERE conversa = conv;
     RETURN jsonb_build_object('etapa', 'verificado', 'status', 'ok', 'perfil', interno.perfil_agenciado(a.relation_id));
   END IF;
 
