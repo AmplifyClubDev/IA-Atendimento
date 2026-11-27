@@ -38,7 +38,7 @@ export async function dadosDoAgenciado(db, { relationId, telefone }, env = proce
     if (r[0]) return r[0];
   }
   if (/^\d{10,15}$/.test(tel)) {
-    const r = await db.ler('agenciados_ficha', `${campos}&telefone=eq.${tel}&situacao=neq.Saiu&limit=1`);
+    const r = await db.ler('agenciados_ficha', `${campos}&telefone=eq.${tel}&situacao=neq.Saiu&order=contrato_fim.desc.nullslast&limit=1`);
     if (r[0]) return r[0];
   }
   return null;
@@ -115,9 +115,12 @@ export async function perguntarIA({ instrucoes, historico, env = process.env, ch
   return { resposta: saida.resposta.trim().slice(0, 1200), intencao: saida.intencao, passarParaTime: saida.passar_para_time === true };
 }
 
+// CPF e números longos que a pessoa digitar não vão para a IA.
+export const mascarar = (t) => String(t).replace(/\d{9,}/g, '[número oculto]').replace(/\d{3}\.\d{3}\.\d{3}-?\d{2}/g, '[número oculto]');
+
 // Últimas mensagens da conversa (sem notas internas), no formato da IA.
 export function historicoDe(mensagens, limite = 12) {
   return mensagens.filter((m) => !m.private && (m.message_type === 0 || m.message_type === 1) && (m.content || '').trim())
     .sort((a, b) => a.created_at - b.created_at).slice(-limite)
-    .map((m) => ({ role: m.message_type === 0 ? 'user' : 'assistant', content: String(m.content).slice(0, 800) }));
+    .map((m) => ({ role: m.message_type === 0 ? 'user' : 'assistant', content: mascarar(String(m.content).slice(0, 800)) }));
 }

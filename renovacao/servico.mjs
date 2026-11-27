@@ -7,7 +7,7 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { CAIXA, banco, chatwoot, enviarFila } from './envio.mjs';
-import { lerEvento, tratar } from './respostas.mjs';
+import { avisarFalha, lerEvento, tratar } from './respostas.mjs';
 import { carregarCartoes, dadosDoAgenciado, historicoDe, montarInstrucoes, perguntarIA } from './ia.mjs';
 
 const HORA_MS = 3600000;
@@ -56,10 +56,18 @@ export async function rodada(env, db, cw) {
 }
 
 // A Bia dos agenciados: só existe com OPENAI_API_KEY (sem ela, texto livre vira nota para o time).
-export function criarIA(env, db, cw) {
+// Limite de respostas da IA por conversa por dia (custo e abuso): passou disso, o time assume.
+export const LIMITE_IA_DIA = 15;
+export function criarIA(env, db, cw, agora = () => Date.now()) {
   if (!env.OPENAI_API_KEY) return null;
+  const usos = new Map();
   return {
     async responder(msg, envio) {
+      const dia = new Date(agora()).toISOString().slice(0, 10), chave = `${dia}:${msg.conversa}`;
+      const n = (usos.get(chave) || 0) + 1;
+      usos.set(chave, n);
+      if (usos.size > 5000) usos.clear();
+      if (n > LIMITE_IA_DIA) throw new Error('limite diário de respostas da IA nesta conversa');
       const [cartoes, ag, mensagens] = await Promise.all([
         carregarCartoes(db), dadosDoAgenciado(db, { relationId: envio?.relation_id, telefone: msg.telefone }, env), cw.mensagens(msg.conversa)]);
       return perguntarIA({ instrucoes: montarInstrucoes(cartoes, ag), historico: historicoDe(mensagens), env });
@@ -67,8 +75,12 @@ export function criarIA(env, db, cw) {
   };
 }
 
+export const FILA_MAX = 500;
+export const testesDe = (env) => String(env.RENOVACAO_TESTE_TELEFONE || '').split(',').map((t) => t.replace(/\D/g, '')).filter(Boolean);
+
 export function criarServidor(env, db = criarBanco(env), cw = chatwoot(env), ia = criarIA(env, db, cw)) {
   const fila = [];
+  const testes = testesDe(env);
   let ocupado = false;
   // Uma mensagem por vez, na ordem em que chegaram (a mesma pessoa pode tocar 2 botões em seguida).
   const processar = async () => {
@@ -84,6 +96,7 @@ export function criarServidor(env, db = criarBanco(env), cw = chatwoot(env), ia 
       } catch (erro) {
         estado.erros += 1;
         log('erro_resposta', { conversa: msg.conversa, erro: String(erro.message).slice(0, 200) });
+        await avisarFalha(msg, cw, erro);
       }
     }
     ocupado = false;
@@ -98,15 +111,19 @@ export function criarServidor(env, db = criarBanco(env), cw = chatwoot(env), ia 
     const m = url.pathname.match(/^\/webhook\/([A-Za-z0-9_-]{32,128})$/);
     if (req.method === 'POST' && m) {
       if (!segredoConfere(m[1], env.RENOVACAO_WEBHOOK_SEGREDO)) return responder(404, { ok: false });
-      let corpo = '';
-      req.on('data', (p) => { corpo += p; if (corpo.length > 256000) req.destroy(); });
+      const partes = [];
+      let tamanho = 0;
+      req.on('data', (p) => { partes.push(p); tamanho += p.length; if (tamanho > 256000) req.destroy(); });
       req.on('end', () => {
         responder(200, { ok: true });
         if (env.RENOVACAO_RESPOSTAS_LIGADAS !== 'true') return;
         let evento;
-        try { evento = JSON.parse(corpo); } catch { return; }
-        const msg = lerEvento(evento, CAIXA);
-        if (msg) { fila.push(msg); processar(); }
+        try { evento = JSON.parse(Buffer.concat(partes).toString('utf8')); } catch { return; }
+        const msg = lerEvento(evento, CAIXA, testes);
+        if (!msg) return;
+        if (fila.length >= FILA_MAX) { log('fila_cheia', { conversa: msg.conversa }); avisarFalha(msg, cw, new Error('fila cheia')); return; }
+        fila.push(msg);
+        processar();
       });
       return undefined;
     }

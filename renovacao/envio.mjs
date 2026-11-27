@@ -178,24 +178,56 @@ export async function principal(argv = process.argv.slice(2), env = process.env,
 }
 
 // Manda a fila "previsto" (usado pelo comando e pela rotina de hora em hora do serviço).
-export async function enviarFila(env, saida = console.log, db = banco(env), cw = chatwoot(env), pausa = espera) {
+// Data de hoje em Brasília (AAAA-MM-DD).
+export const hojeSP = (agora = new Date()) => agora.toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+
+// Antes de cada envio: o contrato ainda vence em 1 a 7 dias e não foi renovado? (a fila pode ter sido feita dias antes)
+export function aindaVale(e, agora = new Date()) {
+  const fim = String(e.contrato_fim || '').slice(0, 10), hoje = hojeSP(agora);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fim) || fim <= hoje) return 'Contrato venceu antes do envio';
+  const dias = Math.round((Date.parse(fim) - Date.parse(hoje)) / 86400000);
+  if (dias > 7) return 'Fora da régua (mais de 7 dias)';
+  if (e.renovacao_agora === 'Aceita') return 'Renovou antes do envio';
+  return null;
+}
+
+let enviando = false; // uma rodada de envio por vez neste processo (o Railway roda 1 instância)
+
+export async function enviarFila(env, saida = console.log, db = banco(env), cw = chatwoot(env), pausa = espera, relogio = () => new Date()) {
   if (env.RENOVACAO_ENVIO_LIGADO !== 'true') throw new Error('envio desligado (RENOVACAO_ENVIO_LIGADO)');
-  if (!dentroDoHorario()) { saida('fora do horário (9h às 20h): nada enviado'); return { enviados: 0, falhas: 0 }; }
+  if (enviando) { saida('envio anterior ainda em andamento: esta rodada não envia'); return { enviados: 0, falhas: 0 }; }
+  enviando = true;
   let enviados = 0, falhas = 0;
-  for (const e of await db.fila()) {
-    const telefone = telefoneValido(e.telefone);
-    if (!telefone) { await db.marcar(e.id, 'cancelado', { motivo: 'Telefone inválido' }); continue; }
-    try {
-      const conversa = await enviarUm(e, telefone, env, cw);
-      await db.marcar(e.id, 'enviado', { chatwoot_conversa: String(conversa) });
+  try {
+    for (const e of await db.fila()) {
+      if (!dentroDoHorario(relogio())) { saida('fora do horário (9h às 20h): para por aqui'); break; }
+      const motivo = aindaVale(e, relogio());
+      if (motivo) { await db.marcar(e.id, 'cancelado', { motivo }); continue; }
+      const telefone = telefoneValido(e.telefone);
+      if (!telefone) { await db.marcar(e.id, 'cancelado', { motivo: 'Telefone inválido' }); continue; }
+      let conversa;
+      try {
+        conversa = await enviarUm(e, telefone, env, cw);
+      } catch (erro) {
+        await db.marcar(e.id, 'falhou', { motivo: String(erro.message).slice(0, 200) });
+        falhas += 1;
+        saida(`falhou ${e.etapa} ${e.tiktok}: ${erro.message}`);
+        await pausa(ESPERA_ENTRE_ENVIOS_MS);
+        continue;
+      }
+      // A mensagem já saiu: marcar como enviado de qualquer jeito (tenta 3 vezes) para nunca reenviar.
+      for (let t = 1; t <= 3; t += 1) {
+        try { await db.marcar(e.id, 'enviado', { chatwoot_conversa: String(conversa) }); break; } catch (erro) {
+          if (t === 3) saida(`ATENÇÃO enviado mas não marcado: fila ${e.id}, conversa ${conversa}: ${erro.message}`);
+          else await pausa(2000);
+        }
+      }
       enviados += 1;
       saida(`enviado ${e.etapa} ${e.tiktok}`);
-    } catch (erro) {
-      await db.marcar(e.id, 'falhou', { motivo: String(erro.message).slice(0, 200) });
-      falhas += 1;
-      saida(`falhou ${e.etapa} ${e.tiktok}: ${erro.message}`);
+      await pausa(ESPERA_ENTRE_ENVIOS_MS);
     }
-    await pausa(ESPERA_ENTRE_ENVIOS_MS);
+  } finally {
+    enviando = false;
   }
   return { enviados, falhas };
 }
