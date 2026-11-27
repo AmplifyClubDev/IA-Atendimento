@@ -1,20 +1,17 @@
-"""Vigia das pontes do TikTok: avisa por e-mail quando alguma pede login de novo.
-
-Em 31/10 a sessão do Partner Center caiu às 04:47 (Brasília) e só foi refeita às 12:42:
-quase 11 h sem ninguém saber. A sessão é encerrada pelo próprio TikTok; o que dá para
-controlar é o tempo de reação. Só lê /bridge/ready (nunca consulta creators nem convida).
-Um vigia por ponte (agenciamento, pré-validação, convites); o botão do e-mail leva à página
-/operacao do Cadastro, que abre o login já com a chave.
-"""
+"""Vigia de falhas das pontes: causa/recuperação por evidência, sem presumir logout."""
 from __future__ import annotations
 
 import threading
 import time
 
-from pontes import ler_precisa_login, ler_status
+from pontes import ler_precisa_login, ler_diagnostico
+from diagnostico_ponte import causa, registrar, resumo, ultima_recuperacao
 
 LOGIN = {"human_login_required", "login_required", "session_or_partner_context_invalid",
-         "partner_probe_rejected", "captcha_required", "mfa_required"}
+         "partner_probe_rejected", "captcha_required", "mfa_required", "human_verification_required"}
+FALHAS = LOGIN | {"inacessivel", "network_error", "timeout", "browser_closed", "browser_disconnected",
+                  "browser_crashed", "context_closed", "oom_killed", "out_of_memory", "memory_limit_exceeded",
+                  "upstream_unavailable", "browser_unavailable", "desktop_unavailable", "degraded", "credencial_invalida"}
 IMPACTO = {
     "Agenciamento": "Enquanto o login não for refeito, ninguém passa da 1ª etapa do formulário "
                     "e a Bia não consegue confirmar quem aceitou o convite.",
@@ -45,39 +42,85 @@ class VigiaPonte:
     def __init__(self, token, alertar, *, nome, base="", painel="", ler=None, ler_precisa=None, confirmacoes=2,
                  limite_sem_voltar=LIMITE_SEM_VOLTAR):
         self.token, self.alertar, self.nome, self.painel = token, alertar, nome, painel
-        self.ler = ler or (lambda token: {"status": ler_status(base, token, timeout=20)})
+        self.ler = ler or (lambda token: ler_diagnostico(base, token, timeout=20))
         self.ler_precisa = ler_precisa or ((lambda: ler_precisa_login(base, timeout=10)) if base else (lambda: None))
         self.confirmacoes, self.limite_sem_voltar = confirmacoes, limite_sem_voltar
         self.falhas, self.caida_desde, self.botao_enviado = 0, None, False
+        self.ultima_evidencia, self.ultimo_estado = {}, None
+
+    def _evidencia(self):
+        d = self.ultima_evidencia
+        _, descricao = causa(d)
+        texto = f"Diagnóstico: {descricao}\nEstado observado: {d.get('status', 'desconhecido')}."
+        code = (d.get("probe") or {}).get("errorCode") or (d.get("lastContextError") or {}).get("code")
+        if code:
+            texto += f" Código da checagem: {code}."
+        diagnostic = d.get("diagnostics") or {}
+        failure = diagnostic.get("lastFailure") or {}
+        if failure:
+            texto += f"\nÚltimo evento técnico: {failure.get('code', 'indeterminado')}"
+            for key in ("pageClass", "httpStatus", "apiCode", "child", "exitCode", "signal", "oomKillDelta"):
+                if key in failure:
+                    texto += f"; {key}={failure[key]}"
+            if isinstance(failure.get("at"), int):
+                texto += f"; observado às {_hora(failure['at'] / 1000)} (Brasília)"
+            texto += ". Evento histórico não comprova sozinho a causa desta falha."
+        resources = diagnostic.get("resources") or {}
+        used, limit = resources.get("memoryBytes"), resources.get("memoryLimitBytes")
+        if isinstance(used, int) and isinstance(limit, int) and limit > 0:
+            texto += f"\nMemória do contêiner na leitura: {used / 1e9:.2f}/{limit / 1e9:.2f} GB. Consumo alto, sozinho, não prova OOM."
+        else:
+            texto += "\nMemória do contêiner: sem medição disponível nesta leitura."
+        recovery = diagnostic.get("lastRecovery") or {}
+        local = ultima_recuperacao(self.nome, self.caida_desde or 0)
+        if recovery:
+            texto += f"\nÚltima recuperação interna registrada: {recovery.get('result', 'desconhecido')}"
+            if isinstance(recovery.get("at"), int):
+                texto += f" às {_hora(recovery['at'] / 1000)} (Brasília)"
+            texto += "."
+        elif local:
+            texto += f"\nÚltima ação do monitor: {local.get('acao')} / {local.get('resultado')}; ação aceita não comprova sessão recuperada."
+        else:
+            texto += "\nSem resultado de recuperação registrado nesta leitura; não é possível afirmar que ela foi tentada ou falhou."
+        return texto
 
     def _voltou(self, agora):
         fora = _duracao(agora - self.caida_desde)
         if self.botao_enviado:
             self.alertar(f"✅ Ponte do TikTok ({self.nome}) de volta — atendimento normalizado",
-                         f"O login foi refeito e a ponte {self.nome} voltou a responder às {_hora(agora)}.\n\n"
-                         f"Ficou sem login por {fora}. O atendimento dessa etapa já voltou a andar.",
+                         f"A ponte {self.nome} voltou ao estado pronto às {_hora(agora)}.\n\n"
+                         f"Tempo desde a primeira falha observada: {fora}. Isso não comprova novo login.\n" + self._evidencia(),
                          titulo="Tudo certo de novo", selo="PONTE NO AR", cor="#1f9d55")
         elif self.falhas >= self.confirmacoes:
             self.alertar(f"🔄 Ponte do TikTok ({self.nome}) renovou sozinha — nada a fazer",
-                         f"A ponte {self.nome} perdeu a conexão às {_hora(self.caida_desde)} e voltou sozinha às "
-                         f"{_hora(agora)}, sem precisar de login. Ficou fora por {fora}.",
+                         f"A falha foi observada às {_hora(self.caida_desde)}; o estado pronto voltou às "
+                         f"{_hora(agora)}. Intervalo observado: {fora}.\n" + self._evidencia(),
                          titulo="Renovou sozinha", selo="SÓ PARA SABER", cor="#1f6fd9")
 
     def checar(self, agora=None):
-        agora = agora or time.time()
+        agora = time.time() if agora is None else agora
         leitura = self.ler(self.token) or {}
-        status = leitura.get("status")
+        dados = resumo(leitura, http=leitura.get("http"))
+        status = dados["status"]
+        assinatura = (status, (dados.get("probe") or {}).get("errorCode"),
+                      (dados.get("lastContextError") or {}).get("code"), dados.get("http"),
+                      ((dados.get("diagnostics") or {}).get("lastFailure") or {}).get("at"))
+        if assinatura != self.ultimo_estado:
+            registrar(self.nome, "estado", dados, agora=agora)
+            self.ultimo_estado = assinatura
+        if status != "ready":
+            self.ultima_evidencia = dados
         if status == "ready":
             if self.caida_desde is not None:
                 self._voltou(agora)
             self.falhas, self.caida_desde, self.botao_enviado = 0, None, False
             return "ok"
         precisa = None
-        if status not in LOGIN:
-            # 25/11: a Partner Bridge fica em "preparing" (tentando de novo) parada na tela de login do TikTok.
-            # Se a própria ponte diz que precisa de login, conta como queda; senão é oscilação e não alarma.
+        if status not in FALHAS:
             precisa = leitura["precisa_login"] if "precisa_login" in leitura else self.ler_precisa()
             if precisa is not True:
+                if not self.botao_enviado:
+                    self.falhas, self.caida_desde = 0, None
                 return "instavel"
         self.falhas += 1
         if self.caida_desde is None:
@@ -92,21 +135,23 @@ class VigiaPonte:
         if precisa is not True and not sem_voltar:
             return "renovando"  # a ponte está tentando sozinha: não chama ninguém
         self.botao_enviado = True
+        categoria, _ = causa(dados)
         if precisa is True:
-            assunto = f"🔴 Ponte do TikTok ({self.nome}) pediu login — faça o login para liberar os leads"
-            motivo = (f"O TikTok encerrou a sessão da ponte {self.nome} às {_hora(self.caida_desde)} e a reconexão "
-                      "automática não resolveu: o TikTok está pedindo login (e-mail e senha).")
+            assunto = (f"🔴 Ponte do TikTok ({self.nome}) pediu login — verificar autenticação" if categoria == "login"
+                       else f"🔴 Ponte do TikTok ({self.nome}) com falha — {categoria}")
+            motivo = (f"A ponte informou necessidade de intervenção; primeira falha observada às {_hora(self.caida_desde)}. "
+                      "Esse sinal pode significar login ou verificação humana; não comprova expiração da sessão.")
         else:
             assunto = f"🔴 Ponte do TikTok ({self.nome}) não voltou sozinha — confira o painel"
-            motivo = (f"A ponte {self.nome} caiu às {_hora(self.caida_desde)} e tenta voltar sozinha há "
-                      f"{_duracao(agora - self.caida_desde)}, sem sucesso. Abra o painel para ver o que o TikTok está pedindo.")
-        self.alertar(assunto, motivo + "\n\n"
-                     + IMPACTO.get(self.nome, "Enquanto o login não for refeito, os leads ficam parados nessa etapa."),
+            motivo = (f"A ponte {self.nome} apresenta falha desde a leitura das {_hora(self.caida_desde)}; "
+                      f"sem estado pronto por {_duracao(agora - self.caida_desde)}. A causa precisa ser avaliada pela evidência abaixo.")
+        self.alertar(assunto, motivo + "\n\n" + self._evidencia() + "\n\n"
+                     + "Impacto: esta etapa do atendimento pode ficar parada enquanto a ponte não estiver pronta.",
                      titulo=f"A ponte {self.nome} precisa de você", selo="AÇÃO NECESSÁRIA", cor="#d93a3a",
                      passos=["Clique no botão abaixo: a tela de login do TikTok abre direto.",
-                             "Faça o login no TikTok Shop Partner Center. Se houver opção “manter conectado”, marque.",
+                             "Confira se há pedido de login ou desafio. Não refaça o login se a falha for de infraestrutura.",
                              "Pronto: a ponte se ativa sozinha em até 1 minuto e você recebe outro aviso quando ela voltar."],
-                     botao=("Abrir painel de login", self.painel))
+                     botao=("Abrir painel de login" if categoria in {"login", "captcha", "mfa"} else "Abrir diagnóstico da ponte", self.painel))
         return "alertado"
 
     def iniciar(self, intervalo=300):

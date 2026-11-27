@@ -74,7 +74,8 @@ def test_vigia_avisa_ponte_em_preparing_parada_no_login():
     vigia, alertas = _vigia(["preparing", "preparing", "preparing", "ready"], precisa=True)
     resultados = [vigia.checar(agora=1000 + 300 * i) for i in range(4)]
     assert resultados == ["caida", "alertado", "caida", "ok"]
-    assert alertas[0][0].startswith("🔴 Ponte do TikTok (Pré-validação) pediu login")
+    assert alertas[0][0] == "🔴 Ponte do TikTok (Pré-validação) com falha — indeterminada"
+    assert alertas[0][1] == ("Abrir diagnóstico da ponte", "https://cadastro/operacao")
     assert alertas[1][0].startswith("✅ Ponte do TikTok (Pré-validação) de volta")
 
 

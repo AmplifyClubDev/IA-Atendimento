@@ -1,4 +1,6 @@
 import {randomBytes} from 'node:crypto';
+import {createDiagnostics} from './diagnostico.mjs';
+const supervisorDiagnostics = createDiagnostics({prefix: 'supervisor'});
 import {validRole,roleAllows} from './interactive-policy.mjs';
 const role=process.env.BRIDGE_ROLE;if(!validRole(role))throw new Error('EXPLICIT_BRIDGE_ROLE_REQUIRED');
 import http from 'node:http';import net from 'node:net';import fs from 'node:fs';import {spawn} from 'node:child_process';import {once} from 'node:events';
@@ -32,6 +34,8 @@ function watchDesktopChild(child,name){
  child.on('error',error=>{diagnostic.code=desktopClass(error?.code);console.error(JSON.stringify({event:'desktop_child_error',child:name,code:diagnostic.code}));});
  child.on('exit',(exitCode,signal)=>{
   if(closing)return;
+  supervisorDiagnostics.record('failure', {code: 'child_exited', child: name,
+    exitCode, signal, expected: changing});
   const code=diagnostic.code||'child_exited';
   console.error(JSON.stringify({event:'desktop_child_exit',child:name,code,exitCode:Number.isInteger(exitCode)?exitCode:null,signal:['SIGTERM','SIGKILL','SIGSEGV','SIGABRT','SIGBUS','SIGILL'].includes(signal)?signal:null}));
   if(['xvfb','x11vnc','websockify'].includes(name)&&desktopState.phase==='ready'){desktopState.phase='failed';desktopState.code=code;mode='failed';}
@@ -51,11 +55,18 @@ async function waitDesktopPort(port,child){for(let i=0;i<100;i++){
 }throw desktopError(desktopChildren.get(child)?.code||'local_port_unavailable');}
 // DESKTOP_DIAGNOSTIC_END
 
-function start(command,args,env=process.env,ipc=false){const p=spawn(command,args,{env,stdio:ipc?['ignore','ignore','pipe','ipc']:['ignore','ignore','pipe'],detached:true});p.stderr.on('data',()=>{});p.on('error',()=>console.error('CHILD_START_FAILED'));children.push(p);return watchDesktopChild(p,desktopChildName(command,args));}
+function start(command,args,env=process.env,ipc=false){const p=spawn(command,args,{env,stdio:ipc?['ignore','ignore','pipe','ipc']:['ignore','ignore','pipe'],detached:true});
+ let pending='';p.stderr.on('data',chunk=>{pending=(pending+chunk.toString()).slice(-32768);let newline;while((newline=pending.indexOf('\n'))>=0){const line=pending.slice(0,newline);pending=pending.slice(newline+1);try{const entry=JSON.parse(line);if(entry.event==='bridge_diagnostic'&&entry.diagnostic&&entry.diagnostic.event!=='resource_sample')supervisorDiagnostics.record(entry.diagnostic.event,{...entry.diagnostic,child:'bridge'});}catch{}}});
+ p.on('error',()=>console.error('CHILD_START_FAILED'));children.push(p);return watchDesktopChild(p,desktopChildName(command,args));}
 async function waitPort(port){for(let i=0;i<100;i++){if(await new Promise(ok=>{let s=net.connect(port,'127.0.0.1');s.on('connect',()=>{s.destroy();ok(true)});s.on('error',()=>ok(false));s.setTimeout(300,()=>{s.destroy();ok(false)});}))return;await new Promise(r=>setTimeout(r,100));}throw new Error('LOCAL_PORT_UNAVAILABLE');}
 function profileOwners(){let owners=[];for(let n of fs.readdirSync('/proc')){if(!/^\d+$/.test(n))continue;try{let args=fs.readFileSync('/proc/'+n+'/cmdline','utf8').split('\0');if(args.some((v,i)=>v==='--user-data-dir=/data/partner-profile'||v==='--user-data-dir'&&args[i+1]==='/data/partner-profile'))owners.push(Number(n));}catch{}}return owners;}
 async function stopApp(){if(!app)return;let old=app;if(old.exitCode===null&&old.signalCode===null){let stopped=once(old,'exit');old.kill('SIGTERM');let timer;try{await Promise.race([stopped,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('APP_STOP_UNCERTAIN')),20000)})]);}finally{clearTimeout(timer);}}app=null;for(let i=0;i<50&&profileOwners().length;i++)await new Promise(r=>setTimeout(r,100));if(profileOwners().length)throw new Error('PROFILE_OWNER_REMAINS');}
 async function bridgeHealth(){return new Promise(resolve=>{let q=http.get('http://127.0.0.1:8788/health',r=>{let text='';r.on('data',b=>{text+=b;if(text.length>200000)q.destroy()});r.on('end',()=>{try{resolve(JSON.parse(text))}catch{resolve(null)}})});q.on('error',()=>resolve(null));q.setTimeout(3000,()=>{q.destroy();resolve(null)});});}
+function diagnosticSnapshot(health){
+ const own=supervisorDiagnostics.snapshot(),remote=health?.diagnostics||{};
+ const latest=(a,b)=>!a?b||null:!b?a:(a.at>=b.at?a:b);
+ return{resources:own.resources,lastFailure:latest(own.lastFailure,remote.lastFailure),lastRecovery:latest(own.lastRecovery,remote.lastRecovery)};
+}
 async function appCommand(command){
  if(!app?.connected)throw new Error('APP_IPC_UNAVAILABLE');
  const id=randomBytes(16).toString('hex');
@@ -87,7 +98,7 @@ async function change(next){
 }
 
 function json(res,status,value){res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(value));}
-function proxy(req,res,port,path,bridge=false){const headers={host:'127.0.0.1:'+port};for(let name of ['content-type','content-length','sec-websocket-protocol'])if(req.headers[name])headers[name]=req.headers[name];if(bridge)headers.authorization=req.headers.authorization;let upstream=http.request({hostname:'127.0.0.1',port,path,method:req.method,headers},r=>{res.writeHead(r.statusCode,{...r.headers,'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});r.pipe(res)});upstream.on('error',()=>{if(!res.headersSent)json(res,503,{ok:false,status:'upstream_unavailable'});else res.destroy();});upstream.setTimeout(150000,()=>upstream.destroy());req.pipe(upstream);}
+function proxy(req,res,port,path,bridge=false){const headers={host:'127.0.0.1:'+port};for(let name of ['content-type','content-length','sec-websocket-protocol'])if(req.headers[name])headers[name]=req.headers[name];if(bridge)headers.authorization=req.headers.authorization;let upstream=http.request({hostname:'127.0.0.1',port,path,method:req.method,headers},r=>{res.writeHead(r.statusCode,{...r.headers,'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});r.pipe(res)});upstream.on('error',()=>{if(!res.headersSent)json(res,503,{ok:false,status:'upstream_unavailable',diagnostics:diagnosticSnapshot(null)});else res.destroy();});upstream.setTimeout(150000,()=>upstream.destroy());req.pipe(upstream);}
 // SESSION_PANEL_BEGIN
 // Passive telemetry only: no /ready call, browser command, provider read or cookie mutation.
 const SESSION_PANEL_SERVICE = String(process.env.RAILWAY_SERVICE_NAME || process.env.BRIDGE_ROLE || 'TikTok Amplify')
@@ -203,13 +214,13 @@ const server=http.createServer(async(req,res)=>{try{
  if(url.pathname==='/console/session'&&req.method==='POST'){if(!validOrigin(req)||!bearerAuthorized(req,consoleToken))return json(res,401,{ok:false});res.setHeader('Set-Cookie','__Host-bridge_console='+session(consoleToken)+'; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=7200');return json(res,200,{ok:true});}
  if(url.pathname.startsWith('/console/')){
   if(!consoleAuthorized(req,consoleToken))return json(res,401,{ok:false});
-  if(req.method==='GET'&&url.pathname==='/console/status'){const health=await bridgeHealth();if(!changing&&health?.operatorLoginMode===true)mode='login';return json(res,200,{...sessionPanelStatus(health),infrastructure:{phase:desktopState.phase,code:desktopState.code}});}
+  if(req.method==='GET'&&url.pathname==='/console/status'){const health=await bridgeHealth();if(!changing&&health?.operatorLoginMode===true)mode='login';return json(res,200,{...sessionPanelStatus(health),diagnostics:diagnosticSnapshot(health),infrastructure:{phase:desktopState.phase,code:desktopState.code}});}
   if(req.method==='GET'&&url.pathname==='/console/state'){const health=await bridgeHealth();if(!changing&&health?.operatorLoginMode===true)mode='login';return json(res,200,{mode,changing,role,contextReady:health?.contextoPronto===true});}
   if(req.method==='POST'&&['/console/activate','/console/login'].includes(url.pathname)){if(!validOrigin(req))return json(res,403,{ok:false});if(desktopState.phase!=='ready')return json(res,503,{ok:false,status:'desktop_unavailable'});await change(url.pathname==='/console/activate'?'bridge':'login');return json(res,200,{ok:true,mode});}
   if(req.method==='GET'&&url.pathname.startsWith('/console/vnc/')){let path=decodeURIComponent(url.pathname.slice('/console/vnc'.length));if(path.split('/').some(x=>x==='..'||x==='.')||path.includes('\\'))return json(res,400,{ok:false});return proxy(req,res,6080,path+url.search);}
   return json(res,404,{ok:false});
  }
- if(url.pathname.startsWith('/bridge/')){if(!bearerAuthorized(req,bridgeToken))return json(res,401,{ok:false});if(mode!=='bridge')return json(res,503,{ok:false,status:'login_required'});let path=url.pathname.slice('/bridge'.length);if(!roleAllows(role,req.method,path))return json(res,404,{ok:false});return proxy(req,res,8788,path+url.search,true);}
+ if(url.pathname.startsWith('/bridge/')){if(!bearerAuthorized(req,bridgeToken))return json(res,401,{ok:false});if(mode!=='bridge'){const health=await bridgeHealth();return json(res,503,{ok:false,status:'login_required',diagnostics:diagnosticSnapshot(health)});}let path=url.pathname.slice('/bridge'.length);if(!roleAllows(role,req.method,path))return json(res,404,{ok:false});return proxy(req,res,8788,path+url.search,true);}
  json(res,404,{ok:false});
 }catch{json(res,409,{ok:false,status:'requires_reconciliation'});}});
 server.on('upgrade',(req,socket,head)=>{try{let u=new URL(req.url,'http://localhost');if(u.pathname!=='/console/socket'||!consoleAuthorized(req,consoleToken)||!validOrigin(req)){socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');return;}let upstream=net.connect(6080,'127.0.0.1',()=>{let lines=['GET /websockify HTTP/1.1','Host: 127.0.0.1:6080'];for(let k of ['upgrade','connection','sec-websocket-key','sec-websocket-version','sec-websocket-protocol'])if(req.headers[k])lines.push(k+': '+req.headers[k]);upstream.write(lines.join('\r\n')+'\r\n\r\n');if(head.length)upstream.write(head);socket.pipe(upstream).pipe(socket);});upstream.on('error',()=>socket.destroy());socket.on('error',()=>upstream.destroy());socket.on('close',()=>upstream.destroy());}catch{socket.destroy();}});
@@ -237,6 +248,6 @@ async function initializeDesktop(){
  }
 }
 // AUTO_RECONCILE: a ponte se reativa sozinha (auto-recuperacao.mjs); o supervisor acompanha sem humano.
-async function reconcileMode(){if(changing||closing||!app||desktopState.phase!=='ready'||!['login','bridge'].includes(mode))return;const h=await bridgeHealth();if(!h||changing)return;if(mode==='login'&&h.operatorLoginMode===false&&h.contextoPronto===true&&!h.interactiveChanging){mode='bridge';try{fs.writeFileSync('/data/mode.tmp','bridge',{mode:0o600});fs.renameSync('/data/mode.tmp','/data/mode');}catch{}console.error(JSON.stringify({event:'auto_reconcile',mode}));}}
-setInterval(()=>{void reconcileMode().catch(()=>{});},15000).unref();
+async function reconcileMode(){if(changing||closing||!app||desktopState.phase!=='ready'||!['login','bridge'].includes(mode))return;const h=await bridgeHealth();if(!h||changing)return;if(mode==='login'&&h.operatorLoginMode===false&&h.contextoPronto===true&&!h.interactiveChanging){mode='bridge';try{fs.writeFileSync('/data/mode.tmp','bridge',{mode:0o600});fs.renameSync('/data/mode.tmp','/data/mode');}catch{}console.log(JSON.stringify({event:'auto_reconcile',level:'info',message:'bridge_mode_reconciled',mode}));}}
+setInterval(()=>{void reconcileMode().catch(error=>{supervisorDiagnostics.record('failure',{code:'auto_reconcile_failed',errorType:error?.name});});},15000).unref();
 server.listen(Number(process.env.PORT||8080),'::',()=>{console.log('RAILWAY_BRIDGE_CONSOLE_STARTED');void initializeDesktop();});

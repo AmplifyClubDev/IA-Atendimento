@@ -22,6 +22,7 @@ from urllib.parse import quote
 from urllib.request import HTTPRedirectHandler, HTTPCookieProcessor, ProxyHandler, Request, build_opener
 
 from flask import Blueprint, abort, current_app, make_response, redirect
+from diagnostico_ponte import registrar as registrar_diagnostico, resumo
 
 bp = Blueprint("operacao", __name__)
 
@@ -56,30 +57,33 @@ def ler_precisa_login(base, timeout=10):
     return valor if isinstance(valor, bool) else None
 
 
-def ler_status(base, token, timeout=10):
+def ler_diagnostico(base, token, timeout=10):
     """Readiness não confunde HTTP 429/401/503 com necessidade de login."""
     request_ = Request(base + "/bridge/ready", headers={"Authorization": "Bearer " + token, "Accept": "application/json"})
     try:
         response = build_opener(ProxyHandler({}), SemRedirecionamento()).open(request_, timeout=timeout)
     except HTTPError as error:
         response = error
-    except Exception:
-        return "inacessivel"
+    except Exception as error:
+        return {"status": "inacessivel", "exceptionType": type(error).__name__}
     try:
         if response.code == 429:
-            return "rate_limited"
+            return {"status": "rate_limited", "http": 429}
         if response.code in {401, 403}:
-            return "credencial_invalida"
+            return {"status": "credencial_invalida", "http": response.code}
         corpo = json.loads(response.read(65536))
-        status = corpo.get("status") if isinstance(corpo, dict) else None
-        return status if isinstance(status, str) and status else "desconhecido"
+        return resumo(corpo, http=response.code)
     except Exception:
-        return "inacessivel"
+        return {"status": "inacessivel", "http": response.code}
     finally:
         try:
             response.close()
         except Exception:
             pass
+
+
+def ler_status(base, token, timeout=10):
+    return ler_diagnostico(base, token, timeout)["status"]
 
 
 class SemRedirecionamento(HTTPRedirectHandler):
@@ -215,8 +219,9 @@ class Painel:
                 timeout=20 if autenticar else self.timeout)
         except HTTPError as error:
             response = error
-        except Exception:
-            return self._falhou(503, ativacao=ativacao)
+        except Exception as error:
+            codigo, corpo = self._falhou(503, ativacao=ativacao)
+            return codigo, {**corpo, "exceptionType": type(error).__name__}
         try:
             codigo = response.code
             if codigo not in {200, 204}:
@@ -239,8 +244,9 @@ class Painel:
             if not isinstance(corpo, dict):
                 return self._falhou(502, ativacao=ativacao)
             return codigo, corpo
-        except Exception:
-            return self._falhou(502, ativacao=ativacao)
+        except Exception as error:
+            codigo, corpo = self._falhou(502, ativacao=ativacao)
+            return codigo, {**corpo, "exceptionType": type(error).__name__}
         finally:
             try:
                 response.close()
@@ -287,10 +293,25 @@ class Painel:
         return processo.get("mode") if status == 200 and isinstance(processo, dict) else None
 
     def login(self):
-        return self._abrir("/console/login", "POST")[0] == 200
+        return self._acao_observada("login")
 
     def ativar(self):
-        return self._abrir("/console/activate", "POST")[0] == 200
+        return self._acao_observada("activate")
+
+    def _acao_observada(self, acao):
+        nome = next((n for _, n, b, *_ in PONTES if b == self.base), "Ponte")
+        registrar_diagnostico(nome, "recuperacao", {"acao": acao, "resultado": "iniciada"})
+        try:
+            status, corpo = self._abrir("/console/" + acao, "POST")
+        except Exception as error:
+            registrar_diagnostico(nome, "recuperacao", {"acao": acao, "resultado": "erro", "exceptionType": type(error).__name__})
+            raise
+        resultado = "aceita" if status == 200 else "recusada"
+        if status != 200 and corpo.get("retry_after"):
+            resultado = "aguardando_ou_recusada"  # pode ser espera local; não afirma que houve nova chamada HTTP.
+        registrar_diagnostico(nome, "recuperacao", {**resumo(corpo, http=status), "acao": acao,
+                              "resultado": resultado})
+        return status == 200
 
 
 def pontes(env=None):

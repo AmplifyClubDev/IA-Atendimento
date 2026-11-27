@@ -559,6 +559,7 @@ export async function listRelations(page, partnerContext, { status = '1', pageSi
     statusCount = response.data?.data?.status_count ?? statusCount;
     pages.push({
       page: pageNumber,
+      httpStatus: response.httpStatus,
       ok: response.ok,
       count: relations.length,
       code: response.data?.code,
