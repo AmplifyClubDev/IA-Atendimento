@@ -8,7 +8,7 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import { CAIXA, ETIQUETA, banco, chatwoot, enviarFila } from './envio.mjs';
 import { avisarFalha, lerEvento, tratar } from './respostas.mjs';
-import { atenderAgenciado } from './agenciado.mjs';
+import { atenderAgenciado, fupAgenciados } from './agenciado.mjs';
 import { carregarCartoes, dadosDoAgenciado, historicoDe, montarInstrucoes, perguntarIA } from './ia.mjs';
 
 const HORA_MS = 3600000;
@@ -166,4 +166,18 @@ if (process.argv[1]?.endsWith('servico.mjs')) {
   const db = criarBanco(env), cw = chatwoot(env);
   criarServidor(env, db, cw).listen(Number(env.PORT || 8080), '::', () => log('no_ar', { porta: env.PORT || 8080, caixa: CAIXA }));
   setTimeout(() => { rodada(env, db, cw); setInterval(() => rodada(env, db, cw), HORA_MS); }, PRIMEIRA_RODADA_MS);
+  // Atendimento parado no "Já sou Amplify": confere a cada minuto (lembrete aos 5 min, encerra aos 10).
+  if (env.RENOVACAO_RESPOSTAS_LIGADAS === 'true') {
+    let fupRodando = false;
+    setInterval(async () => {
+      if (fupRodando) return;
+      fupRodando = true;
+      try {
+        const r = await fupAgenciados({ db, cw }, log);
+        if (r.lembretes || r.encerrados || r.cancelados || r.falhas) log('fup', r);
+      } catch (erro) {
+        log('erro_fup', { erro: String(erro.message).slice(0, 160) });
+      } finally { fupRodando = false; }
+    }, 60000);
+  }
 }

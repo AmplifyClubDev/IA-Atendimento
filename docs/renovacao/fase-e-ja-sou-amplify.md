@@ -72,3 +72,24 @@ auditoria; o novo cobre os dois caminhos: outro número e WhatsApp do cadastro).
 
 Falta (precisa de aprovação): aplicar o SQL, publicar o serviço e a Bia, e simular no número de teste.
 Usar o **47 99115-4859** (o 47 99291-6992 está na demo da Bia e receberia 2 respostas).
+
+## 28/11/2026: atendimento parado → lembrete aos 5 min (pronto, ainda não em produção)
+
+Pedido do Vitor: "falta FUP de atendimento parado; diminuir a inatividade para 5 min, não 10".
+
+**Já sou Amplify (serviço de renovação)**, a cada minuto:
+- Parado numa pergunta (@, CPF ou nascimento) há **5 min** → lembrete da pergunta que falta.
+- Mais **5 min** sem resposta → "Encerrei este atendimento por agora… é só mandar *Já sou Amplify*".
+  - Sem alerta de renovação na conversa: tira a etiqueta (a Bia volta a atender).
+  - Com alerta de renovação: a etiqueta fica (segue o fluxo de renovação).
+- Alguém do time assumiu ou a conversa foi resolvida → encerra **sem mensagem**.
+- Qualquer resposta da pessoa zera o relógio. O banco marca antes de mandar (sem lembrete duplicado).
+- Banco: `fup_agenciados_v5()`, `marcar_fup_agenciado_v5(p)`, colunas `lembrete_em`, `encerrado_em`, etapa `encerrado`
+  (tudo em `agenciado_atendimento.sql`, que pode ser aplicado de novo sem problema).
+
+**Bia**: era lembrete aos 10 min e encerramento 10 min depois. Agora **5 + 5**
+(`followup.py`: `INATIVIDADE_SEGUNDOS = 300`; `retomada.py`: 5 e 10 min; texto "mais 5 minutos").
+A demo não mudou.
+
+Testes: serviço 44 ok; Bia sem falha nova (testes de tempo atualizados para 5 min).
+**SQL ainda não simulado no banco**: as credenciais foram apagadas da pasta temporária.

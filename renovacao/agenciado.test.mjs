@@ -145,3 +145,38 @@ test('longe do fim (mais de 30 dias, sem pedido): perfil sem botões de renovaç
   await atenderAgenciado(msg('1234'), g);
   assert.equal(g.feito[0][0], 'lista'); // pedido aberto no TikTok: botões mesmo longe do fim
 });
+
+test('atendimento parado: lembrete, encerra (tira a etiqueta só sem alerta de renovação), time assumiu = sem mensagem', async () => {
+  const { fupAgenciados } = await import('./agenciado.mjs');
+  const feito = [];
+  const respostas = {
+    '1': { ok: true, etapa: 'pedir_cpf' },
+    '2': { ok: true, etapa: 'encerrado', tem_envio: false },
+    '3': { ok: true, etapa: 'encerrado', tem_envio: true },
+    '4': { ok: true, etapa: 'encerrado' },
+    '5': { ok: false },
+  };
+  const db = { async rpc(nome, p) {
+    if (nome === 'fup_agenciados_v5') return [{ conversa: '1', acao: 'lembrete' }, { conversa: '2', acao: 'encerrar' },
+      { conversa: '3', acao: 'encerrar' }, { conversa: '4', acao: 'lembrete' }, { conversa: '5', acao: 'lembrete' }];
+    feito.push(['marcar', p.conversa, p.acao]);
+    return respostas[p.conversa];
+  } };
+  const cw = {
+    async detalhe(c) { return c === '4' ? { status: 'open', meta: { assignee: { id: 7 } } } : { status: 'open', meta: {} }; },
+    async mensagem(c, t) { feito.push(['mensagem', c, t]); },
+    async tirarEtiqueta(c) { feito.push(['tirar', c]); },
+    async nota(c) { feito.push(['nota', c]); },
+  };
+  const r = await fupAgenciados({ db, cw });
+  assert.deepEqual(r, { lembretes: 1, encerrados: 2, cancelados: 1, falhas: 0 });
+  assert.match(feito.find((x) => x[0] === 'mensagem' && x[1] === '1')[2], /4 últimos dígitos.*\n\nSe não tiver resposta em 5 minutos/s);
+  assert.ok(feito.some((x) => x[0] === 'tirar' && x[1] === '2'));
+  assert.ok(!feito.some((x) => x[0] === 'tirar' && x[1] === '3')); // conversa do alerta de renovação: etiqueta fica
+  assert.deepEqual(feito.filter((x) => x[1] === '4'), [['marcar', '4', 'cancelar']]); // time assumiu: nenhuma mensagem
+  assert.ok(!feito.some((x) => x[0] === 'mensagem' && x[1] === '5')); // respondeu nesse meio-tempo
+});
+
+test('encerrado por falta de resposta: a próxima mensagem segue o fluxo normal', async () => {
+  assert.equal(await atenderAgenciado(msg('oi'), falso([{ etapa: 'encerrado' }])), null);
+});

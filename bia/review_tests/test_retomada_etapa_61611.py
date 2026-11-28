@@ -67,15 +67,15 @@ class FollowupPerStage(unittest.TestCase):
             return self.worker._conversation(CONV, self.current)
 
     def test_no_handle_before_interest_followed_by_separate_close(self):
-        self.assertEqual(self.tick(9)['status'], 'idle')
-        self.assertEqual(self.tick(10)['step'], 1)
+        self.assertEqual(self.tick(4)['status'], 'idle')
+        self.assertEqual(self.tick(5)['step'], 1)
         self.assertIn('conhecer melhor', self.out[0][0])
         self.assertIn('encerrar atendimento', self.out[0][0])
         self.assertNotIn('@', self.out[0][0])
         self.assertNotIn('arroba_pedido', self.repo.state['cycle'])
         self.assertEqual(self.repo.state['cycle']['status'], 'open')
-        self.assertEqual(self.tick(19)['status'], 'idle')
-        self.assertEqual(self.tick(20)['step'], 2)
+        self.assertEqual(self.tick(9)['status'], 'idle')
+        self.assertEqual(self.tick(10)['step'], 2)
         self.assertEqual(self.out[-1], (f.FOLLOWUP_CLOSE, []))
         self.assertEqual(self.repo.state['cycle']['status'], 'closed')
         self.assertEqual(len(self.closed), 1)
@@ -83,10 +83,10 @@ class FollowupPerStage(unittest.TestCase):
         self.assertEqual(len(self.out), 2)
         self.assertEqual(len(self.closed), 1)
 
-    def test_late_scan_still_warns_first_and_gives_ten_minutes(self):
+    def test_late_scan_still_warns_first_and_gives_five_minutes(self):
         self.assertEqual(self.tick(29)['step'], 1)
-        self.assertEqual(self.tick(38)['status'], 'idle')
-        self.assertEqual(self.tick(39)['step'], 2)
+        self.assertEqual(self.tick(33)['status'], 'idle')
+        self.assertEqual(self.tick(34)['step'], 2)
 
     def test_human_control_advance_reply_and_optout_never_close_the_old_step(self):
         for case in ['human_control', 'phase', 'inbound', 'opt_out']:

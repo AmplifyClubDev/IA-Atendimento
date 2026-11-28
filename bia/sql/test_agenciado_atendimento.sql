@@ -63,6 +63,38 @@ BEGIN
   IF r ->> 'status' <> 'ok' THEN RAISE EXCEPTION 'certo_so_cpf %', r; END IF;
   RESET ROLE;
 
+  -- Lembrete do atendimento parado: 5 min → lembrete; mais 5 min → encerrar. Conferido não entra.
+  PERFORM public.atendimento_agenciado_v5('{"conversa": "990000003", "acao": "iniciar"}');
+  PERFORM public.atendimento_agenciado_v5('{"conversa": "990000004", "acao": "iniciar"}');
+  UPDATE interno.agenciado_atendimentos SET atualizado_em = now() - interval '6 minutes'
+  WHERE conversa IN ('990000001', '990000003', '990000004');
+  SET LOCAL ROLE service_role;
+  r := public.fup_agenciados_v5();
+  IF NOT r @> '[{"conversa": "990000003", "acao": "lembrete", "etapa": "pedir_arroba"}]' THEN RAISE EXCEPTION 'fup_lembrete %', r; END IF;
+  IF r @> '[{"conversa": "990000001"}]' THEN RAISE EXCEPTION 'fup_verificado %', r; END IF;
+  -- A pessoa respondeu (990000004): o relógio zera e sai da lista.
+  PERFORM public.atendimento_agenciado_v5('{"conversa": "990000004", "acao": "arroba", "arroba": "@zz_nao_existe_123"}');
+  IF public.fup_agenciados_v5() @> '[{"conversa": "990000004"}]' THEN RAISE EXCEPTION 'fup_respondeu'; END IF;
+  IF (public.marcar_fup_agenciado_v5('{"conversa": "990000004", "acao": "lembrete"}') ->> 'ok')::boolean THEN RAISE EXCEPTION 'marcou_respondido'; END IF;
+  r := public.marcar_fup_agenciado_v5('{"conversa": "990000003", "acao": "lembrete"}');
+  IF (r ->> 'ok')::boolean IS NOT TRUE OR r ->> 'etapa' <> 'pedir_arroba' THEN RAISE EXCEPTION 'marcar_lembrete %', r; END IF;
+  IF (public.marcar_fup_agenciado_v5('{"conversa": "990000003", "acao": "lembrete"}') ->> 'ok')::boolean THEN RAISE EXCEPTION 'lembrete_duplo'; END IF;
+  IF public.fup_agenciados_v5() @> '[{"conversa": "990000003"}]' THEN RAISE EXCEPTION 'fup_cedo'; END IF;
+  IF (public.marcar_fup_agenciado_v5('{"conversa": "990000003", "acao": "encerrar"}') ->> 'ok')::boolean THEN RAISE EXCEPTION 'encerrou_cedo'; END IF;
+  RESET ROLE;
+  UPDATE interno.agenciado_atendimentos SET lembrete_em = now() - interval '6 minutes' WHERE conversa = '990000003';
+  SET LOCAL ROLE service_role;
+  IF NOT public.fup_agenciados_v5() @> '[{"conversa": "990000003", "acao": "encerrar"}]' THEN RAISE EXCEPTION 'fup_encerrar'; END IF;
+  r := public.marcar_fup_agenciado_v5('{"conversa": "990000003", "acao": "encerrar"}');
+  IF (r ->> 'ok')::boolean IS NOT TRUE OR r ->> 'etapa' <> 'encerrado' OR (r ->> 'tem_envio')::boolean THEN RAISE EXCEPTION 'marcar_encerrar %', r; END IF;
+  IF (public.atendimento_agenciado_v5('{"conversa": "990000003", "acao": "consultar"}')) ->> 'etapa' <> 'encerrado' THEN RAISE EXCEPTION 'etapa_encerrado'; END IF;
+  r := public.marcar_fup_agenciado_v5('{"conversa": "990000004", "acao": "cancelar"}');
+  IF (r ->> 'ok')::boolean IS NOT TRUE THEN RAISE EXCEPTION 'cancelar %', r; END IF;
+  -- Tocar "Já sou Amplify" de novo recomeça.
+  r := public.atendimento_agenciado_v5('{"conversa": "990000003", "acao": "iniciar"}');
+  IF r ->> 'etapa' <> 'pedir_arroba' THEN RAISE EXCEPTION 'recomeca %', r; END IF;
+  RESET ROLE;
+
   SET LOCAL ROLE anon;
   BEGIN
     PERFORM public.atendimento_agenciado_v5('{"conversa": "1", "acao": "consultar"}');

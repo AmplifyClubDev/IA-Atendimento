@@ -77,6 +77,10 @@ export function chatwoot(env) {
     async conversa(contato, sourceId, mensagem) {
       return chamar('POST', '/conversations', { inbox_id: CAIXA, contact_id: contato.id, source_id: sourceId, message: mensagem });
     },
+    // Situação da conversa (aberta? alguém do time assumiu?), para o lembrete não atropelar o time.
+    async detalhe(conversaId) {
+      return chamar('GET', `/conversations/${conversaId}`);
+    },
     // O Chatwoot troca a lista inteira de etiquetas: lê as atuais e só acrescenta/tira a nossa.
     async etiquetas(conversaId) {
       return (await chamar('GET', `/conversations/${conversaId}/labels`)).payload || [];

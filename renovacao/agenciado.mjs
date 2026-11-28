@@ -101,7 +101,8 @@ export async function atenderAgenciado(msg, { db, cw }) {
     return { status: 'agenciado', etapa: 'pedir_arroba' };
   }
   const atual = await rpc('consultar');
-  if (!atual.etapa || atual.etapa === 'verificado') return null;
+  // Encerrado por falta de resposta: segue o fluxo normal (sem etiqueta, a Bia atende; com alerta de renovação, a renovação).
+  if (!atual.etapa || atual.etapa === 'verificado' || atual.etapa === 'encerrado') return null;
   if (atual.etapa === 'sem_cpf') return { status: 'agenciado', etapa: atual.etapa, silencio: true };
 
   if (atual.etapa === 'pedir_arroba') {
@@ -128,4 +129,46 @@ export async function atenderAgenciado(msg, { db, cw }) {
   else if (r.status === 'nao_confere') await cw.mensagem(msg.conversa, MSG.naoConfere); // sem limite de tentativas
   else if (r.status === 'ok') await mostrarPerfil(msg, cw, r.perfil);
   return { status: 'agenciado', etapa: r.etapa };
+}
+
+// Atendimento parado (28/11): 5 min sem resposta numa pergunta → lembrete; mais 5 min → encerra.
+// Se alguém do time assumiu ou a conversa foi resolvida, encerra sem mensagem.
+export const FUP = {
+  lembrete: {
+    pedir_arroba: 'pra eu abrir o seu perfil, só falta o seu *@ do TikTok*.',
+    pedir_cpf: 'pra eu abrir o seu perfil, só faltam os *4 últimos dígitos do seu CPF*.',
+    pedir_nascimento: 'pra eu abrir o seu perfil, só falta a sua *data de nascimento* (ex.: *15/03/1998*).',
+  },
+  encerrado: '*Encerrei este atendimento por agora* 💙\n\nQuando quiser ver o seu perfil, é só mandar *Já sou Amplify*.',
+};
+export const textoLembrete = (etapa) => FUP.lembrete[etapa]
+  ? `*Ainda está por aí?* 👀\n\nSó lembrando: ${FUP.lembrete[etapa]}\n\nSe não tiver resposta em 5 minutos, encerro por agora.` : null;
+
+export async function fupAgenciados({ db, cw }, log = () => {}) {
+  const resumo = { lembretes: 0, encerrados: 0, cancelados: 0, falhas: 0 };
+  for (const item of (await db.rpc('fup_agenciados_v5')) || []) {
+    try {
+      const conv = await cw.detalhe(item.conversa);
+      const assumida = conv?.meta?.assignee != null || (conv?.status && conv.status !== 'open');
+      const acao = assumida ? 'cancelar' : item.acao;
+      const r = await db.rpc('marcar_fup_agenciado_v5', { conversa: item.conversa, acao });
+      if (!r?.ok) continue; // a pessoa respondeu nesse meio-tempo
+      if (acao === 'cancelar') { resumo.cancelados += 1; continue; }
+      if (acao === 'lembrete') {
+        const texto = textoLembrete(r.etapa);
+        if (texto) await cw.mensagem(item.conversa, texto);
+        resumo.lembretes += 1;
+        continue;
+      }
+      await cw.mensagem(item.conversa, FUP.encerrado);
+      // Sem alerta de renovação nesta conversa: tira a etiqueta para a Bia voltar a atender.
+      if (!r.tem_envio) await cw.tirarEtiqueta(item.conversa, ETIQUETA);
+      await cw.nota(item.conversa, '⏱️ Já sou Amplify: encerrado por falta de resposta (10 min).');
+      resumo.encerrados += 1;
+    } catch (erro) {
+      resumo.falhas += 1;
+      log('erro_fup', { conversa: item.conversa, erro: String(erro.message).slice(0, 160) });
+    }
+  }
+  return resumo;
 }

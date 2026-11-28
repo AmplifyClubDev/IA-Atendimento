@@ -1,6 +1,6 @@
 """Retomada de quem parou de responder e de quem ficou sem resposta (release 39).
 
-Retomada: 10 min e 20 min depois da última mensagem do lead (dentro da
+Retomada: 5 min e 10 min depois da última mensagem do lead (dentro da
 janela de 24 h do WhatsApp): um lembrete da etapa e, depois de dar tempo
 para responder, um aviso separado de encerramento. Nunca
 logo depois de uma resposta da Bia, nunca com operação pendente ou incerta,
@@ -22,9 +22,10 @@ from contracts import allow_inbound, inbound_key, pilot_phone
 from followup import clock
 from demo_router import production_blocked, excluded_conversations
 
-STEPS = ((1, timedelta(minutes=10)), (2, timedelta(minutes=20)))
+# 28/11/2026 (pedido do Vitor): 5 e 10 min (antes: 10 e 20).
+STEPS = ((1, timedelta(minutes=5)), (2, timedelta(minutes=10)))
 LINKED_STEPS = STEPS
-MIN_GAP = timedelta(minutes=10)
+MIN_GAP = timedelta(minutes=5)
 WAITING = frozenset({'intro', 'origin', 'tiktok', 'shop', 'agency', 'consent_real', 'await_acceptance', 'form',
                      # Release 51: 'blocked' só para quem precisa ativar o TikTok Shop (message decide).
                      'blocked'})

@@ -14,18 +14,18 @@ class Followup55476(TestCase):
         self.rows={}
         self.worker=Retomada.__new__(Retomada)
         self.worker.repository=SimpleNamespace(get_operation=lambda k:self.rows.get(k))
-    def test_two_ten_minute_steps(self):
-        self.assertEqual(STEPS,((1,timedelta(minutes=10)),(2,timedelta(minutes=20))))
+    def test_two_five_minute_steps(self):
+        self.assertEqual(STEPS,((1,timedelta(minutes=5)),(2,timedelta(minutes=10))))
         self.assertEqual(LINKED_STEPS,STEPS)
-        self.assertEqual(MIN_GAP,timedelta(minutes=10))
+        self.assertEqual(MIN_GAP,timedelta(minutes=5))
     def test_due_boundaries_and_durable_limit(self):
-        self.assertIsNone(self.worker._due(self.state,self.source,self.now+timedelta(minutes=9,seconds=59)))
-        self.assertEqual(self.worker._due(self.state,self.source,self.now+timedelta(minutes=10)),1)
+        self.assertIsNone(self.worker._due(self.state,self.source,self.now+timedelta(minutes=4,seconds=59)))
+        self.assertEqual(self.worker._due(self.state,self.source,self.now+timedelta(minutes=5)),1)
         self.rows[step_key('cycle','chatwoot:1:1',1)]={'status':'completed'}
         self.state['cycle']['retomada']={'step':1,'source_key':'chatwoot:1:1','stage':['await_acceptance',None],
-                                         'at':(self.now+timedelta(minutes=10)).isoformat()}
-        self.assertIsNone(self.worker._due(self.state,self.source,self.now+timedelta(minutes=19)))
-        self.assertEqual(self.worker._due(self.state,self.source,self.now+timedelta(minutes=20)),2)
+                                         'at':(self.now+timedelta(minutes=5)).isoformat()}
+        self.assertIsNone(self.worker._due(self.state,self.source,self.now+timedelta(minutes=9)))
+        self.assertEqual(self.worker._due(self.state,self.source,self.now+timedelta(minutes=10)),2)
         self.rows[step_key('cycle','chatwoot:1:1',2)]={'status':'completed'}
         self.assertIsNone(self.worker._due(self.state,self.source,self.now+timedelta(hours=23)))
     def test_no_repeated_greeting_closure_notice_only_second(self):

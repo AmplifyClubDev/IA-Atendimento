@@ -19,6 +19,12 @@ CREATE TABLE IF NOT EXISTS interno.agenciado_atendimentos (
   criado_em timestamptz NOT NULL DEFAULT now(),
   atualizado_em timestamptz NOT NULL DEFAULT now()
 );
+-- 28/11: lembrete do atendimento parado (5 min sem resposta → lembrete; mais 5 min → encerra). Arquivo idempotente.
+ALTER TABLE interno.agenciado_atendimentos ADD COLUMN IF NOT EXISTS lembrete_em timestamptz;
+ALTER TABLE interno.agenciado_atendimentos ADD COLUMN IF NOT EXISTS encerrado_em timestamptz;
+ALTER TABLE interno.agenciado_atendimentos DROP CONSTRAINT IF EXISTS agenciado_atendimentos_etapa_check;
+ALTER TABLE interno.agenciado_atendimentos ADD CONSTRAINT agenciado_atendimentos_etapa_check
+  CHECK (etapa IN ('pedir_arroba', 'pedir_cpf', 'pedir_nascimento', 'verificado', 'sem_cpf', 'encerrado'));
 ALTER TABLE interno.agenciado_atendimentos ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON interno.agenciado_atendimentos FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON interno.agenciado_atendimentos TO service_role; -- registrar_resposta (SECURITY INVOKER) lê a etapa
@@ -55,7 +61,12 @@ BEGIN
   IF p ->> 'acao' = 'iniciar' THEN
     INSERT INTO interno.agenciado_atendimentos (conversa, etapa) VALUES (conv, 'pedir_arroba')
     ON CONFLICT (conversa) DO UPDATE SET etapa = 'pedir_arroba', tentativas = 0, precisa_nascimento = true,
-         cpf_digitos = NULL, arroba = NULL, relation_id = NULL, atualizado_em = now();
+         cpf_digitos = NULL, arroba = NULL, relation_id = NULL, lembrete_em = NULL, encerrado_em = NULL, atualizado_em = now();
+  END IF;
+  -- Qualquer resposta da pessoa conta como atividade: zera o relógio do lembrete.
+  IF p ->> 'acao' IN ('arroba', 'cpf', 'nascimento') THEN
+    UPDATE interno.agenciado_atendimentos SET atualizado_em = now(), lembrete_em = NULL
+    WHERE conversa = conv AND etapa IN ('pedir_arroba', 'pedir_cpf', 'pedir_nascimento');
   END IF;
   SELECT * INTO a FROM interno.agenciado_atendimentos WHERE conversa = conv;
   IF NOT FOUND THEN RETURN jsonb_build_object('etapa', NULL); END IF;
@@ -127,6 +138,46 @@ END
 $fn$;
 REVOKE ALL ON FUNCTION public.atendimento_agenciado_v5(jsonb) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.atendimento_agenciado_v5(jsonb) TO service_role;
+
+-- Atendimentos parados numa pergunta: 5 min sem resposta → 'lembrete'; 5 min depois do lembrete → 'encerrar'.
+-- Só dentro de 23 h (janela do WhatsApp). Não traz dado pessoal.
+CREATE OR REPLACE FUNCTION public.fup_agenciados_v5()
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $fn$
+  SELECT coalesce(jsonb_agg(jsonb_build_object('conversa', conversa, 'etapa', etapa,
+           'acao', CASE WHEN lembrete_em IS NULL THEN 'lembrete' ELSE 'encerrar' END) ORDER BY atualizado_em), '[]'::jsonb)
+  FROM interno.agenciado_atendimentos
+  WHERE etapa IN ('pedir_arroba', 'pedir_cpf', 'pedir_nascimento') AND atualizado_em > now() - interval '23 hours'
+    AND ((lembrete_em IS NULL AND atualizado_em <= now() - interval '5 minutes')
+      OR (lembrete_em IS NOT NULL AND lembrete_em <= now() - interval '5 minutes'))
+$fn$;
+REVOKE ALL ON FUNCTION public.fup_agenciados_v5() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fup_agenciados_v5() TO service_role;
+
+-- Marca antes de mandar (se a pessoa respondeu nesse meio-tempo, não marca e nada sai).
+-- p = {"conversa", "acao": "lembrete"|"encerrar"|"cancelar"} → {ok, etapa, tem_envio}
+CREATE OR REPLACE FUNCTION public.marcar_fup_agenciado_v5(p jsonb)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $fn$
+DECLARE conv text := p ->> 'conversa'; e text;
+BEGIN
+  IF conv !~ '^[0-9]{1,18}$' THEN RAISE EXCEPTION USING errcode = '23514', message = 'Conversa inválida.'; END IF;
+  IF p ->> 'acao' = 'lembrete' THEN
+    UPDATE interno.agenciado_atendimentos SET lembrete_em = now()
+    WHERE conversa = conv AND etapa IN ('pedir_arroba', 'pedir_cpf', 'pedir_nascimento')
+      AND lembrete_em IS NULL AND atualizado_em <= now() - interval '5 minutes'
+    RETURNING etapa INTO e;
+  ELSIF p ->> 'acao' IN ('encerrar', 'cancelar') THEN
+    -- cancelar: o time assumiu ou a conversa foi resolvida; encerra sem mensagem.
+    UPDATE interno.agenciado_atendimentos SET etapa = 'encerrado', encerrado_em = now(), cpf_digitos = NULL
+    WHERE conversa = conv AND etapa IN ('pedir_arroba', 'pedir_cpf', 'pedir_nascimento')
+      AND (p ->> 'acao' = 'cancelar' OR lembrete_em <= now() - interval '5 minutes')
+    RETURNING 'encerrado' INTO e;
+  END IF;
+  RETURN jsonb_build_object('ok', e IS NOT NULL, 'etapa', e,
+    'tem_envio', EXISTS (SELECT 1 FROM interno.renovacao_envios r WHERE r.chatwoot_conversa = conv AND r.situacao = 'enviado'));
+END
+$fn$;
+REVOKE ALL ON FUNCTION public.marcar_fup_agenciado_v5(jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.marcar_fup_agenciado_v5(jsonb) TO service_role;
 
 -- Respostas aos botões: além das conversas que o serviço enviou, aceita as de agenciado conferido ("Já sou Amplify").
 CREATE OR REPLACE FUNCTION public.registrar_resposta_renovacao_v5(p jsonb)
